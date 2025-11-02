@@ -369,8 +369,8 @@ code/scripts/manage_chromshards.py \
   --name GetTerritoriesGnarlyFirstPass \
   --status-tsv cromshell/progress/dfci-g2c.v1.GetTerritoriesGnarlyFirstPass.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
-  --outer-gate 60 \
-  --submission-gate 60 \
+  --outer-gate 90 \
+  --submission-gate 90 \
   --max-attempts 2
 
 # TODO: FINISH NEXT STEPS HERE

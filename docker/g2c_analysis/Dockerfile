@@ -89,7 +89,7 @@ ARG RLCTOOLS_VERSION=0.1
 RUN Rscript -e "install.packages('opt/RLCtools/RLCtools_$RLCTOOLS_VERSION.tar.gz', repos=NULL, type='source')"
 
 # Install G2C helper libraries
-ARG G2CR_VERSION=0.2.0
+ARG G2CR_VERSION=0.3.0
 RUN Rscript -e "install.packages('opt/pancan_germline_wgs/src/G2CR_$G2CR_VERSION.tar.gz', repos=NULL, type='source')"
 RUN pip install opt/pancan_germline_wgs/src/g2cpy
 

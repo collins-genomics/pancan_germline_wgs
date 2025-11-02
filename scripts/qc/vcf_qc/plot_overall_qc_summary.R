@@ -400,14 +400,14 @@ left.aligned.labels <- function(add.target=FALSE, add.previous=FALSE,
   segments(x0=0.25, x1=0.25,
            y0=y.inc - bar.w.half + rect.offset,
            y1=y.inc + bar.w.half + rect.offset,
-           lwd=1, col="gray40", lend="butt", xpd=T)
+           lwd=1, col="gray40", lend="square", xpd=T)
   y.inc <- y.inc + 0.6
 
   if(add.target){
     rect(xleft=0.15, xright=0.25,
          ybottom=y.inc + 0.5 + (0.4/3),
          ytop=y.inc + 0.5 - (0.4/3),
-         border=NA, density=35, bty="n", col=boolean.colors[["FALSE"]])
+         border=NA, density=40, bty="n", col=boolean.colors[["FALSE"]])
     text(x=0.23, y=y.inc + 0.5, col=boolean.colors[["FALSE"]],
          cex=4.5/6, labels="Gap", pos=4)
     points(x=0.15, y=y.inc + 0.5, pch=10, srt=45, xpd=T)
@@ -420,8 +420,14 @@ left.aligned.labels <- function(add.target=FALSE, add.previous=FALSE,
     rect(xleft=c(0.25, 0.3), xright=c(0.3, 0.35),
          ybottom=y.inc + 0.5 - bar.w.half + rect.offset,
          ytop=y.inc + 0.5 + bar.w.half + rect.offset,
+         col=adjustcolor(boolean.colors[c("FALSE", "TRUE")], alpha=0.3),
+         border=NA, bty="n")
+    rect(xleft=c(0.25, 0.3), xright=c(0.3, 0.35),
+         ybottom=y.inc + 0.5 - bar.w.half + rect.offset,
+         ytop=y.inc + 0.5 + bar.w.half + rect.offset,
          col=boolean.colors[c("FALSE", "TRUE")],
-         border=NA, bty="n", density=c(20, NA))
+         density=c(20, NA),
+         border=boolean.colors[c("FALSE", "TRUE")])
   }
 }
 
@@ -441,7 +447,7 @@ plot.left.labels <- function(ss, ref.title=NULL, sb_prefixes=NULL, sb_titles=NUL
                  "ld" = "Common LD tag rate",
                  "site_ratio" = "Class balance",
                  "site_af_cor" = paste("AF correlation vs.", ref.title),
-                 "site_sens" = paste("Common sites rediscovered from", ref.title),
+                 "site_sens" = paste("Common sites found from", ref.title),
                  "site_ppv" = paste("Common sites confirmed by", ref.title),
                  "trio_inh_rate" = "Child inheritance rate",
                  "trio_inh_rate_rdr" = "Inheritance rate RDR",
@@ -568,7 +574,7 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
     rect(xleft=0, xright=bar.vals,
          ybottom=bar.mids - bar.w.half,
          ytop=bar.mids + bar.w.half,
-         border=NA, bty="n", col=bar.color)
+         col=bar.color, border=bar.color)
 
     # Previous bars & labels
     if(!is.null(prev.ss)){
@@ -576,12 +582,17 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
       rect(xleft=bar.vals, xright=prev.dat$prev.vals,
            ybottom=bar.mids - bar.w.half,
            ytop=bar.mids + bar.w.half,
-           border=NA, bty="n",
+           col=adjustcolor(prev.dat$colors[prev.notna.idx], alpha=0.3),
+           border=NA, bty="n")
+      rect(xleft=bar.vals, xright=prev.dat$prev.vals,
+           ybottom=bar.mids - bar.w.half,
+           ytop=bar.mids + bar.w.half,
            density=prev.dat$density[prev.notna.idx],
-           col=prev.dat$colors[prev.notna.idx])
+           col=prev.dat$colors[prev.notna.idx],
+           border=prev.dat$colors[prev.notna.idx])
       segments(x0=prev.dat$prev.vals, x1=prev.dat$prev.vals,
                y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-               lend="butt", col=prev.dat$colors)
+               lend="square", col=prev.dat$colors)
       text(x=par("usr")[2], y=bar.mids,
            xpd=T, pos=4, cex=4.5/6, font=3, col=prev.dat$colors,
            labels=prev.dat$labels, offset=0.4)
@@ -592,14 +603,14 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
       rect(xleft=bar.vals, xright=targets,
            ybottom=bar.mids - (bar.w.half/3),
            ytop=bar.mids + (bar.w.half/3),
-           border=NA, density=35, bty="n", col=boolean.colors[["FALSE"]])
+           border=NA, density=40, bty="n", col=boolean.colors[["FALSE"]])
       points(x=targets, y=bar.mids, pch=10, xpd=T)
     }
 
     # Labels + strong current marks
     segments(x0=bar.vals, x1=bar.vals,
              y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-             lend="butt", lwd=1, col=MixColor(bar.color, "black"))
+             lend="square", lwd=1, col=MixColor(bar.color, "black"))
     label.widths <- bar.vals
     sapply(1:length(bar.vals), function(x){
       bar.label <- clean.numeric.labels(10^bar.vals[x], min.label.length=2)
@@ -651,7 +662,7 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
       rect(xleft=0, xright=bar.vals,
            ybottom=bar.mids - bar.w.half,
            ytop=bar.mids + bar.w.half,
-           border=NA, bty="n", col=bar.color)
+           col=bar.color, border=bar.color)
 
       # Previous bars & labels
       if(!is.null(prev.ss)){
@@ -659,12 +670,17 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
         rect(xleft=bar.vals, xright=prev.dat$prev.vals,
              ybottom=bar.mids - bar.w.half,
              ytop=bar.mids + bar.w.half,
-             border=NA, bty="n",
+             col=adjustcolor(prev.dat$colors[prev.notna.idx], alpha=0.3),
+             border=NA, bty="n")
+        rect(xleft=bar.vals, xright=prev.dat$prev.vals,
+             ybottom=bar.mids - bar.w.half,
+             ytop=bar.mids + bar.w.half,
              density=prev.dat$density[prev.notna.idx],
-             col=prev.dat$colors[prev.notna.idx])
+             col=prev.dat$colors[prev.notna.idx],
+             border=prev.dat$colors[prev.notna.idx])
         segments(x0=prev.dat$prev.vals, x1=prev.dat$prev.vals,
                  y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-                 lend="butt", col=prev.dat$colors)
+                 lend="square", col=prev.dat$colors)
         text(x=par("usr")[2], y=bar.mids,
              xpd=T, pos=4, cex=4.5/6, font=3, col=prev.dat$colors,
              labels=prev.dat$labels, offset=0.4)
@@ -675,14 +691,14 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
         rect(xleft=bar.vals, xright=targets,
              ybottom=bar.mids - (bar.w.half/3),
              ytop=bar.mids + (bar.w.half/3),
-             border=NA, density=35, bty="n", col=boolean.colors[["FALSE"]])
+             border=NA, density=40, bty="n", col=boolean.colors[["FALSE"]])
         points(x=targets, y=bar.mids, pch=10, xpd=T)
       }
 
       # Labels + strong current marks
       segments(x0=bar.vals, x1=bar.vals,
                y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-               lend="butt", lwd=1, col=MixColor(bar.color, "black"))
+               lend="square", lwd=1, col=MixColor(bar.color, "black"))
       label.widths <- bar.vals
       sapply(1:length(bar.vals), function(x){
         if(is.na(bar.vals[x]) | is.infinite(bar.vals[x])){
@@ -782,10 +798,10 @@ parser$add_argument("--out-prefix", metavar="path", type="character",
 args <- parser$parse_args()
 
 # # DEV (SINGLE CLASS)
-# args <- list("stats" = "~/scratch/dfci-g2c.v1.initial_qc.all_qc_summary_metrics.tsv",
-#              "previous_stats" = NULL,
-#              "site_ref_prefix" = "gnomad_v4.1",
-#              "site_ref_title" = "gnomAD v4.1",
+# args <- list("stats" = "~/scratch/dfci-ufc.sv.v1.QcPostBatchFxOutliers.all_qc_summary_metrics.tsv",
+#              "previous_stats" = "~/scratch/dfci-ufc.sv.v1.QcPostCleanupPart1.all_qc_summary_metrics.tsv",
+#              "site_ref_prefix" = "gnomad-sv_v4.1",
+#              "site_ref_title" = "gnomAD-SV v4.1",
 #              "sample_benchmarking_prefix" = c("external_srwgs", "external_lrwgs"),
 #              "sample_benchmarking_title" = c("External srWGS", "External lrWGS"),
 #              "custom_targets" = "~/scratch/dfci-g2c.v1.qc_targets.tsv",
