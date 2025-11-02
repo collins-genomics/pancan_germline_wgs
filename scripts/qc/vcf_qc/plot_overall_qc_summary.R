@@ -582,7 +582,7 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
       rect(xleft=bar.vals, xright=prev.dat$prev.vals,
            ybottom=bar.mids - bar.w.half,
            ytop=bar.mids + bar.w.half,
-           col=adjustcolor(prev.dat$colors[prev.notna.idx], alpha=0.3),
+           col=adjustcolor(prev.dat$colors, alpha=0.3),
            border=NA, bty="n")
       rect(xleft=bar.vals, xright=prev.dat$prev.vals,
            ybottom=bar.mids - bar.w.half,
@@ -670,7 +670,7 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
         rect(xleft=bar.vals, xright=prev.dat$prev.vals,
              ybottom=bar.mids - bar.w.half,
              ytop=bar.mids + bar.w.half,
-             col=adjustcolor(prev.dat$colors[prev.notna.idx], alpha=0.3),
+             col=adjustcolor(prev.dat$colors, alpha=0.3),
              border=NA, bty="n")
         rect(xleft=bar.vals, xright=prev.dat$prev.vals,
              ybottom=bar.mids - bar.w.half,
@@ -758,7 +758,7 @@ plot.ss <- function(ss, out.prefix, prev.ss=NULL, ref.title=NULL,
       dev.off()
 
       sapply(params$vcs, function(vc){
-        pdf(paste(out.prefix, vc, out.suffix, "pdf", sep="."),
+        pdf(gsub("[\\.]+", ".", paste(out.prefix, vc, out.suffix, "pdf", sep=".")),
             height=pdf.height, width=vc.width)
         plot.ss.bars(ss, vc, prev.ss=if(do.prev){prev.ss}else{NULL},
                      bar.color=remap(vc, var.class.colors, default="gray50"),
