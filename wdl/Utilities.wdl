@@ -406,7 +406,12 @@ task SplitIntervalList {
   input {
     File interval_list
     String linux_docker = "ubuntu:plucky-20251001"
-    Int n_preemptible = 3
+
+    Float mem_gb = 3.5
+    Int n_cpu = 2
+    Int disk_gb = 25
+    Int n_retries = 1
+    Int n_preemptible = 1
   }
 
   command <<<
@@ -430,12 +435,12 @@ task SplitIntervalList {
   }
 
   runtime {
-    cpu: 1
-    memory: "1.75 GiB"
-    disks: "local-disk 25 HDD"
+    cpu: n_cpu
+    memory: mem_gb + " GiB"
+    disks: "local-disk " + disk_gb + " HDD"
     docker: linux_docker
     preemptible: n_preemptible
-    maxRetries: 1
+    maxRetries: n_retries
   }
 }
 
