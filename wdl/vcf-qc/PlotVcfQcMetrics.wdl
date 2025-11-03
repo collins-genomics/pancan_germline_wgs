@@ -480,8 +480,8 @@ workflow PlotVcfQcMetrics {
     input:
       tarballs = all_out_tarballs,
       previous_stats = previous_stats,
-      ref_cohort_prefix = ref_cohort_prefix,
-      ref_cohort_plot_title = ref_cohort_plot_title,
+      site_benchmark_prefix = select_all(site_benchmark_dataset_prefixes),
+      site_benchmark_title = select_all(site_benchmark_dataset_titles),
       sample_benchmark_prefixes = select_all(sample_benchmark_dataset_prefixes),
       sample_benchmark_titles = select_all(sample_benchmark_dataset_titles),
       custom_targets = custom_qc_target_metrics,
@@ -501,10 +501,10 @@ task PackageOutputs {
   input {
     Array[File] tarballs
     File? previous_stats
-    String ref_cohort_prefix
-    String ref_cohort_plot_title
-    Array[String] sample_benchmark_prefixes
-    Array[String] sample_benchmark_titles
+    Array[String?] site_benchmark_prefix
+    Array[String?] site_benchmark_title
+    Array[String?] sample_benchmark_prefixes
+    Array[String?] sample_benchmark_titles
     File? custom_targets
     String out_prefix
     String g2c_analysis_docker
@@ -554,14 +554,18 @@ task PackageOutputs {
     cmd="Rscript /opt/pancan_germline_wgs/scripts/qc/vcf_qc/plot_overall_qc_summary.R"
     cmd="$cmd --stats ~{out_prefix}.stats/~{out_prefix}.all_qc_summary_metrics.tsv"
     cmd="$cmd ~{previous_opt} ~{targets_opt}"
-    cmd="$cmd --site-ref-prefix \"~{ref_cohort_prefix}\""
-    cmd="$cmd --site-ref-title \"~{ref_cohort_plot_title}\""
     while read sbp; do
-      cmd="$cmd --sample-benchmarking-prefix \"$sbp\""
-    done < ~{write_lines(sample_benchmark_prefixes)}
+      cmd="$cmd --site-ref-prefix \"$sbp\""
+    done < ~{write_lines(select_all(site_benchmark_prefix))}
     while read sbt; do
-      cmd="$cmd --sample-benchmarking-title \"$sbt\""
-    done < ~{write_lines(sample_benchmark_titles)}
+      cmd="$cmd --site-ref-title \"$sbt\""
+    done < ~{write_lines(select_all(site_benchmark_title))}
+    while read gbp; do
+      cmd="$cmd --sample-benchmarking-prefix \"$gbp\""
+    done < ~{write_lines(select_all(sample_benchmark_prefixes))}
+    while read gbt; do
+      cmd="$cmd --sample-benchmarking-title \"$gbt\""
+    done < ~{write_lines(select_all(sample_benchmark_titles))}
     cmd="$cmd --out-prefix \"~{out_prefix}.plots/~{out_prefix}.qc_summary/~{out_prefix}\""
     echo -e "Now generating summary plots as follows:\n\n$cmd"
     eval "$cmd"
