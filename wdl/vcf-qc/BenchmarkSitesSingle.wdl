@@ -50,6 +50,8 @@ workflow BenchmarkSitesSingle {
     Float snv_mem_scalar = 2.0
     Float indel_mem_scalar = 1.0
 
+    Float shard_intervals_mem_gb = 3.75
+
     String bcftools_docker
     String g2c_analysis_docker
   }
@@ -72,11 +74,14 @@ workflow BenchmarkSitesSingle {
 
   # Shard evaluation intervals, balancing on genomic bp
   Int target_shards = floor(total_shards / (2 * n_var_types))
+  Int shard_ints_n_cpu = ceil(shard_intervals_mem_gb / 2)
   call QcTasks.ShardIntervals {
     input:
       intervals_bed = eval_interval_bed,
       n_shards = target_shards,
       prefix = eval_prefix,
+      mem_gb = shard_intervals_mem_gb,
+      n_cpu = shard_ints_n_cpu,
       g2c_analysis_docker = g2c_analysis_docker
   }
 

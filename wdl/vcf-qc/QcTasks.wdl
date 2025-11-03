@@ -744,6 +744,10 @@ task ShardIntervals {
     Int n_shards
     String prefix
     String g2c_analysis_docker
+
+    Float mem_gb = 3.75
+    Int n_cpu = 2
+    Int? disk_gb
   }
 
   Int default_disk_gb = ceil(10 * size(intervals_bed, "GB")) + 5
@@ -810,10 +814,11 @@ task ShardIntervals {
 
   runtime {
     docker: g2c_analysis_docker
-    memory: "1.75 GB"
-    cpu: 1
-    disks: "local-disk ~{default_disk_gb} HDD"
-    preemptible: 3
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + select_first([disk_gb, default_disk_gb]) +" HDD"
+    preemptible: 1
+    maxRetries: 1
   }
 }
 
