@@ -346,20 +346,19 @@ EOF
 done < contig_lists/dfci-g2c.v1.contigs.$WN.list
 
 # Write template .json for input
-cat << EOF > $staging_dir/GetGenomeTerritoryPerVcf.inputs.template.json
+cat << EOF > $staging_dir/UltraParallelGetVcfTerritories.inputs.template.json
 {
-  "GetGenomeTerritoryPerVcf.g2c_pipeline_docker": "vanallenlab/g2c_pipeline:ff63b1f",
-  "GetGenomeTerritoryPerVcf.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
-  "GetGenomeTerritoryPerVcf.output_prefix": "dfci-g2c.v1.\$CONTIG",
-  "GetGenomeTerritoryPerVcf.vcfs": \$CONTIG_VCFS,
-  "GetGenomeTerritoryPerVcf.vcf_idxs": \$CONTIG_VCF_IDXS
+  "UltraParallelGetVcfTerritories.g2c_analysis_docker": "vanallenlab/g2c_analysis:833a393",
+  "UltraParallelGetVcfTerritories.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
+  "UltraParallelGetVcfTerritories.output_prefix": "dfci-g2c.v1.\$CONTIG",
+  "UltraParallelGetVcfTerritories.vcf_uri_list": "File"
 }
 EOF
 
 # Gather chromosomal territory covered by variant calls in finished Gnarly VCF shards
 code/scripts/manage_chromshards.py \
-  --wdl code/wdl/pancan_germline_wgs/GetGenomeTerritoryPerVcf.wdl \
-  --input-json-template $staging_dir/GetGenomeTerritoryPerVcf.inputs.template.json \
+  --wdl code/wdl/pancan_germline_wgs/UltraParallelGetVcfTerritories.wdl \
+  --input-json-template $staging_dir/UltraParallelGetVcfTerritories.inputs.template.json \
   --contig-variable-overrides $staging_dir/get_territories.contig_variable_overrides.json \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/GetTerritoriesGnarlyFirstPass/ \
