@@ -19,6 +19,24 @@ from statistics import multimode
 from .utilities import hash_string, recursive_flatten
 
 
+def apply_across_samples(record, function=None, field='GT', samples=None):
+    """
+    Apply a user-specified function across one FORMAT field for all samples in pysam.VariantRecord
+    If 'fuction' is None (default), returns all values as a list
+    Provide a list of sample IDs as 'samples' to restrict operation to a subset of samples in VCF
+    """
+
+    if samples is None:
+        samples = list(record.samples.keys())
+
+    vals = [record.samples[sid][field] for sid in samples]
+
+    if function is None:
+        return vals
+    else:
+        return list(map(function, vals))
+
+
 def bgzip(filename, return_new_fn=False):
     """
     Bgzip a file
@@ -103,6 +121,34 @@ def classify_variant(ref, alt, var_len=None):
             msg = 'g2cpy classify_variant unable to classify suspected SV ' + \
                   'with ref {}, alt {}, and length {:,}'
             exit(msg.format(ref, alt, var_len))
+
+
+def compute_allele_freq_stats(record, keys=['AC', 'AN', 'AF']):
+    """
+    Helper wrapper around apply_across_samples() to compute common frequency 
+    stats for a pysam.VariantRecord object
+    Returns: dict of floats keyed by 'keys'
+    """
+
+    res = dict()
+
+    if 'AC' in keys or 'AF' in keys:
+        ac = np.nansum(apply_across_samples(record, 
+                       lambda x: np.nansum([a > 0 for a in x if a is not None])))
+        res['AC'] = ac
+    if 'AN' in keys or 'AF' in keys:
+        an = np.nansum(apply_across_samples(record, 
+                       lambda x: np.nansum([a is not None for a in x])))
+        res['AN'] = an
+    if 'AF' in keys:
+        af = ac / an
+        res['AF'] = af
+
+    for ak in res.keys():
+        if ak not in keys:
+            res.pop(ak)
+
+    return res
 
 
 def determine_filetype(path, return_extension=False):

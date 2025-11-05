@@ -68,7 +68,6 @@ workflow RefineSvGenotypesWithSnvs {
       min_ac = min_sv_ac,
       max_ac = (2 * GetSvSamples.n_samples) - min_sv_ac,
       output_prefix = basename(sv_vcf, ".vcf.gz"),
-      samples_list = FindSharedSamples.intersection_file,
       g2c_pipeline_docker = g2c_pipeline_docker
   }
 
@@ -140,8 +139,6 @@ task SplitSvs {
     Int min_ac
     Float max_ac
 
-    File? samples_list
-
     String output_prefix
 
     String g2c_pipeline_docker
@@ -149,7 +146,6 @@ task SplitSvs {
 
   String elig_outfile = output_prefix + ".regeno_eligible_svs.vcf.gz"
   String pt_outfile = output_prefix + ".passthrough_svs.vcf.gz"
-  String samples_cmd = if defined(samples_list) then "--samples ~{basename(samples_list)}" else ""
   Int disk_gb = (3 * ceil(size([vcf], "GB"))) + 10
 
   command <<<
@@ -167,8 +163,7 @@ task SplitSvs {
       --min-af ~{min_af} \
       --max-af ~{max_af} \
       --min-ac ~{min_ac} \
-      --max-ac ~{max_ac} \
-      ~{samples_cmd}
+      --max-ac ~{max_ac}
 
     tabix -p vcf "~{elig_outfile}"
     tabix -p vcf "~{pt_outfile}"

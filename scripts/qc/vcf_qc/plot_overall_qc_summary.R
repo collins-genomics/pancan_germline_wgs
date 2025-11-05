@@ -751,7 +751,7 @@ plot.ss <- function(ss, out.prefix, prev.ss=NULL, ref.title=NULL,
       out.suffix <- gsub("\\.$", "", gsub("^\\.", "", gsub("[\\.]+", ".", out.suffix)))
 
       # Plot left axis titles
-      pdf(paste(out.prefix, "legend", out.suffix, "pdf", sep="."),
+      pdf(gsub("[\\.]+", ".", paste(out.prefix, "legend", out.suffix, "pdf", sep=".")),
           height=pdf.height, width=left.width)
       plot.left.labels(ss, ref.title, sb_prefixes, sb_titles,
                        add.previous=do.prev, add.target=do.target)

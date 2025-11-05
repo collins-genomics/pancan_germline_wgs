@@ -352,6 +352,49 @@ task MakeTabixIndex {
 }
 
 
+task ShardTextFile {
+  input {
+    File input_file
+    Int? n_splits              # One of either n_splits or lines_per_split must be provided
+    Int? lines_per_split       # If both are provided, n_splits will be used
+    String out_prefix
+    Boolean shuffle = false
+    Float mem_gb = 3.5
+    String g2c_analysis_docker
+  }
+
+  Int disk_gb = ceil(3 * size(input_file, "GB")) + 10
+  String split_cmd = if defined(n_splits) then "-S ~{select_first([n_splits])}" else "-L ~{select_first([lines_per_split])}"
+  String shuffle_cmd = if shuffle then "--shuffle" else ""
+
+  command <<<
+    set -eu -o pipefail
+
+    if [ ~{n_splits} -gt 1 ]; then
+      /opt/pancan_germline_wgs/scripts/utilities/evenSplitter.R \
+        ~{split_cmd} \
+        ~{shuffle_cmd} \
+        ~{input_file} \
+        ~{out_prefix}
+    else
+      cp ~{input_file} "~{out_prefix}1"
+    fi
+  >>>
+
+  output {
+    Array[File] shards = glob("~{out_prefix}*")
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: "~{mem_gb} GB"
+    cpu: 2
+    disks: "local-disk ~{disk_gb} HDD"
+    preemptible: 3
+  }
+}
+
+
 task ShardVcf {
   input {
     File vcf

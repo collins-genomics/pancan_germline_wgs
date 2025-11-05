@@ -20,7 +20,7 @@ workflow GetGenomeTerritoryPerVcf {
 
     String output_prefix
 
-    String g2c_pipeline_docker
+    String g2c_analysis_docker
   }
 
   # Scatter over VCFs and process in parallel
@@ -29,7 +29,7 @@ workflow GetGenomeTerritoryPerVcf {
       input:
         vcf = vcf_info.left,
         vcf_idx = vcf_info.right,
-        bcftools_docker = g2c_pipeline_docker
+        bcftools_docker = g2c_analysis_docker
     }
   }
 
@@ -39,7 +39,7 @@ workflow GetGenomeTerritoryPerVcf {
       beds = GetTerritory.territory_bed,
       genome_file = genome_file,
       output_prefix = output_prefix,
-      bedtools_docker = g2c_pipeline_docker
+      bedtools_docker = g2c_analysis_docker
   }
   
   output {

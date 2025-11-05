@@ -12,8 +12,9 @@ Bifurcate an SV VCF to prepare for SNV-based GT refinement
 
 
 import argparse
+import g2cpy as g2c
+import numpy as np
 import pysam
-from g2cpy import is_multiallelic
 
 
 def label_sv(record, min_af=0, max_af=1, min_ac=0, max_ac=10e10):
@@ -22,12 +23,17 @@ def label_sv(record, min_af=0, max_af=1, min_ac=0, max_ac=10e10):
     """
 
     # Only biallelic variants are eligible for regenotyping
-    if is_multiallelic(record):
+    if g2c.is_multiallelic(record):
         return 'passthrough'
 
     # Get AF and AC if annotated, otherwise compute on the fly
-    af = record.info.get('AF', )
-    ac = record.info.get('AC', )
+    if all([f in record.info.keys() for f in 'AC AN AF'.split()]):
+        ac = record.info.get('AC')[0]
+        af = record.info.get('AF')[0]
+    else:
+        freq_dat = g2c.compute_allele_freq_stats(record)
+        ac = freq_dat.get('AC')
+        af = freq.dat.get('AF')
 
     # Compare frequency statistics to gates and emit corresponding label
     if af < min_af or af > max_af:
@@ -61,21 +67,13 @@ def main():
                         help='Minimum AC for eligibility [default: 20]')
     parser.add_argument('--max-ac', default=10e10, type=int, metavar='Int',
                         help='Minimum AC for eligibility [default: ~infinite]')
-    parser.add_argument('--samples', type=str, metavar='.txt',
-                        help='List of sample IDs to include [default: keep all samples]')
     args = parser.parse_args()
 
     # Open connection to input VCF
     invcf = pysam.VariantFile(args.input_vcf)
-    all_samples = set([s for s in invcf.header.samples])
-
-    # Modify output header to only include --samples, if optioned
-    header = invcf.header
-    if args.samples is not None:
-        # TODO: figure out how to do this
-        print('DEV NOTE: sample subsetting not enabled yet')
-
+    
     # Open connection to output VCF(s)
+    header = invcf.header.copy()
     elig_vcf = pysam.VariantFile(args.eligible_output_vcf, 'w', header=header)
     if args.passthrough_output_vcf is not None:
         pass_vcf = pysam.VariantFile(args.passthrough_output_vcf, 'w', header=header)
