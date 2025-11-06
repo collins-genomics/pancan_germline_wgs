@@ -29,7 +29,7 @@ task CalcBedDensity {
     set -eu -o pipefail
 
     cat ~{write_lines(beds)} \
-    | ~{bed_concat_cmd} - \
+    | xargs -I {} ~{bed_concat_cmd} {} \
     | awk -v OFS="\t" '{ print $1, $2, $3 }' \
     | sort -Vk1,1 -k2,2n -k3,3n \
     | bedtools genomecov -bg -g ~{genome_file} -i - \
