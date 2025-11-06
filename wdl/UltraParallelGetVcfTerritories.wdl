@@ -52,6 +52,7 @@ workflow UltraParallelGetVcfTerritories {
       input:
         vcfs = ExtractVcfArrays.vcf_uris,
         vcf_idxs = ExtractVcfArrays.vcf_tbi_uris,
+        compute_density = false,
         genome_file = genome_file,
         output_prefix = "~{output_prefix}.chunk_~{i}",
         g2c_analysis_docker = g2c_analysis_docker
@@ -59,9 +60,16 @@ workflow UltraParallelGetVcfTerritories {
   }
 
   # Further combine territory density maps across chunks
-  # TODO: implement this
+  call Utils.CalcBedDensity as CalcDensity {
+    input:
+      beds = GetGenomeTerritoryPerVcf.territories,
+      genome_file = select_first(select_all([genome_file])),
+      output_prefix = output_prefix,
+      bedtools_docker = g2c_analysis_docker
+  }
+
   output {
-    Array[File] density_maps = GetGenomeTerritoryPerVcf.territory_density
+    File territory_density = CalcDensity.density_bed
   }
 }
 

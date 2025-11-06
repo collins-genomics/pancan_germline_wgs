@@ -333,6 +333,7 @@ task ConcatGenotypeTsvs {
 }
 
 
+# Duplicated from Utilities.wdl
 task ConcatTextFiles {
   input {
     Array[File] shards

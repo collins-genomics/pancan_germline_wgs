@@ -16,7 +16,9 @@ workflow GetGenomeTerritoryPerVcf {
   input {
     Array[File] vcfs
     Array[File] vcf_idxs
-    File genome_file      # BEDTools-style genome file
+
+    Boolean compute_density = true  # Should territory density be computed? (Can be useful for checking for overlapping territories)
+    File? genome_file               # BEDTools-style genome file. Required if compute_density is true
 
     String output_prefix
 
@@ -34,16 +36,30 @@ workflow GetGenomeTerritoryPerVcf {
   }
 
   # Compute density map of intervals across all VCFs
-  call Utils.CalcBedDensity as CalcDensity {
-    input:
-      beds = GetTerritory.territory_bed,
-      genome_file = genome_file,
-      output_prefix = output_prefix,
-      bedtools_docker = g2c_analysis_docker
+  if ( compute_density && defined(genome_file) ) {
+    call Utils.CalcBedDensity as CalcDensity {
+      input:
+        beds = GetTerritory.territory_bed,
+        genome_file = select_first(select_all([genome_file])),
+        output_prefix = output_prefix,
+        bedtools_docker = g2c_analysis_docker
+    }
+  }
+  if ( !compute_density || !defined(genome_file) ) {
+    call Utils.ConcatTextFiles as ConcatTerritories {
+      input:
+        shards = GetTerritory.territory_bed,
+        concat_command = "zcat",
+        sort_command = "sort -Vk1,1 -k2,2n -k3,3n",
+        compression_command = "bgzip -c",
+        input_has_header = false,
+        output_filename = output_prefix + ".territories.bed.gz",
+        docker = g2c_analysis_docker
+    }
   }
   
   output {
-    File territory_density = CalcDensity.density_bed
+    File territories = select_first([CalcDensity.density_bed, ConcatTerritories.merged_file])
   }
 }
 

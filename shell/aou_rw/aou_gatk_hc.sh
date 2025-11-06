@@ -330,10 +330,10 @@ done < contig_lists/dfci-g2c.v1.contigs.$WN.list
 # Write template .json for input
 cat << EOF > $staging_dir/UltraParallelGetVcfTerritories.inputs.template.json
 {
-  "UltraParallelGetVcfTerritories.g2c_analysis_docker": "vanallenlab/g2c_analysis:833a393",
+  "UltraParallelGetVcfTerritories.g2c_analysis_docker": "vanallenlab/g2c_analysis:bd86493",
   "UltraParallelGetVcfTerritories.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "UltraParallelGetVcfTerritories.output_prefix": "dfci-g2c.v1.\$CONTIG",
-  "UltraParallelGetVcfTerritories.vcf_uri_list": "$WORKSPACE_BUCKET/misc/cromwell-inputs/$contig.vcfs.list"
+  "UltraParallelGetVcfTerritories.vcf_uri_list": "$WORKSPACE_BUCKET/misc/cromwell-inputs/\$CONTIG.vcfs.list"
 }
 EOF
 
@@ -351,7 +351,7 @@ code/scripts/manage_chromshards.py \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 90 \
   --submission-gate 90 \
-  --max-attempts 2
+  --max-attempts 3
 
 # TODO: FINISH NEXT STEPS HERE
 

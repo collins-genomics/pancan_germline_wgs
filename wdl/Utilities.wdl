@@ -23,7 +23,7 @@ task CalcBedDensity {
   }
 
   Int disk_gb = ceil(2 * size(beds, "GB")) + 10
-  File outfile = output_prefix + ".density.bed.gz"
+  String outfile = output_prefix + ".density.bed.gz"
 
   command <<<
     set -eu -o pipefail
@@ -48,6 +48,53 @@ task CalcBedDensity {
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: 1
     maxRetries: 1
+  }
+}
+
+
+task ConcatTextFiles {
+  input {
+    Array[File] shards
+    String concat_command = "cat"
+    String? sort_command
+    String? compression_command
+    Boolean input_has_header = false
+    String output_filename
+
+    Float mem_gb = 1.75
+    Int n_cpu = 1
+    Int? disk_gb
+    String docker
+  }
+
+  Int disk_gb_use = select_first([disk_gb, ceil(2 * size(shards, "GB")) + 10])
+  String sort = if defined(sort_command) then " | " + select_first([sort_command, ""]) else ""
+  String compress = if defined(compression_command) then " | " + select_first([compression_command, ""]) else ""
+  String posthoc_cmds = if input_has_header then sort + " | fgrep -xvf header.txt | cat header.txt - " + compress else sort + compress
+
+  command <<<
+    set -euo pipefail
+
+    if [ "~{input_has_header}" == "true" ]; then
+      ~{concat_command} ~{shards[0]} \
+      | head -n1 > header.txt || true
+    else
+      touch header.txt
+    fi
+
+    cat ~{write_lines(shards)} | xargs -I {} ~{concat_command} {} ~{posthoc_cmds} > ~{output_filename} || true
+  >>>
+
+  output {
+    File merged_file = "~{output_filename}"
+  }
+
+  runtime {
+    docker: docker
+    memory: "~{mem_gb} GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb_use + " HDD"
+    preemptible: 3
   }
 }
 
