@@ -312,7 +312,6 @@ done < contig_lists/dfci-g2c.v1.contigs.$WN.list
 # Gnarly joint genotyping part 1. This requires a subworkflow, below:
 
 # Build chromosome-specific override json of VCFs and VCF indexes
-echo "{}" > $staging_dir/get_territories.contig_variable_overrides.json
 while read contig; do
   # Do nothing if contig was one of the development contigs processed earlier
   if [ $( gsutil ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/$contig 2>/dev/null | wc -l ) -gt 0 ]; then
@@ -323,26 +322,9 @@ while read contig; do
   gsutil -m ls \
     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/**vcf.gz 2>/dev/null \
   | sort -V > $staging_dir/$contig.vcfs.list
-
-  # VCF indexes
-  awk '{ print $1".tbi" }' $staging_dir/$contig.vcfs.list \
-  > $staging_dir/$contig.vcf_idxs.list
-
-  # Write .json snippet for variable overrides for this contig
-  cat << EOF > $staging_dir/$contig.overrides.json
-{
-  "$contig" : {
-      "CONTIG_VCFS": $( collapse_txt $staging_dir/$contig.vcfs.list ),
-      "CONTIG_VCF_IDXS": $( collapse_txt $staging_dir/$contig.vcf_idxs.list )
-    }
-}
-EOF
-  
-  # Update main .json
-  code/scripts/update_json.py \
-    -i $staging_dir/get_territories.contig_variable_overrides.json \
-    -u $staging_dir/$contig.overrides.json \
-    -o $staging_dir/get_territories.contig_variable_overrides.json
+  gsutil cp \
+    $staging_dir/$contig.vcfs.list \
+    $WORKSPACE_BUCKET/misc/cromwell-inputs/
 done < contig_lists/dfci-g2c.v1.contigs.$WN.list
 
 # Write template .json for input
@@ -351,7 +333,7 @@ cat << EOF > $staging_dir/UltraParallelGetVcfTerritories.inputs.template.json
   "UltraParallelGetVcfTerritories.g2c_analysis_docker": "vanallenlab/g2c_analysis:833a393",
   "UltraParallelGetVcfTerritories.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "UltraParallelGetVcfTerritories.output_prefix": "dfci-g2c.v1.\$CONTIG",
-  "UltraParallelGetVcfTerritories.vcf_uri_list": "File"
+  "UltraParallelGetVcfTerritories.vcf_uri_list": "$WORKSPACE_BUCKET/misc/cromwell-inputs/$contig.vcfs.list"
 }
 EOF
 
@@ -359,7 +341,6 @@ EOF
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/pancan_germline_wgs/UltraParallelGetVcfTerritories.wdl \
   --input-json-template $staging_dir/UltraParallelGetVcfTerritories.inputs.template.json \
-  --contig-variable-overrides $staging_dir/get_territories.contig_variable_overrides.json \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/GetTerritoriesGnarlyFirstPass/ \
   --contig-list <( fgrep \

@@ -33,7 +33,7 @@ workflow UltraParallelGetVcfTerritories {
     input:
       input_file = vcf_uri_list,
       lines_per_split = vcfs_per_chunk,
-      out_prefix = output_prefix,
+      out_prefix = output_prefix + ".",
       g2c_analysis_docker = g2c_analysis_docker
   }
   Int n_chunks = length(ShardVcfList.shards)

@@ -4,7 +4,7 @@
 # Distributed under terms of the MIT license.
 
 
-# evenSplitter: helper script for splitting tab-delimited files
+# evenSplitter: helper script for splitting flat text files
 
 
 ####################################
@@ -25,6 +25,8 @@ option_list <- list(
   make_option(c("-S", "--targetSplits"), type="integer", default=NULL,
               help="target splits [default: %default]",
               metavar="integer"),
+  make_option(c("-d", "--delim"), default="\t", type="character",
+              help="delimiter for input file [default: %default]"),
   make_option(c("--shuffle"), action="store_true", default=FALSE,
               help="randomly shuffle lines in input file before splitting [default: %default]"),
   make_option(c("-q","--quiet"), action="store_true", default=FALSE,
@@ -48,6 +50,7 @@ PREFIX <- args$args[2]
 #Clean options
 shuf <- args$options$shuffle
 quiet <- args$options$quiet
+delim <- args$options$delim
 target.lines <- args$options$targetLines
 target.splits <- args$options$targetSplits
 
@@ -71,7 +74,7 @@ if(n.modes.set > 1 ){
 #####Read & format input file
 #############################
 #Read file as data frame
-dat <- as.data.frame(read.table(INFILE, sep="\t", header=F))
+dat <- as.data.frame(read.table(INFILE, sep=delim, header=F))
 
 #Count number of lines
 nlines <- nrow(dat)
@@ -114,7 +117,7 @@ splits.df[excess.sinks, 2] <- splits.df[excess.sinks, 2]+1
 #####Report plan to split file
 ##############################
 if(!quiet){
-  schema <- table(splits.df[ ,2])
+  schema <- table(splits.df[, 2])
   cat("SPLITTING SCHEMA:\n")
   for(i in 1:length(schema)){
     cat(paste(schema[i], " splits @ ", names(schema)[i], " lines\n", sep=""))
@@ -125,6 +128,13 @@ if(!quiet){
 ###############
 #####Split file
 ###############
+# If only one split needed, just produce a copy of the original file
+if(target.splits == 1){
+  write.table(dat, paste(PREFIX, 1, sep=""), sep=delim, quote=F,
+              row.names=F, col.names=F)
+  quit(save="no")
+}
+
 #Set start and stop lines for splits
 splits.df$start <- NA
 splits.df$end <- cumsum(splits.df$lines)
@@ -137,6 +147,6 @@ if(nlines > 1){
 apply(splits.df, 1, function(vals){
   vals <- as.integer(vals)
   chunk <- as.data.frame(dat[vals[3]:vals[4], ])
-  write.table(chunk, paste(PREFIX, vals[1], sep=""), sep="\t", quote=F,
+  write.table(chunk, paste(PREFIX, vals[1], sep=""), sep=delim, quote=F,
               row.names=F, col.names=F)
 })

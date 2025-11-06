@@ -370,15 +370,11 @@ task ShardTextFile {
   command <<<
     set -eu -o pipefail
 
-    if [ ~{n_splits} -gt 1 ]; then
-      /opt/pancan_germline_wgs/scripts/utilities/evenSplitter.R \
-        ~{split_cmd} \
-        ~{shuffle_cmd} \
-        ~{input_file} \
-        ~{out_prefix}
-    else
-      cp ~{input_file} "~{out_prefix}1"
-    fi
+    /opt/pancan_germline_wgs/scripts/utilities/evenSplitter.R \
+      ~{split_cmd} \
+      ~{shuffle_cmd} \
+      ~{input_file} \
+      ~{out_prefix}
   >>>
 
   output {
