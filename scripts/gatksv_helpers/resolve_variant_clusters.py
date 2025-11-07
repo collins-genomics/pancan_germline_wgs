@@ -77,6 +77,14 @@ def main():
             exit(msg.format(len(vids), chrom, start, end))
         k += 1
 
+        # For complex variants, further ensure all variants have the same
+        # subtype (INFO/CPX_TYPE) before merging
+        if records[0].info.get('SVTYPE') == 'CPX':
+            if len(set([r.info.get('CPX_TYPE') for r in records])) > 1:
+                for rec in records:
+                    outvcf.write(rec)
+                continue
+
         # Use first record as a template
         newrec = records[0].copy()
 

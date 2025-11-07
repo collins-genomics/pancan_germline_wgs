@@ -16,6 +16,7 @@ import numpy as np
 from collections.abc import Iterable
 from re import sub
 from statistics import multimode
+from .gatksv import integrate_cpx_intervals
 from .utilities import hash_string, recursive_flatten
 
 
@@ -247,6 +248,7 @@ def integrate_infos(records):
     Tries to be intelligent about handling numeric values based on key name (e.g., MIN, MAX)
     Takes mean of numeric values if best behavior is not obvious
     Skips protected values like END, AC, AN, AF
+    Implements specialized logic for GATK-SV's CPX_INTERVALS
     Returns : pysam.libcbcf.VariantRecordInfo
     """
 
@@ -310,9 +312,18 @@ def integrate_infos(records):
                           'this field to ambiguous to proceed for these records ({})'
                     stop(msg.format(key, key_h.type, ', '.join([r.id for r in records])))
 
-            # Handle integration of list-like/iterable INFO values
             out_type = multimode([type(v) for v in vals])[0]
-            if key_is_numeric:
+            
+            # Special handling of CPX_INTERVALS
+            if key == 'CPX_INTERVALS':
+                newinfo[key] = \
+                    integrate_cpx_intervals(records,
+                                            records[0].get('CPX_TYPE'),
+                                            int(np.floor(np.nanmedian([r.pos for r in records]))),
+                                            int(np.floor(np.nanmedian([r.stop for r in records]))))
+
+            # Otherwise, handle integration of all other list-like/iterable INFO values
+            elif key_is_numeric:
                 nvl = []
                 for i in range(len(vals[0])):
                     nvl.append(__resolve_numerics(key, [v[0] for v in vals], key_h.type))
