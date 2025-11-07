@@ -725,7 +725,7 @@ task CalcLd {
     
     String out_prefix
     String g2c_analysis_docker
-    Int min_disk_gb = 10
+    Int min_disk_gb = 20
     Int max_disk_gb = 500
   }
 
@@ -736,7 +736,7 @@ task CalcLd {
   Boolean has_svs = defined(common_svs_bed)
   String sv_opt = if has_svs then "--sv-list sv.list" else ""
 
-  Int disk_gb_auto = ceil(2 * size(vcf, "GB")) + 10
+  Int disk_gb_auto = ceil(3 * size(vcf, "GB")) + 10
   Int disk_gb_ceil = if disk_gb_auto > max_disk_gb then max_disk_gb else disk_gb_auto
   Int disk_gb = if disk_gb_ceil < min_disk_gb then min_disk_gb else disk_gb_ceil
 
@@ -840,6 +840,7 @@ task CalcLd {
     memory: "3.75 GB"
     cpu: 2
     disks: "local-disk " + disk_gb + " HDD"
+    bootDiskSizeGb: 20
     preemptible: 3
   }  
 }
