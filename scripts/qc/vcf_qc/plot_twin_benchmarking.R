@@ -32,6 +32,11 @@ parser$add_argument("--set-name", metavar="string", action="append",
                                "results supplied"))
 parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric",
                     help="Allele frequency threshold for common variants")
+parser$add_argument("--subset-samples", metavar=".txt",
+                    help=paste("Optional flat .txt file with a list of sample IDs",
+                               "to keep. By default, all samples will be retained."))
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -42,10 +47,25 @@ args <- parser$parse_args()
 #                             "~/scratch/sample_gt_bench_plot_dev/giab_hard.dfci-g2c.v1.initial_qc.chr22.twins_techreps.gt_comparison.distrib.merged.tsv.gz"),
 #              "set_name" = c("Easy", "Hard"),
 #              "common_af" = 0.001,
+#              "subset_samples" = NULL,
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/g2c.qc.test")
 
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
+
+# Load list of samples to retain, if optioned
+if(!is.null(args$subset_samples)){
+  keep.samples <- unique(read.table(args$subset_samples, header=F)[, 1])
+}else{
+  keep.samples <- NULL
+}
+
 # Load concordance data
-bench.dat <- load.gt.benchmark.tsvs(args$bench_tsv, args$set_name)
+bench.dat <- load.gt.benchmark.tsvs(args$bench_tsv, args$set_name,
+                                    keep.samples=keep.samples)
 
 # Get nonredundant list of samples
 samples <- unique(unlist(lapply(bench.dat, function(d){d$sample})))

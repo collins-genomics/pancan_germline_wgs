@@ -4,7 +4,13 @@
 \alias{load.gt.benchmark.tsvs}
 \title{Load genotype benchmarking data}
 \usage{
-load.gt.benchmark.tsvs(tsvs.in, set.names, key.cols = 1:5, trio.mode = FALSE)
+load.gt.benchmark.tsvs(
+  tsvs.in,
+  set.names,
+  key.cols = 1:5,
+  trio.mode = FALSE,
+  keep.samples = NULL
+)
 }
 \arguments{
 \item{tsvs.in}{Character vector of paths to .tsv inputs}
@@ -15,6 +21,9 @@ load.gt.benchmark.tsvs(tsvs.in, set.names, key.cols = 1:5, trio.mode = FALSE)
 unique keys [default: 1:5]}
 
 \item{trio.mode}{Is the input data from parent-child trios? [default: FALSE]}
+
+\item{keep.samples}{Optional list of sample IDs to retain from \code{tsvs.in}. By
+default, all samples will be retained}
 }
 \value{
 List of one data.frame per element in \code{tsvs.in}

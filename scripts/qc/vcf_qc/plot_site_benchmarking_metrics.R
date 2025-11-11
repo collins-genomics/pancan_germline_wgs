@@ -369,6 +369,8 @@ parser$add_argument("--ref-title", metavar="path", type="character",
                     help="String title for comparison dataset/cohort")
 parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric",
                     help="Allele frequency threshold for common variants")
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -382,7 +384,13 @@ args <- parser$parse_args()
 #              "set_name" = c("Easy", "Hard"),
 #              "ref_title" = "gnomAD v4.1",
 #              "common_af" = 0.001,
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/g2c.qc.test")
+
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
 
 # Load sensitivity & PPV data
 sens.by.af <- load.benchmark.tsvs(args$sens_by_af, tolower(args$set_name))

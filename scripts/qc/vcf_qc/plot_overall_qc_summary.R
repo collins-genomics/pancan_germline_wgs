@@ -792,6 +792,8 @@ parser$add_argument("--sample-benchmarking-title", metavar="string",
                     help="Plot title for each sample-level benchmarking dataset")
 parser$add_argument("--custom-targets", metavar=".tsv", type="character",
                     help="Optional two-column .tsv specifying user-defined targets")
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -805,7 +807,13 @@ args <- parser$parse_args()
 #              "sample_benchmarking_prefix" = c("external_srwgs", "external_lrwgs"),
 #              "sample_benchmarking_title" = c("External srWGS", "External lrWGS"),
 #              "custom_targets" = "~/scratch/dfci-g2c.v1.qc_targets.tsv",
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/dfci-g2c.v1.initial_qc")
+
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
 
 # Load and organize summary stats
 ss <- load.ss(args$stats, args$site_ref_prefix, args$sample_benchmarking_prefix)

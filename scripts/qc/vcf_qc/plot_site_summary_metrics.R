@@ -725,6 +725,8 @@ parser$add_argument("--sv-sites", metavar=".bed", type="character",
                     help="SV sites .bed file")
 parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric",
                     help="Allele frequency threshold for common variants")
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -739,7 +741,13 @@ args <- parser$parse_args()
 #              "ref_size_distrib" = "~/scratch/site_bench_inputs_v2_may14/gnomAD_v4.1.size_distribution.merged.tsv.gz",
 #              "ref_af_distrib" = "~/scratch/site_bench_inputs_v2_may14/gnomAD_v4.1.af_distribution.merged.tsv.gz",
 #              "ref_title" = "gnomAD v4.1",
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/g2c.qc.test")
+
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
 
 # Read distributions
 size.d <- read.compressed.distrib(args$size_distrib)

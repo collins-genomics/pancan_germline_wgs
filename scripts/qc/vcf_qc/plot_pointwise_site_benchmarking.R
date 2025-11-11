@@ -217,6 +217,8 @@ parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric"
                     help="Allele frequency threshold for common variants")
 parser$add_argument("--ref-title", metavar="string", type="character",
                     help="Name of reference cohort (optional)")
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -231,12 +233,18 @@ args <- parser$parse_args()
 #              "combine" = TRUE,
 #              "common_af" = 0.001,
 #              "ref_title" = "gnomAD v4.1",
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/qc.test",
 #              "set_name" = "easy")
 
 # Ensure at least one of --snvs, --indels, or --svs is present
 if(is.null(args$snvs) & is.null(args$indels) & is.null(args$svs)){
   stop("At least one of --snvs, --indels, or --svs must be provided")
+}
+
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
 }
 
 # Load & plot SNVs, if provided

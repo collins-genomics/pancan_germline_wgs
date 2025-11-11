@@ -38,6 +38,11 @@ parser$add_argument("--ref-title", metavar="path", type="character",
                     help="String title for comparison dataset/cohort")
 parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric",
                     help="Allele frequency threshold for common variants")
+parser$add_argument("--subset-samples", metavar=".txt",
+                    help=paste("Optional flat .txt file with a list of sample IDs",
+                               "to keep. By default, all samples will be retained."))
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -51,6 +56,8 @@ args <- parser$parse_args()
 #              "set_name" = c("Easy", "Hard"),
 #              "ref_title" = "external srWGS",
 #              "common_af" = 0.001,
+#              "subset_samples" = NULL,
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/g2c.qc.test")
 
 # # DEV (single vc):
@@ -61,11 +68,27 @@ args <- parser$parse_args()
 #              "set_name" = c("Easy", "Hard"),
 #              "ref_title" = "external lrWGS",
 #              "common_af" = 0.01,
+#              "subset_samples" = NULL,
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/ufc.sv.qc.test")
 
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
+
+# Load list of samples to retain, if optioned
+if(!is.null(args$subset_samples)){
+  keep.samples <- unique(read.table(args$subset_samples, header=F)[, 1])
+}else{
+  keep.samples <- NULL
+}
+
 # Load sensitivity & PPV data
-sens.dat <- load.gt.benchmark.tsvs(args$sens_tsv, args$set_name)
-ppv.dat <- load.gt.benchmark.tsvs(args$ppv_tsv, args$set_name)
+sens.dat <- load.gt.benchmark.tsvs(args$sens_tsv, args$set_name,
+                                   keep.samples=keep.samples)
+ppv.dat <- load.gt.benchmark.tsvs(args$ppv_tsv, args$set_name,
+                                  keep.samples=keep.samples)
 
 # Get nonredundant list of samples considered in either sensitivity or PPV
 samples <- c()

@@ -341,6 +341,8 @@ parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric"
                     help="Allele frequency threshold for common variants")
 parser$add_argument("--ld-stats", metavar=".tsv", type="character",
                     help="Peak LD R2 per variant for each other variant class")
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -353,11 +355,17 @@ args <- parser$parse_args()
 #              "combine" = TRUE,
 #              "common_af" = 0.001,
 #              "ld_stats" = "~/scratch/renamed.common.peak_ld_by_vc.tsv.gz",
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/qc.test")
 
 # Ensure at least one of --snvs, --indels, or --svs is present
 if(is.null(args$snvs) & is.null(args$indels) & is.null(args$svs)){
   stop("At least one of --snvs, --indels, or --svs must be provided")
+}
+
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
 }
 
 # Load LD stats, if provided

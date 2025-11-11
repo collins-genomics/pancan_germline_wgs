@@ -328,9 +328,13 @@ plot.count.waterfall <- function(gt.counts, vc, pop=NULL, pheno=NULL,
     # lab.y.at <- max(c(0.55*diff(par("usr")[3:4]),
     #                   quantile(group.df$k, prob=0.99)))
     lab.y.at <- median(group.df$k, na.rm=T)
-    group.k.med <- median(group.df$k)
-    med.lab <- clean.numeric.labels(round(group.k.med, 0),
-                                    min.label.length=if(group.k.med < 1000){1}else{3})
+    group.k.med <- median(group.df$k, na.rm=T)
+    if(group.k.med < 10000){
+      med.lab <- prettyNum(round(group.k.med, 0), big.mark=",")
+    }else{
+      med.lab <- clean.numeric.labels(round(group.k.med, 0),
+                                      acceptable.decimals=2, min.label.length=2)
+    }
     lab.width <- 1.075*strwidth(med.lab, cex=global.scaling.cex*5/6)
     lab.height <- 1.2*strheight(med.lab, cex=global.scaling.cex*5/6)
     rect(xleft=lab.x.at-(lab.width/2), xright=lab.x.at+(lab.width/2),
@@ -465,9 +469,10 @@ add.waterfall.markers <- function(order.df, pop.map, pheno.map,
                                 "len" = pheno.ends-pheno.starts, "lab" = pheno.labs)
     pheno.rect.df <- pheno.rect.df[order(-pheno.rect.df$len), ]
     sapply(unique(pheno.labs), function(pheno){
-      pheno.lab.x <- mean(as.numeric(head(pheno.rect.df[which(pheno.rect.df$lab == pheno),
-                                                        c("start", "end")], 1)))
-      text(x=pheno.lab.x, y=y.start+0.5, labels=pheno.names[pheno],
+      pheno.lab.xs <- as.numeric(head(pheno.rect.df[which(pheno.rect.df$lab == pheno),
+                                                        c("start", "end")], 1))
+      text(x=mean(pheno.lab.xs), y=y.start+0.5,
+           labels=shorten.text(pheno.names[pheno], abs(diff(pheno.lab.xs))),
            col=optimize.label.color(pheno.pal[pheno], cutoff=0.8),
            cex=global.scaling.cex)
     })
@@ -771,6 +776,11 @@ parser$add_argument("--phenotype-labels", metavar=".tsv",
                     help=paste("Optional two-column .tsv mapping sample IDs to ",
                                "phenotype labels. If provided, some plots will ",
                                "group samples by phenotype for easier comparisons."))
+parser$add_argument("--subset-samples", metavar=".txt",
+                    help=paste("Optional flat .txt file with a list of sample IDs",
+                               "to keep. By default, all samples will be retained."))
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -780,21 +790,49 @@ args <- parser$parse_args()
 # args <- list("genotype_dist_tsv" = "~/scratch/dfci-g2c.v1.initial_qc.genotype_distribution.merged.tsv.gz",
 #              "ancestry_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "phenotype_labels" = "~/scratch/dfci-g2c.v1.qc_phenotype.tsv",
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/g2c_vcf_qc_dev")
 
 # # DEV (single variant class):
 # args <- list("genotype_dist_tsv" = "~/scratch/dfci-ufc.sv.v1.initial_qc.genotype_distribution.merged.tsv.gz",
 #              "ancestry_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "phenotype_labels" = "~/scratch/dfci-g2c.v1.qc_phenotype.tsv",
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/ufc_sv_qc_dev")
+
+# # DEV (YL):
+# args <- list("genotype_dist_tsv" = "~/scratch/YL.v1.2.genotype_distribution.merged.tsv.gz",
+#              "ancestry_labels" = "~/scratch/YL_ancestry_labels.tsv",
+#              "phenotype_labels" = "~/scratch/YL_pheno_labels.tsv",
+#              "subset_samples" = "~/Desktop/Collins/VanAllen/jackie_younglung/younglung_metadata/YL.samples_with_complete_variant_data.list",
+#              "custom_constants" = "~/Desktop/Collins/VanAllen/jackie_younglung/data/yl_qc.custom_constants.R",
+#              "out_prefix" = "~/scratch/yl_terra_dev")
+
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
 
 # Load sample genotype counts
 gt.counts <- load.gt.counts(args$genotype_dist_tsv)
 samples <- unique(gt.counts$sample)
 
+# Subset to samples in --subset-samples if optioned
+if(!is.null(args$subset_samples)){
+  keep.samples <- unique(read.table(args$subset_samples, header=F)[, 1])
+  samples <- intersect(samples, keep.samples)
+  gt.counts <- gt.counts[which(gt.counts$sample %in% keep.samples), ]
+}
+
 # Load sample ancestry and phenotypes, if optioned
 pop <- load.labels(args$ancestry_labels, samples)
+if(!is.null(pop)){
+  gt.counts <- gt.counts[which(gt.counts$sample %in% names(pop)), ]
+}
 pheno <- load.labels(args$phenotype_labels, samples)
+if(!is.null(pheno)){
+  gt.counts <- gt.counts[which(gt.counts$sample %in% names(pheno)), ]
+}
 
 # Triple waterfall plot of counts per sample by class
 main.waterfall(gt.counts, args$out_prefix, pop, pheno)

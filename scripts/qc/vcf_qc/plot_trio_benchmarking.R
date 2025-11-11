@@ -184,6 +184,8 @@ parser$add_argument("--set-name", metavar="string", action="append",
                                "results supplied"))
 parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric",
                     help="Allele frequency threshold for common variants")
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -194,7 +196,13 @@ args <- parser$parse_args()
 #                              "~/Downloads/trio_bench_dev_data/trio_bench.Hard.concordance_distribution.merged.tsv.gz"),
 #              "set_name" = c("Easy", "Hard"),
 #              "common_af" = 0.001,
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/g2c.qc.test")
+
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
 
 # Load trio concordance data
 bench.dat <- load.gt.benchmark.tsvs(args$bench_tsv, args$set_name,
