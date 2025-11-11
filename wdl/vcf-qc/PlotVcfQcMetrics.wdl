@@ -581,6 +581,9 @@ task PackageOutputs {
     if ~{defined(custom_targets)}; then
       ln -s ~{default="" custom_targets} ./
     fi
+    if ~{defined(custom_plotting_constants)}; then
+      ln -s ~{default="" custom_plotting_constants} ./
+    fi
 
     # Collapse all summary stats and generate summary barplots
     echo -e "#analysis\tmeasure\tvalue\tn" > ss.all.tsv
@@ -687,6 +690,14 @@ write_array("ppv_by_af", data.get("ppv_by_af"))
 write_array("sens_by_af", data.get("sens_by_af"))
 CODE
 
+    # Relocate input files
+    if ~{defined(sample_subset_list)}; then
+      ln -s ~{default="" sample_subset_list} ./
+    fi
+    if ~{defined(custom_plotting_constants)}; then
+      ln -s ~{default="" custom_plotting_constants} ./
+    fi
+
     # Plot sample summary metrics like PPV and sensitivity
     cmd="/opt/pancan_germline_wgs/scripts/qc/vcf_qc/plot_external_sample_benchmarking.R"
     if [ -s ppv_by_af.txt ]; then
@@ -765,7 +776,7 @@ task PlotSampleMetrics {
 
     mkdir ~{output_prefix}.sample_metrics
 
-    # Relocate sample descriptive labels if necessary
+    # Relocate optional inputs where necessary
     if ~{defined(ancestry_labels)}; then
       ln -s ~{default="" ancestry_labels} ./
     fi
@@ -774,6 +785,9 @@ task PlotSampleMetrics {
     fi
     if ~{defined(sample_subset_list)}; then
       ln -s ~{default="" sample_subset_list} ./
+    fi
+    if ~{defined(custom_plotting_constants)}; then
+      ln -s ~{default="" custom_plotting_constants} ./
     fi
 
     # Plot variation per genome
@@ -979,6 +993,11 @@ CODE
       seq 1 ~{n_sets} | awk '{ print "." }' > sv_beds.list
     fi
 
+    # Relocate custom constants if provided
+    if ~{defined(custom_plotting_constants)}; then
+      ln -s ~{default="" custom_plotting_constants} ./
+    fi
+
     # Make input .tsv for pointwise plotting
     paste \
       ~{write_lines(eval_interval_names_plus_union)} \
@@ -1121,17 +1140,18 @@ task PlotSiteMetrics {
 
     mkdir ~{output_prefix}.site_metrics
 
-    # Symlink full SV BED to working directory
+    # Symlink optional inputs to working directory
     if ~{has_all_svs}; then
       ln -s ~{default="" all_svs_bed} ~{all_sv_bname}
     fi
-
-    # Symlink ref distribs to working directory
     if ~{has_ref_size}; then
       ln -s ~{default="" ref_size_distrib} ~{ref_size_bname}
     fi
     if ~{has_ref_af}; then
       ln -s ~{default="" ref_af_distrib} ~{ref_af_bname}
+    fi
+    if ~{custom_plotting_constants}; then
+      ln -s ~{default="" custom_plotting_constants} ./
     fi
 
     # Plot site summary metrics
@@ -1144,6 +1164,7 @@ task PlotSiteMetrics {
       ~{ref_title_cmd} \
       ~{summary_sv_cmd} \
       --common-af ~{common_af_cutoff} \
+      ~{constants_opt} \
       --out-prefix ~{output_prefix}.site_metrics/~{output_prefix}
 
     # Symlink common variant BEDs to working directory
