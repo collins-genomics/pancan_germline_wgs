@@ -766,8 +766,8 @@ task PlotSampleMetrics {
   String subset_opt = if defined(sample_subset_list) then "--subset-samples ~{basename(select_first([sample_subset_list, 'not_real.txt']))}"  else ""
   String constants_opt = if defined(custom_plotting_constants) then "--custom-constants ~{basename(select_first([custom_plotting_constants, 'not_real.txt']))}"  else ""
 
-  Boolean do_twins = length(eval_interval_names) + length(twin_concordance_tsvs) > 0
-  Boolean do_trios = length(eval_interval_names) + length(trio_concordance_tsvs) > 0
+  Boolean do_twins = length(eval_interval_names) > 0 && length(twin_concordance_tsvs) > 0
+  Boolean do_trios = length(eval_interval_names) > 0 && length(trio_concordance_tsvs) > 0
 
   Int default_disk_gb = ceil(2 * size(flatten([[gt_distrib], twin_concordance_tsvs, trio_concordance_tsvs]), "GB")) + 20
 
@@ -1150,7 +1150,7 @@ task PlotSiteMetrics {
     if ~{has_ref_af}; then
       ln -s ~{default="" ref_af_distrib} ~{ref_af_bname}
     fi
-    if ~{custom_plotting_constants}; then
+    if ~{defined(custom_plotting_constants)}; then
       ln -s ~{default="" custom_plotting_constants} ./
     fi
 
