@@ -291,35 +291,80 @@ workflow PlotVcfQcMetrics {
 
   # Preprocess site benchmarking, if provided
   if (has_site_benchmarking) {
+
+    # Transpose input arrays if optioned
+    if (transpose_site_benchmarking_nested_arrays) {
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_snv_ppv_beds {
+        input:
+          input_array = site_benchmark_common_snv_ppv_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_indel_ppv_beds {
+        input:
+          input_array = site_benchmark_common_indel_ppv_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_sv_ppv_beds {
+        input:
+          input_array = site_benchmark_common_sv_ppv_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_snv_sens_beds {
+        input:
+          input_array = site_benchmark_common_snv_sens_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_indel_sens_beds {
+        input:
+          input_array = site_benchmark_common_indel_sens_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_sv_sens_beds {
+        input:
+          input_array = site_benchmark_common_sv_sens_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_ppv_by_af {
+        input:
+          input_array = site_benchmark_ppv_by_freqs,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_sens_by_af {
+        input:
+          input_array = site_benchmark_sensitivity_by_freqs,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+    }
+    Array[Array[Array[File?]]] sb_snv_ppv_beds = select_first([transpose_sb_snv_ppv_beds.output_array,
+                                                               site_benchmark_common_snv_ppv_beds])
+    Array[Array[Array[File?]]] sb_indel_ppv_beds = select_first([transpose_sb_indel_ppv_beds.output_array,
+                                                                 site_benchmark_common_indel_ppv_beds])
+    Array[Array[Array[File?]]] sb_sv_ppv_beds = select_first([transpose_sb_sv_ppv_beds.output_array,
+                                                              site_benchmark_common_sv_ppv_beds])
+    Array[Array[Array[File?]]] sb_snv_sens_beds = select_first([transpose_sb_snv_sens_beds.output_array,
+                                                                site_benchmark_common_snv_sens_beds])
+    Array[Array[Array[File?]]] sb_indel_sens_beds = select_first([transpose_sb_indel_sens_beds.output_array,
+                                                                  site_benchmark_common_indel_sens_beds])
+    Array[Array[Array[File?]]] sb_sv_sens_beds = select_first([transpose_sb_sv_sens_beds.output_array,
+                                                               site_benchmark_common_sv_sens_beds])
+    Array[Array[Array[File?]]] sb_ppv_by_af = select_first([transpose_sb_ppv_by_af.output_array,
+                                                            site_benchmark_ppv_by_freqs])
+    Array[Array[Array[File?]]] sb_sens_by_af = select_first([transpose_sb_sens_by_af.output_array,
+                                                             site_benchmark_sensitivity_by_freqs])
+
     scatter ( site_bench_di in range(n_sb_datasets) ) {
 
       String bd_name = select_first([site_benchmark_dataset_prefixes[site_bench_di], "benchmark_data"])
       String sb_prefix = output_prefix + "." + bd_name
 
-      Array[Array[File?]] bd_snv_ppv_beds = if transpose_site_benchmarking_nested_arrays 
-                                            then transpose(site_benchmark_common_snv_ppv_beds[site_bench_di])
-                                            else site_benchmark_common_snv_ppv_beds[site_bench_di]
-      Array[Array[File?]] bd_indel_ppv_beds = if transpose_site_benchmarking_nested_arrays 
-                                              then transpose(site_benchmark_common_indel_ppv_beds[site_bench_di])
-                                              else site_benchmark_common_indel_ppv_beds[site_bench_di]
-      Array[Array[File?]] bd_sv_ppv_beds = if transpose_site_benchmarking_nested_arrays 
-                                           then transpose(site_benchmark_common_sv_ppv_beds[site_bench_di])
-                                           else site_benchmark_common_sv_ppv_beds[site_bench_di]
-      Array[Array[File?]] bd_snv_sens_beds = if transpose_site_benchmarking_nested_arrays 
-                                             then transpose(site_benchmark_common_snv_sens_beds[site_bench_di])
-                                             else site_benchmark_common_snv_sens_beds[site_bench_di]
-      Array[Array[File?]] bd_indel_sens_beds = if transpose_site_benchmarking_nested_arrays 
-                                               then transpose(site_benchmark_common_indel_sens_beds[site_bench_di])
-                                               else site_benchmark_common_indel_sens_beds[site_bench_di]
-      Array[Array[File?]] bd_sv_sens_beds = if transpose_site_benchmarking_nested_arrays 
-                                            then transpose(site_benchmark_common_sv_sens_beds[site_bench_di])
-                                            else site_benchmark_common_sv_sens_beds[site_bench_di]
-      Array[Array[File?]] bd_ppv_by_af = if transpose_site_benchmarking_nested_arrays 
-                                         then transpose(site_benchmark_ppv_by_freqs[site_bench_di])
-                                         else site_benchmark_ppv_by_freqs[site_bench_di]
-      Array[Array[File?]] bd_sens_by_af = if transpose_site_benchmarking_nested_arrays 
-                                          then transpose(site_benchmark_sensitivity_by_freqs[site_bench_di])
-                                          else site_benchmark_sensitivity_by_freqs[site_bench_di]
+      Array[Array[File?]] bd_snv_ppv_beds = sb_snv_ppv_beds[site_bench_di]
+      Array[Array[File?]] bd_indel_ppv_beds = sb_indel_ppv_beds[site_bench_di]
+      Array[Array[File?]] bd_sv_ppv_beds = sb_sv_ppv_beds[site_bench_di]
+      Array[Array[File?]] bd_snv_sens_beds = sb_snv_sens_beds[site_bench_di]
+      Array[Array[File?]] bd_indel_sens_beds = sb_indel_sens_beds[site_bench_di]
+      Array[Array[File?]] bd_sv_sens_beds = sb_sv_sens_beds[site_bench_di]
+      Array[Array[File?]] bd_ppv_by_af = sb_ppv_by_af[site_bench_di]
+      Array[Array[File?]] bd_sens_by_af = sb_sens_by_af[site_bench_di]
 
       call PSB.PrepSiteBenchDataToPlot as PrepSiteBench {
         input:
@@ -353,17 +398,30 @@ workflow PlotVcfQcMetrics {
 
   # Preprocess sample benchmarking, if provided
   if (has_sample_benchmarking) {
+    if (transpose_sample_benchmarking_nested_arrays) {
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_gb_ppv_tsvs {
+        input:
+          input_array = sample_benchmark_ppv_distribs,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_gb_sens_tsvs {
+        input:
+          input_array = sample_benchmark_sensitivity_distribs,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+    }
+    Array[Array[Array[File?]]] gb_ppv_tsvs = select_first([transpose_gb_ppv_tsvs.output_array,
+                                                           sample_benchmark_ppv_distribs])
+    Array[Array[Array[File?]]] gb_sens_tsvs = select_first([transpose_gb_sens_tsvs.output_array,
+                                                            sample_benchmark_sensitivity_distribs])
+
     scatter ( sample_bench_di in range(n_gb_datasets) ) {
 
       String gbd_name = select_first([sample_benchmark_dataset_prefixes[sample_bench_di], "benchmark_data"])
       String gb_prefix = output_prefix + "." + gbd_name
 
-      Array[Array[File?]] gbd_ppv_tsvs = if transpose_sample_benchmarking_nested_arrays
-                                         then transpose(sample_benchmark_ppv_distribs[sample_bench_di])
-                                         else sample_benchmark_ppv_distribs[sample_bench_di]
-      Array[Array[File?]] gbd_sens_tsvs = if transpose_sample_benchmarking_nested_arrays
-                                          then transpose(sample_benchmark_sensitivity_distribs[sample_bench_di])
-                                          else sample_benchmark_sensitivity_distribs[sample_bench_di]
+      Array[Array[File?]] gbd_ppv_tsvs = gb_ppv_tsvs[sample_bench_di]
+      Array[Array[File?]] gbd_sens_tsvs = gb_sens_tsvs[sample_bench_di]
 
       call PSB.PrepSiteBenchDataToPlot as PrepSampleBench {
         input:

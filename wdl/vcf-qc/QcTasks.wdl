@@ -1069,3 +1069,34 @@ task SumCompressedDistribs {
 }
 
 
+# Transpose a Terra-style nested benchmarking array
+task TransposeTerraBenchmarkingArray {
+  input {
+    Array[Array[Array[File?]]] input_array
+    String g2c_analysis_docker
+  }
+
+  File input_json = write_json(input_array)
+
+  command <<<
+    set -eu -o pipefail
+
+    /opt/pancan_germline_wgs/scripts/qc/vcf_qc/transpose_terra_benchmarking_array.py \
+      ~{input_json} \
+      transposed.json
+  >>>
+
+  output {
+    Array[Array[Array[File?]]] output_array = read_json("transposed.json")
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: "1.7 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 3
+    max_retries: 1
+  }
+}
+
