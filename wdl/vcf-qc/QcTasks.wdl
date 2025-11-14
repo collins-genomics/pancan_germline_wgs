@@ -536,6 +536,8 @@ task FilterTextFileByColumn {
     String postprocessing_command = ""
     
     String g2c_analysis_docker
+    Float mem_gb = 3.5
+    Int n_cpu = 2
   }
 
   Int disk_gb = ceil(2.5 * size(flatten([[input_txt], key_files]), "GB")) + 10
@@ -566,8 +568,8 @@ task FilterTextFileByColumn {
 
   runtime {
     docker: g2c_analysis_docker
-    memory: "3.5 GB"
-    cpu: 2
+    memory: mem_gb + " GB"
+    cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: 3
     maxRetries: 1
