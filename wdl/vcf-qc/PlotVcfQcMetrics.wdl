@@ -1309,18 +1309,24 @@ task PlotSiteMetrics {
 
   Boolean has_common_snvs = defined(common_snvs_bed)
   String common_snv_bname = if has_common_snvs then basename(select_first([common_snvs_bed])) else ""
-  String pw_snv_cmd_pre = if has_common_snvs then "--snvs ~{common_snv_bname}" else ""
-  String pw_snv_cmd = if common_snvs_were_downsampled then "~{pw_snv_cmd_pre} --true-n-snvs " + select_first([n_common_snvs, 0]) else ""
+  String pw_snv_cmd_base = if common_snvs_were_downsampled 
+                           then "--snvs ~{common_snv_bname} --true-n-snvs " + select_first([n_common_snvs, 0])
+                           else "--snvs ~{common_snv_bname}"
+  String pw_snv_cmd = if has_common_snvs then pw_snv_cmd_base else ""
   
   Boolean has_common_indels = defined(common_indels_bed)
   String common_indel_bname = if has_common_indels then basename(select_first([common_indels_bed])) else ""
-  String pw_indel_cmd_pre = if has_common_indels then "--indels ~{common_indel_bname}" else ""
-  String pw_indel_cmd = if common_indels_were_downsampled then "~{pw_indel_cmd_pre} --true-n-indels " + select_first([n_common_indels, 0]) else ""
+  String pw_indel_cmd_base = if common_indels_were_downsampled 
+                             then "--indels ~{common_indel_bname} --true-n-indels " + select_first([n_common_indels, 0])
+                             else "--indels ~{common_indel_bname}"
+  String pw_indel_cmd = if has_common_indels then pw_indel_cmd_base else ""
 
   Boolean has_common_svs = defined(common_svs_bed)
   String common_sv_bname = if has_common_svs then basename(select_first([common_svs_bed])) else ""
-  String pw_sv_cmd_pre = if has_common_svs then "--svs ~{common_sv_bname}" else ""
-  String pw_sv_cmd = if common_svs_were_downsampled then "~{pw_sv_cmd_pre} --true-n-svs " + select_first([n_common_svs, 0]) else ""
+  String pw_sv_cmd_base = if common_svs_were_downsampled 
+                          then "--svs ~{common_sv_bname} --true-n-svs " + select_first([n_common_svs, 0])
+                          else "--svs ~{common_sv_bname}"
+  String pw_sv_cmd = if has_common_svs then pw_sv_cmd_base else ""
 
   Boolean has_ld = defined(ld_stats_tsv)
   String ld_stat_bname = if has_ld then basename(select_first([ld_stats_tsv])) else ""
