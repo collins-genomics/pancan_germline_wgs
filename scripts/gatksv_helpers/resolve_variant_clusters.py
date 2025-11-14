@@ -15,7 +15,7 @@ import argparse
 import csv
 import numpy as np
 import pysam
-from g2cpy import recursive_flatten, integrate_infos, integrate_gts
+from g2cpy import integrate_cpx_intervals, integrate_gts, integrate_infos, recursive_flatten
 from sys import stdin, stdout
 
 
@@ -77,10 +77,22 @@ def main():
             exit(msg.format(len(vids), chrom, start, end))
         k += 1
 
+        # Get consensus coordinates of merged record
+        cpos = int(np.floor(np.nanmedian([r.pos for r in records])))
+        cend = int(np.floor(np.nanmedian([r.stop for r in records])))
+
         # For complex variants, further ensure all variants have the same
-        # subtype (INFO/CPX_TYPE) before merging
+        # subtype (INFO/CPX_TYPE) and their CPX_INTERVALS can be properly 
+        # unified before merging into a single record
         if records[0].info.get('SVTYPE') == 'CPX':
-            if len(set([r.info.get('CPX_TYPE') for r in records])) > 1:
+            cpx_types = list(set([r.info.get('CPX_TYPE') for r in records]))
+            if len(cpx_types) > 1:
+                for rec in records:
+                    outvcf.write(rec)
+                continue
+            try:
+                cpx_ints = integrate_cpx_intervals(records, cpx_types[0], cpos, cend)
+            except:
                 for rec in records:
                     outvcf.write(rec)
                 continue
@@ -89,8 +101,8 @@ def main():
         newrec = records[0].copy()
 
         # Assign basic (non-INFO) record information
-        newrec.pos = int(np.floor(np.nanmedian([r.pos for r in records])))
-        newrec.stop = int(np.floor(np.nanmedian([r.stop for r in records])))
+        newrec.pos = cpos
+        newrec.stop = cend
         newrec.info['SVLEN'] = int(np.nanmax([newrec.stop - newrec.pos, 0]))
         newrec.id = '{}_{}'.format(args.prefix, k)
         newrec.qual = int(np.round(np.nanmean([r.qual for r in records])))
@@ -100,7 +112,9 @@ def main():
 
         # Merge INFOs
         newrec.info.clear()
-        newrec.info.update(integrate_infos(records))
+        newrec.info.update(integrate_infos(records, do_cpx_intervals=False))
+        if newrec.info['SVTYPE'] == 'CPX':
+            newrec.info['CPX_INTERVALS'] = cpx_ints
 
         # Merge GTs
         newrec = integrate_gts(newrec, records)

@@ -46,6 +46,7 @@ def integrate_cpx_intervals(records, cpx_type, cpos, cend):
     recbt = pbt.BedTool('{}\t{}\t{}\n'.format(records[0].chrom, cpos, cend), 
                         from_string=True)
     for itype in itypes:
+
         # Skip interval types with the same or fewer than expected intervals
         if obs_ints[itype] <= exp_ints[itype]:
             continue
@@ -55,16 +56,22 @@ def integrate_cpx_intervals(records, cpx_type, cpos, cend):
             cpx_ints = [i for i in cpx_ints if not i.startswith(itype.upper())]
             continue
 
-        # Otherwise, keep the expected number of intervals prioritzed based 
-        # on coverage by overall record coordinates
+        # Otherwise, try merging overlapping intervals with increasingly permissive
+        # overlap requirements until the expected number of intervals are retained
         ibt_str = [re.sub('[:-]', '\t', i.split('_')[1]) 
                    for i in cpx_ints if i.startswith(itype.upper())]
         ibt = pbt.BedTool('\n'.join(ibt_str), from_string=True)
-        idf = ibt.coverage(recbt).to_dataframe()
-        idf = idf.sort_values(by=idf.columns[-1], ascending=False)
-        keep_ints = ['{}_{}:{}-{}'.format(itype.upper(), *il) 
-                     for il in idf.iloc[0:exp_ints[itype], 0:3].values.tolist()]
-        cpx_ints = [i for i in cpx_ints if not i.startswith(itype.upper())] + keep_ints
+        # TODO: implement this
+
+        # OLD
+        # idf = ibt.coverage(recbt).to_dataframe()
+        # idf = idf.sort_values(by=idf.columns[-1], ascending=False)
+        # keep_ints = ['{}_{}:{}-{}'.format(itype.upper(), *il) 
+        #              for il in idf.iloc[0:exp_ints[itype], 0:3].values.tolist()]
+        # cpx_ints = [i for i in cpx_ints if not i.startswith(itype.upper())] + keep_ints
+
+    # Trim all intervals s/t they do not extend beyond cpos/cend
+    # TODO: implement this
 
     return tuple(cpx_ints)
 

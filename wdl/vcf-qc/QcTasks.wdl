@@ -150,6 +150,39 @@ task BenchmarkGenotypes {
 }
 
 
+# Get the number of records present in a BED file
+task CheckBedSize {
+  input {
+    File bed
+    String concat_command = "zcat"
+    String linux_docker = "ubuntu:plucky-20251001"
+  }
+
+  Int disk_gb = ceil(2 * size(bed, "GB")) + 5
+
+  command <<<
+    set -eu -o pipefail
+
+    ~{concat_command} ~{bed} \
+    | cut -f1 | grep -ve '^#' | wc -l \
+    > line_count.txt
+  >>>
+
+  output {
+    Int num_records = read_int("line_count.txt")
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    maxRetries: 1
+    disks: "local-disk ~{disk_gb} HDD"
+    preemptible: 3
+  }
+}
+
+
 task CollectSampleGenotypeMetrics {
   input {
     File vcf
@@ -425,6 +458,155 @@ task ConcatVcfs {
     cpu: cpu_cores
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"
     preemptible: 3
+  }
+}
+
+
+# Uniformly downsamples a bgzipped BED according to a desired ratio
+task DownsampleBed {
+  input {
+    File bed
+    Int downsample_ratio
+    Boolean return_record_ids = false
+    String docker
+
+    Float mem_gb = 3.5
+    Int n_cpu = 2
+  }
+
+  String outfile = basename(bed, ".bed.gz") + ".downsampled.bed.gz"
+  String rid_outfile = basename(bed, ".bed.gz") + ".downsampled_record_names.list"
+  Int disk_gb = ceil(3 * size(bed, "GB")) + 5
+
+  command <<<
+    set -eu -o pipefail
+
+    if [ ~{downsample_ratio} -eq 1 ]; then
+      mv ~{bed} ~{outfile}
+      echo "false" > was_downsampled.txt
+    else
+      zcat ~{bed} \
+      | sed -n '1~~{downsample_ratio}p' \
+      | bgzip -c \
+      > ~{outfile}
+      echo "true" > was_downsampled.txt
+    fi
+
+    # Index output file to ensure correctness
+    tabix -f -p bed ~{outfile}
+
+    # Make a list of record IDs, if optioned
+    if ~{return_record_ids}; then
+      zcat ~{outfile} \
+      | grep -v '^#' \
+      | cut -f4 \
+      | sort -V \
+      | uniq \
+      > ~{rid_outfile}
+    fi
+  >>>
+
+  output {
+    File downsampled_bed = outfile
+    File downsampled_bed_idx = "~{outfile}.tbi"
+    Boolean was_downsampled = read_boolean("was_downsampled.txt")
+    File? downsampled_record_ids = rid_outfile
+  }
+
+  runtime {
+    docker: docker
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
+# Generic task to filter a text file by only retaining rows that overlap entries in one or more key files
+task FilterTextFileByColumn {
+  input {
+    File input_txt
+    Array[File] key_files
+    Int column_number = 1
+    String delimiter = "\t"
+
+    String outfile_name
+    String postprocessing_command = ""
+    
+    String g2c_analysis_docker
+  }
+
+  Int disk_gb = ceil(2.5 * size(flatten([[input_txt], key_files]), "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    # Collapse key files
+    while read kf; do
+      cat $kf
+    done < ~{write_lines(key_files)} \
+    | sort -V | uniq \
+    > keys.list
+
+    # Filter input file
+    /opt/pancan_germline_wgs/scripts/utilities/filter_txt_by_column.py \
+      ~{input_txt} \
+      keys.list \
+      --column-number ~{column_number} \
+      --delimiter "~{delimiter}" \
+    ~{postprocessing_command} \
+    > ~{outfile_name}
+  >>>
+
+  output {
+    File filtered_txt = outfile_name
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: "3.5 GB"
+    cpu: 2
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
+# Extract the unique list of feature names from a BED file
+task GetBedFeatureNames {
+  input {
+    File bed
+    String linux_docker = "ubuntu:plucky-20251001"
+  }
+
+  Int disk_gb = ceil(1.5 * size(bed, "GB")) + 5
+  String outfile = basename(bed, ".bed.gz") + ".feature_names.list"
+
+  command <<<
+    set -eu -o pipefail
+
+    zcat ~{bed} \
+    | grep -v '^#' \
+    | cut -f4 \
+    | sort -V \
+    | uniq \
+    > ~{outfile}
+  >>>
+
+  output {
+    File feature_names = outfile
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 2
+    maxRetries: 1
   }
 }
 

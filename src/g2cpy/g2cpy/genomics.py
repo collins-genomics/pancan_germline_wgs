@@ -241,14 +241,14 @@ def integrate_gts(target_record, records, sort_key='GQ'):
     return target_record
 
 
-def integrate_infos(records):
+def integrate_infos(records, do_cpx_intervals=False):
     """
     Integrate the INFO fields of two or more pysam.VariantRecords
     Takes the union for all non-numeric fields
     Tries to be intelligent about handling numeric values based on key name (e.g., MIN, MAX)
     Takes mean of numeric values if best behavior is not obvious
     Skips protected values like END, AC, AN, AF
-    Implements specialized logic for GATK-SV's CPX_INTERVALS
+    Implements specialized logic for GATK-SV's CPX_INTERVALS, but only if do_cpx_intervals is True
     Returns : pysam.libcbcf.VariantRecordInfo
     """
 
@@ -315,7 +315,7 @@ def integrate_infos(records):
             out_type = multimode([type(v) for v in vals])[0]
             
             # Special handling of CPX_INTERVALS
-            if key == 'CPX_INTERVALS':
+            if key == 'CPX_INTERVALS' and do_cpx_intervals:
                 newinfo[key] = \
                     integrate_cpx_intervals(records,
                                             records[0].get('CPX_TYPE'),

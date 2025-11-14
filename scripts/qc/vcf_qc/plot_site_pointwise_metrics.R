@@ -55,13 +55,17 @@ hwe.topo.pal <- function(N){
 # HWE ternary plot
 hwe.plot <- function(df, title="All variants", pt.cex=NULL, pt.pch=NULL,
                      pt.alpha=NULL, style="scatter", max.points=1000000,
-                     parmar=c(1.75, 2, 1.25, 1)){
+                     true.n.sites=NULL, parmar=c(1.75, 2, 1.25, 1)){
   # Clean input data and determine overall statistics
   df <- df[which(!is.na(df$hwe.x) & !is.na(df$hwe.y) & !is.na(df$hwe)), ]
   bonf.p <- 0.05 / nrow(df)
   n.all <- nrow(df)
   n.pass <- sum(df$hwe >= bonf.p)
   pct.pass <- n.pass / n.all
+  if(!is.null(true.n.sites)){
+    n.all <- true.n.sites
+    n.pass <- round(pct.pass * true.n.sites, 0)
+  }
 
   # Downsample scatterplot to max.points if more complete cases are provided
   if(style == "scatter" & nrow(df) > max.points){
@@ -279,7 +283,7 @@ ld.plot <- function(df, ld, vc2, title, ld.cutoffs=c(0.2, 0.5, 0.8),
 }
 
 # Plot wrapper function for all site-level pointwise plots
-pointwise.plots <- function(df, ld, out.prefix, fname.suffix="all",
+pointwise.plots <- function(df, ld, n.sites, out.prefix, fname.suffix="all",
                             title="All variant"){
 
   ss.df <- data.frame("analysis"=character(), "measure"=character(),
@@ -289,13 +293,14 @@ pointwise.plots <- function(df, ld, out.prefix, fname.suffix="all",
   # HWE scatterplot as .png
   png(paste(out.prefix, fname.suffix, "hwe.png", sep="."),
       height=2.25*300, width=2.25*300, res=300)
-  m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""))
+  m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""), true.n.sites=n.sites)
   dev.off()
   ss.df[1, ] <- c(paste(ss.prefix, "common_hwe", sep="."), "pct_pass", m.tmp)
 
   # HWE topo heatmap as .pdf
   pdf(paste(out.prefix, fname.suffix, "hwe.topo.pdf", sep="."), height=2.25, width=2.25)
-  m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""), style="topo")
+  m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""), style="topo",
+                    true.n.sites=n.sites)
   dev.off()
 
   # Exit now if LD stats are not provided
@@ -307,8 +312,10 @@ pointwise.plots <- function(df, ld, out.prefix, fname.suffix="all",
   ld.sub <- ld[which(ld$vid %in% rownames(df)), ]
   n.tagged <- length(unique(ld.sub[which(ld.sub$ld_r2 >= 0.5), "vid"]))
   n.elig <- length(unique(ld.sub$vid))
+  elig.rate <- n.elig / nrow(df)
+  est.true.n.elig <- round(elig.rate * n.sites, 0)
   ss.df[nrow(ss.df)+1, ] <- c(paste(ss.prefix, "common_ld", "any", sep="."),
-                              "tag_rate", n.tagged / n.elig, n.elig)
+                              "tag_rate", n.tagged / n.elig, est.true.n.elig)
 
   # Peak LD vs. AF as topo .pdf (one for each other variant class)
   for(vc2 in c("any", unique(ld$other_vc))){
@@ -317,7 +324,7 @@ pointwise.plots <- function(df, ld, out.prefix, fname.suffix="all",
     m.tmp <- ld.plot(df, ld, vc2, title=title)
     dev.off()
     ss.df[nrow(ss.df)+1, ] <- c(paste(ss.prefix, "common_ld", vc2, sep="."),
-                                "mean_peak_r2", m.tmp)
+                                "mean_peak_r2", m.tmp[1], est.true.n.elig)
   }
 
   return(ss.df)
@@ -331,6 +338,11 @@ pointwise.plots <- function(df, ld, out.prefix, fname.suffix="all",
 parser <- ArgumentParser(description="Plot pointwise variant metrics")
 parser$add_argument("--snvs", metavar=".bed", type="character",
                     help="SNV site metrics from clean_site_metrics.py")
+parser$add_argument("--true-n-snvs", metavar="int", type="numeric",
+                    help=paste("Option to specify true number of SNVs in full",
+                               "dataset, which will be used for accurate plot",
+                               "titles. Only necessary if --snvs has been",
+                               "downsampled prior to this script"))
 parser$add_argument("--indels", metavar=".bed", type="character",
                     help="Indel site metrics from clean_site_metrics.py")
 parser$add_argument("--svs", metavar=".bed", type="character",
@@ -350,8 +362,11 @@ args <- parser$parse_args()
 
 # # DEV:
 # args <- list("snvs" = "~/scratch/dfci-g2c.v1.chr22.0.norm.posthoc_filtered.sites.snv.sites.common.bed.gz",
+#              "true_n_snvs" = NULL,
 #              "indels" = "~/scratch/dfci-g2c.v1.chr22.0.norm.posthoc_filtered.sites.indel.sites.common.bed.gz",
+#              "true_n_indels" = NULL,
 #              "svs" = "~/scratch/dfci-g2c.v1.chr22.0.norm.posthoc_filtered.sites.sv.sites.common.bed.gz",
+#              "true_n_svs" = NULL,
 #              "combine" = TRUE,
 #              "common_af" = 0.001,
 #              "ld_stats" = "~/scratch/renamed.common.peak_ld_by_vc.tsv.gz",
@@ -381,50 +396,57 @@ if(!is.null(args$ld_stats)){
 if(!is.null(args$snvs)){
   # Load SNV data
   snv.df <- read.bed(args$snvs, args$common_af)
+  n.snvs <- if(!is.null(args$true_n_snvs)){args$true_n_snvs}else{nrow(snv.df)}
 
   # Plot SNV metrics
-  snv.ss <- pointwise.plots(snv.df, ld, args$out_prefix, fname.suffix="snv",
-                            title="Common SNV")
+  snv.ss <- pointwise.plots(snv.df, ld, n.snvs, args$out_prefix,
+                            fname.suffix="snv", title="Common SNV")
 }else{
   snv.df <- NULL
   snv.ss <- NULL
+  n.snvs <- 0
 }
 
 # Load & plot indels, if provided
 if(!is.null(args$indels)){
   # Load indel data
   indel.df <- read.bed(args$indels, args$common_af)
+  n.indels <- if(!is.null(args$true_n_indels)){args$true_n_indels}else{nrow(indel.df)}
 
   # Plot indel metrics
-  indel.ss <- pointwise.plots(indel.df, ld, args$out_prefix, fname.suffix="indel",
-                              title="Common indel")
+  indel.ss <- pointwise.plots(indel.df, ld, n.indels, args$out_prefix,
+                              fname.suffix="indel", title="Common indel")
 
 }else{
   indel.df <- NULL
   indel.ss <- NULL
+  n.indels <- 0
 }
 
 # Load & plot SVs, if provided
 if(!is.null(args$svs)){
   # Load SV data
   sv.df <- read.bed(args$svs, args$common_af)
+  n.svs <- if(!is.null(args$true_n_svs)){args$true_n_svs}else{nrow(sv.df)}
 
   # Plot SV metrics
-  sv.ss <- pointwise.plots(sv.df, ld, args$out_prefix, fname.suffix="sv",
-                           title="Common SV")
+  sv.ss <- pointwise.plots(sv.df, ld, n.svs, args$out_prefix,
+                           fname.suffix="sv", title="Common SV")
 }else{
   sv.df <- NULL
   sv.ss <- NULL
+  n.svs <- 0
 }
 
 # Combine & plot all variant types, if optioned
 if(args$combine){
   # Merge all data
   all.df <- do.call("rbind", list(snv.df, indel.df, sv.df))
+  n.all <- n.snvs + n.indels + n.svs
 
   # Plot all metrics
-  all.ss <- pointwise.plots(all.df, ld, args$out_prefix, fname.suffix="all",
-                            title="All common variant")
+  all.ss <- pointwise.plots(all.df, ld, n.all, args$out_prefix,
+                            fname.suffix="all", title="All common variant")
 }else{
   all.ss <- NULL
 }

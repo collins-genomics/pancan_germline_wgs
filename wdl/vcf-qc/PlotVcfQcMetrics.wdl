@@ -36,6 +36,9 @@ workflow PlotVcfQcMetrics {
     File? sample_phenotype_labels
     File? sample_subset_list
     Float common_af_cutoff = 0.01
+    Int pointwise_site_downsample_limit = 1000000 # Any site-level BEDs used for pointwise 
+                                                  # evaluation with more than this number of
+                                                  # records will be downsampled to this limit
     Array[String?] benchmark_interval_names = []
 
     # Expected organization of site benchmarking inputs:
@@ -221,7 +224,31 @@ workflow PlotVcfQcMetrics {
     }
     File common_snvs_bed = select_first(select_all([CollapseCommonSnvs.merged_file, 
                                                     select_first([common_snv_beds])[0]]))
+    # Check if common SNVs need to be downsampled before pointwise plotting
+    call QcTasks.CheckBedSize as CountCommonSnvs {
+      input:
+        bed = common_snvs_bed
+    }
+    Int n_common_snvs = CountCommonSnvs.num_records
+    if (n_common_snvs > pointwise_site_downsample_limit) {
+      call QcTasks.DownsampleBed as DownsampleCommonSnvs {
+        input:
+          bed = common_snvs_bed,
+          downsample_ratio = floor(CountCommonSnvs.num_records / pointwise_site_downsample_limit),
+          docker = g2c_analysis_docker
+      }
+    }
   }
+  File pw_common_snvs_bed = select_first([DownsampleCommonSnvs.downsampled_bed, common_snvs_bed])
+  Boolean common_snvs_were_downsampled = select_first([DownsampleCommonSnvs.was_downsampled, false])
+  if (!common_snvs_were_downsampled) {
+    call QcTasks.GetBedFeatureNames as GetCommonSnvVids {
+      input:
+        bed = pw_common_snvs_bed
+    }
+  }
+  File pw_common_snv_vids = select_first([DownsampleCommonSnvs.downsampled_record_ids,
+                                          GetCommonSnvVids.feature_names])
 
   # If necessary, collapse common indel BEDs
   if ( defined(common_indel_beds) ) {
@@ -239,7 +266,31 @@ workflow PlotVcfQcMetrics {
     }
     File common_indels_bed = select_first(select_all([CollapseCommonIndels.merged_file, 
                                                       select_first([common_indel_beds])[0]]))
+    # Check if common indels need to be downsampled before pointwise plotting
+    call QcTasks.CheckBedSize as CountCommonIndels {
+      input:
+        bed = common_indels_bed
+    }
+    Int n_common_indels = CountCommonIndels.num_records
+    if (n_common_indels > pointwise_site_downsample_limit) {
+      call QcTasks.DownsampleBed as DownsampleCommonIndels {
+        input:
+          bed = common_indels_bed,
+          downsample_ratio = floor(CountCommonIndels.num_records / pointwise_site_downsample_limit),
+          docker = g2c_analysis_docker
+      }
+    }
   }
+  File pw_common_indels_bed = select_first([DownsampleCommonIndels.downsampled_bed, common_indels_bed])
+  Boolean common_indels_were_downsampled = select_first([DownsampleCommonIndels.was_downsampled, false])
+  if (!common_indels_were_downsampled) {
+    call QcTasks.GetBedFeatureNames as GetCommonIndelVids {
+      input:
+        bed = pw_common_indels_bed
+    }
+  }
+  File pw_common_indel_vids = select_first([DownsampleCommonIndels.downsampled_record_ids,
+                                            GetCommonIndelVids.feature_names])
 
   # If necessary, collapse common SV BEDs
   if ( defined(common_sv_beds) ) {
@@ -257,7 +308,31 @@ workflow PlotVcfQcMetrics {
     }
     File common_svs_bed = select_first(select_all([CollapseCommonSvs.merged_file, 
                                                    select_first([common_sv_beds])[0]]))
+    # Check if common SVs need to be downsampled before pointwise plotting
+    call QcTasks.CheckBedSize as CountCommonSvs {
+      input:
+        bed = common_svs_bed
+    }
+    Int n_common_svs = CountCommonSvs.num_records
+    if (n_common_svs > pointwise_site_downsample_limit) {
+      call QcTasks.DownsampleBed as DownsampleCommonSvs {
+        input:
+          bed = common_svs_bed,
+          downsample_ratio = floor(CountCommonSvs.num_records / pointwise_site_downsample_limit),
+          docker = g2c_analysis_docker
+      }
+    }
   }
+  File pw_common_svs_bed = select_first([DownsampleCommonSvs.downsampled_bed, common_svs_bed])
+  Boolean common_svs_were_downsampled = select_first([DownsampleCommonSvs.was_downsampled, false])
+  if (!common_svs_were_downsampled) {
+    call QcTasks.GetBedFeatureNames as GetCommonSvVids {
+      input:
+        bed = pw_common_svs_bed
+    }
+  }
+  File pw_common_sv_vids = select_first([DownsampleCommonSvs.downsampled_record_ids,
+                                          GetCommonSvVids.feature_names])
 
   # If necessary, collapse sample genotype distributions
   if ( length(sample_genotype_distribution_tsvs) > 1 ) {
@@ -287,6 +362,16 @@ workflow PlotVcfQcMetrics {
       }
     }
     File ld_stats_tsv = select_first([CollapseLdStats.merged_file, peak_ld_stat_tsv_use[0]])
+    # Subset LD stats to only variants in common SNV, indel, or SV BED files
+    call QcTasks.FilterTextFileByColumn as SubsetLdStatsByVid {
+      input:
+        input_txt = ld_stats_tsv,
+        key_files = [pw_common_snv_vids, pw_common_indel_vids, pw_common_sv_vids],
+        column_number = 1,
+        outfile_name = output_prefix + ".peak_ld_stats.subsetted.tsv.gz",
+        postprocessing_command = "| gzip -c ",
+        g2c_analysis_docker = g2c_analysis_docker
+    }
   }
 
   # Preprocess site benchmarking, if provided
@@ -488,10 +573,16 @@ workflow PlotVcfQcMetrics {
       ref_size_distrib = ref_size_distrib,
       ref_af_distrib = ref_af_distrib,
       all_svs_bed = all_svs_bed,
-      common_snvs_bed = common_snvs_bed,
+      common_snvs_bed = pw_common_snvs_bed,
+      common_snvs_were_downsampled = common_snvs_were_downsampled,
+      n_common_snvs = n_common_snvs,
       common_indels_bed = common_indels_bed,
+      common_indels_were_downsampled = common_indels_were_downsampled,
+      n_common_indels = n_common_indels,
       common_svs_bed = common_svs_bed,
-      ld_stats_tsv = ld_stats_tsv,
+      common_svs_were_downsampled = common_svs_were_downsampled,
+      n_common_svs = n_common_svs,
+      ld_stats_tsv = SubsetLdStatsByVid.filtered_txt,
       output_prefix = output_prefix,
       ref_title = ref_cohort_plot_title,
       custom_plotting_constants = custom_plotting_constants,
@@ -1137,9 +1228,18 @@ task PlotSiteMetrics {
     File? ref_af_distrib
     
     File? all_svs_bed
+
     File? common_snvs_bed
+    Boolean common_snvs_were_downsampled = false
+    Int? n_common_snvs
+
     File? common_indels_bed
+    Boolean common_indels_were_downsampled = false
+    Int? n_common_indels
+
     File? common_svs_bed
+    Boolean common_svs_were_downsampled = false
+    Int? n_common_svs
 
     File? ld_stats_tsv
 
@@ -1177,15 +1277,18 @@ task PlotSiteMetrics {
 
   Boolean has_common_snvs = defined(common_snvs_bed)
   String common_snv_bname = if has_common_snvs then basename(select_first([common_snvs_bed])) else ""
-  String pw_snv_cmd = if has_common_snvs then "--snvs ~{common_snv_bname}" else ""
+  String pw_snv_cmd_pre = if has_common_snvs then "--snvs ~{common_snv_bname}" else ""
+  String pw_snv_cmd = if common_snvs_were_downsampled then "~{pw_snv_cmd_pre} --true-n-snvs " + select_first([n_common_snvs, 0]) else ""
   
   Boolean has_common_indels = defined(common_indels_bed)
   String common_indel_bname = if has_common_indels then basename(select_first([common_indels_bed])) else ""
-  String pw_indel_cmd = if has_common_indels then "--indels ~{common_indel_bname}" else ""
+  String pw_indel_cmd_pre = if has_common_indels then "--indels ~{common_indel_bname}" else ""
+  String pw_indel_cmd = if common_indels_were_downsampled then "~{pw_indel_cmd_pre} --true-n-indels " + select_first([n_common_indels, 0]) else ""
 
   Boolean has_common_svs = defined(common_svs_bed)
   String common_sv_bname = if has_common_svs then basename(select_first([common_svs_bed])) else ""
-  String pw_sv_cmd = if has_common_svs then "--svs ~{common_sv_bname}" else ""
+  String pw_sv_cmd_pre = if has_common_svs then "--svs ~{common_sv_bname}" else ""
+  String pw_sv_cmd = if common_svs_were_downsampled then "~{pw_sv_cmd_pre} --true-n-svs " + select_first([n_common_svs, 0]) else ""
 
   Boolean has_ld = defined(ld_stats_tsv)
   String ld_stat_bname = if has_ld then basename(select_first([ld_stats_tsv])) else ""
@@ -1279,4 +1382,3 @@ task PlotSiteMetrics {
     max_retries: 1
   }
 }
-
