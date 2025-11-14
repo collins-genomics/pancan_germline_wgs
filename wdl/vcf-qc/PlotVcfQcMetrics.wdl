@@ -622,6 +622,7 @@ workflow PlotVcfQcMetrics {
           inverted_inputs_json = select_first([PrepSiteBenchInverted.plot_files_json])[site_bench_di],
           output_prefix = output_prefix,
           common_af_cutoff = common_af_cutoff,
+          max_records_per_bed = pointwise_site_downsample_limit,
           custom_plotting_constants = custom_plotting_constants,
           g2c_analysis_docker = g2c_analysis_docker
       }
@@ -1006,6 +1007,7 @@ task PlotSiteBenchmarking {
     File inverted_inputs_json
     String output_prefix
     Float common_af_cutoff
+    Int max_records_per_bed = 100000000
     File? custom_plotting_constants
 
     Float mem_gb = 7.5
@@ -1096,6 +1098,15 @@ CODE
           mv tmp.bed.gz $main_bed
         done < <( paste snv_beds.list snv_sens_beds.txt )
       fi
+      # Downsample BEDs, if necessary
+      while read bed; do
+        n_lines=$( zcat $bed | grep -ve '^#' | wc -l )
+        if [ $n_lines -gt ~{max_records_per_bed} ]; then
+          ratio=$( echo "" | awk -v num=$n_lines -v denom=~{max_records_per_bed} '{ print int(num/denom) }' )
+          zcat $bed | awk "NR % $ratio == 1" | bgzip -c > tmp.bed.gz
+          mv tmp.bed.gz $bed
+        fi
+      done < snv_beds.list
     else
       seq 1 ~{n_sets} | awk '{ print "." }' > snv_beds.list
     fi
@@ -1117,6 +1128,15 @@ CODE
           mv tmp.bed.gz $main_bed
         done < <( paste indel_beds.list indel_sens_beds.txt )
       fi
+      # Downsample BEDs, if necessary
+      while read bed; do
+        n_lines=$( zcat $bed | grep -ve '^#' | wc -l )
+        if [ $n_lines -gt ~{max_records_per_bed} ]; then
+          ratio=$( echo "" | awk -v num=$n_lines -v denom=~{max_records_per_bed} '{ print int(num/denom) }' )
+          zcat $bed | awk "NR % $ratio == 1" | bgzip -c > tmp.bed.gz
+          mv tmp.bed.gz $bed
+        fi
+      done < indel_beds.list
     else
       seq 1 ~{n_sets} | awk '{ print "." }' > indel_beds.list
     fi
@@ -1138,6 +1158,15 @@ CODE
           mv tmp.bed.gz $main_bed
         done < <( paste sv_beds.list sv_sens_beds.txt )
       fi
+      # Downsample BEDs, if necessary
+      while read bed; do
+        n_lines=$( zcat $bed | grep -ve '^#' | wc -l )
+        if [ $n_lines -gt ~{max_records_per_bed} ]; then
+          ratio=$( echo "" | awk -v num=$n_lines -v denom=~{max_records_per_bed} '{ print int(num/denom) }' )
+          zcat $bed | awk "NR % $ratio == 1" | bgzip -c > tmp.bed.gz
+          mv tmp.bed.gz $bed
+        fi
+      done < sv_beds.list
     else
       seq 1 ~{n_sets} | awk '{ print "." }' > sv_beds.list
     fi
