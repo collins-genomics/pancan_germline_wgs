@@ -345,8 +345,18 @@ parser$add_argument("--true-n-snvs", metavar="int", type="numeric",
                                "downsampled prior to this script"))
 parser$add_argument("--indels", metavar=".bed", type="character",
                     help="Indel site metrics from clean_site_metrics.py")
+parser$add_argument("--true-n-indels", metavar="int", type="numeric",
+                    help=paste("Option to specify true number of indels in full",
+                               "dataset, which will be used for accurate plot",
+                               "titles. Only necessary if --indels has been",
+                               "downsampled prior to this script"))
 parser$add_argument("--svs", metavar=".bed", type="character",
                     help="SV site metrics from clean_site_metrics.py")
+parser$add_argument("--true-n-svs", metavar="int", type="numeric",
+                    help=paste("Option to specify true number of SVs in full",
+                               "dataset, which will be used for accurate plot",
+                               "titles. Only necessary if --svs has been",
+                               "downsampled prior to this script"))
 parser$add_argument("--combine", action="store_true", default=FALSE,
                     help="Also generate a combined set of plots for all variant types")
 parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric",
