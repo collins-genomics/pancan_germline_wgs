@@ -235,6 +235,7 @@ workflow PlotVcfQcMetrics {
         input:
           bed = common_snvs_bed,
           downsample_ratio = floor(CountCommonSnvs.num_records / pointwise_site_downsample_limit),
+          return_record_ids = true,
           docker = g2c_analysis_docker
       }
     }
@@ -277,6 +278,7 @@ workflow PlotVcfQcMetrics {
         input:
           bed = common_indels_bed,
           downsample_ratio = floor(CountCommonIndels.num_records / pointwise_site_downsample_limit),
+          return_record_ids = true,
           docker = g2c_analysis_docker
       }
     }
@@ -319,6 +321,7 @@ workflow PlotVcfQcMetrics {
         input:
           bed = common_svs_bed,
           downsample_ratio = floor(CountCommonSvs.num_records / pointwise_site_downsample_limit),
+          return_record_ids = true,
           docker = g2c_analysis_docker
       }
     }
