@@ -949,6 +949,7 @@ task PlotSampleMetrics {
       ~{pop_opt} \
       ~{pheno_opt} \
       ~{subset_opt} \
+      ~{constants_opt} \
       --out-prefix ~{output_prefix}.sample_metrics/~{output_prefix}
 
     # Plot twin benchmarking, if optioned

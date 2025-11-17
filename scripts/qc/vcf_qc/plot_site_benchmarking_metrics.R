@@ -393,8 +393,8 @@ if(!is.null(args$custom_constants)){
 }
 
 # Load sensitivity & PPV data
-sens.by.af <- load.benchmark.tsvs(args$sens_by_af, tolower(args$set_name))
-ppv.by.af <- load.benchmark.tsvs(args$ppv_by_af, tolower(args$set_name))
+sens.by.af <- load.benchmark.tsvs(args$sens_by_af, args$set_name)
+ppv.by.af <- load.benchmark.tsvs(args$ppv_by_af, args$set_name)
 
 # Define palette for sets
 set.colors <- rev(RLCtools::categorical.rainbow(2))
@@ -443,6 +443,11 @@ if(!is.null(ppv.by.af)){
 
 # Combine summary statistics and write to .tsv
 ss.out <- do.call("rbind", list(sens.ss, ppv.ss))
+for(sn in args$set_name){
+  ss.out[, 1] <- gsub(paste(".", sn, "$", sep=""),
+                      paste(".", tolower(sn), sep=""),
+                      ss.out[, 1])
+}
 colnames(ss.out)[1] <- paste("#", colnames(ss.out)[1], sep="")
 write.table(ss.out, paste(args$out_prefix, "summary_metrics.tsv", sep="."),
             col.names=T, row.names=F, sep="\t", quote=F)

@@ -167,7 +167,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
     if(lk < 10000){
       prettyNum(lk, big.mark=",")
     }else{
-      clean.numeric.labels(lk, acceptable.decimals=0, min.label.length=3)
+      clean.numeric.labels(lk, acceptable.decimals=1, min.label.length=3)
     }
   })
 
@@ -743,6 +743,18 @@ args <- parser$parse_args()
 #              "ref_title" = "gnomAD v4.1",
 #              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/g2c.qc.test")
+
+# # YL DEV:
+# args <- list("size_distrib" = "~/scratch/YL.v1.2.size_distribution.merged.tsv.gz",
+#              "af_distrib" = "~/scratch/YL.v1.2.af_distribution.merged.tsv.gz",
+#              "joint_distrib" = "~/scratch/YL.v1.2.size_vs_af_distribution.merged.tsv.gz",
+#              "sv_sites" = "~/scratch/YL.v1.2.all_svs.bed.gz",
+#              "common_af" = 0.01,
+#              "ref_size_distrib" = "~/scratch/site_bench_inputs_v2_may14/gnomAD_v4.1.size_distribution.merged.tsv.gz",
+#              "ref_af_distrib" = "~/scratch/site_bench_inputs_v2_may14/gnomAD_v4.1.af_distribution.merged.tsv.gz",
+#              "ref_title" = "gnomAD v4.1",
+#              "custom_constants" = "~/Desktop/Collins/VanAllen/jackie_younglung/data/yl_qc.custom_constants.R",
+#              "out_prefix" = "~/scratch/yl.qc.test")
 
 # Load custom constants if optioned
 if(!is.null(args$custom_constants)){
