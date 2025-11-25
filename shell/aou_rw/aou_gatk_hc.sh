@@ -248,8 +248,8 @@ gsutil ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/ \
 > cromshell/progress/dfci-g2c.v1.JointGenotyping.progress.tsv
 
 # Joint genotype per chromosome using chromsharded manager
-# Note: all cleanup and tracking is handled by the chromshard manager, so
-# no outputs or execution buckets need to be manually staged/cleared here (see below)
+# In practice, this workflow basically never completes successfully and needs
+# to be handled in nested / iterative patches (see below)
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/gatk-hc/GnarlyJointGenotypingPart1.wdl \
   --input-json-template $staging_dir/GnarlyJointGenotypingPart1.inputs.template.json \
@@ -264,7 +264,7 @@ code/scripts/manage_chromshards.py \
   --submission-gate 60 \
   --gcp-report-period 10 \
   --vm-gate 1000 \
-  --max-attempts 5
+  --max-attempts 2
 
 
 ################################################
@@ -353,158 +353,118 @@ code/scripts/manage_chromshards.py \
   --submission-gate 90 \
   --max-attempts 3
 
-# TODO: FINISH NEXT STEPS HERE
+# Copy all original calling intervals to staging bucket
+if ! [ -e $staging_dir/original_intervals/ ]; then
+  mkdir $staging_dir/original_intervals/
+fi
+gsutil -m cp \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/gatkhc.wgs_calling_regions.hg38.chr*.sharded.interval_list \
+  $staging_dir/original_intervals/
 
+# Build table comparing callable intervals to finished intervals for each contig
+while read contig; do
+  # Convert original intervals to BED
+  fgrep -v "@" \
+    $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
+  | awk -v OFS="\t" '{ print $1, int($2), int($3) }' \
+  | sort -Vk1,1 -k2,2n -k3,3n \
+  | bedtools merge -i - \
+  > $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.intervals.bed
+
+  # Get total number of callable bases
+  total=$( awk '{ sum+=$3-$2 }END{ print sum }' \
+             $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.intervals.bed )
+
+  # Get total territory spanned by complete VCFs
+  called=$( gsutil -m cat \
+              $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/GetTerritoriesGnarlyFirstPass/$contig/CalcDensity/dfci-g2c.v1.$contig.density.bed.gz \
+            | gunzip -c | awk '{ sum+=$3-$2 }END{ print sum }' )
+
+  # Report
+  echo -e "$contig\t$total\t$called" \
+  | awk -v OFS="\t" '{ print $1, $2, $3, $3/$2 }'
+
+done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+            contig_lists/dfci-g2c.v1.contigs.w$w.list )
 
 # Find the list of unfinished shards per contig
+# Note that this requires the prior two steps to have been run
 while read contig; do
-  # Do nothing if contig was one of the development contigs processed earlier
-  if [ $( gsutil ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/$contig 2>/dev/null | wc -l ) -gt 0 ]; then
-    continue
+  # Only retain missed intervals ≥1kb in size
+  # We assume anything smaller than this is due to boundaries at the edges of 
+  # calling intervals where no variants were found
+  fgrep "@" \
+    $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
+  > $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list
+  gsutil -m cat \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/GetTerritoriesGnarlyFirstPass/$contig/CalcDensity/dfci-g2c.v1.$contig.density.bed.gz \
+  | bedtools subtract \
+    -a $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.intervals.bed \
+    -b - \
+  | awk -v OFS="\t" '{ if ($3-$2>=1000) print $1, $2, $3, "+", ". intersection ACGTmer"}' \
+  >> $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list
+
+  # If fewer than 50 shards remain, re-shard these intervals s/t >50 shards are processed.
+  # This will help to solve the issues seen for LCRs clogging some shards.
+  n_shards_raw=$( fgrep -v "@" $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list | wc -l )
+  if [ $n_shards_raw -lt 50 ]; then
+    target_bp=$( fgrep -v "@" \
+                  $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list \
+                | awk '{ sum+=$3-$2 }END{ print int(sum / 50) }' )
+    code/scripts/split_intervals.py -v \
+      -i $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list \
+      -t $target_bp \
+      --min-interval-size 1000 \
+      -o $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.sharded.interval_list
+  else
+    cp \
+      $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list \
+      $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.sharded.interval_list
   fi
+  gsutil -m cp \
+    $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.sharded.interval_list \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/patch1/
 
-  # Define list of calling intervals as sharded by most recent Gnarly workflow
-  wid=$( tail -n1 cromshell/job_ids/dfci-g2c.v1.JointGenotyping.$contig.job_ids.list )
-  gsutil -m ls \
-    $WORKSPACE_BUCKET/cromwell-execution/GnarlyJointGenotypingPart1/$wid/call-G2CSplitIntervals/**-scattered.interval_list 2>/dev/null \
-  | sort -V \
-  > $staging_dir/scattered_intervals.$contig.list
-  n_shards_total=$( cat $staging_dir/scattered_intervals.$contig.list | wc -l )
-
-  # Define list of successful shards based on presence of tabix index (implies complete & correct VCF)
-  gsutil -m ls \
-    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/*vcf.gz.tbi 2>/dev/null \
-  > $staging_dir/finished_vcfs.$contig.list
-  n_shards_done=$( cat $staging_dir/finished_vcfs.$contig.list | wc -l )
-  n_shards_missing=$(( $n_shards_total - $n_shards_done ))
-  echo -e "$contig\t$n_shards_total\t$n_shards_done\t$n_shards_missing"
-
-  # # Download & combine interval files for unfinished shards
-  # awk -v FS="/" '{ print $NF }' $staging_dir/finished_vcfs.$contig.list \
-  # | sed "s/^dfci-g2c.v1.$contig.//g" \
-  # | awk -v FS="." '{ print $1+1 }' | sort -V \
-  # | 
-  # TODO: finish this
-done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+            contig_lists/dfci-g2c.v1.contigs.$WN.list )
 
 
-################################################
-# Clean up failed shards from joint genotyping #
-################################################
+####################################
+# Second pass for joint genotyping #
+####################################
 
-# In practice, it seems almost unavoidable that a handful (<5%) of shards will fail
-# either at ImportGVCFs or GnarlyGenotyper, usually due to inadequate resources.
-# Instead of increasing the resources for all tasks (and therefore increasing cost),
-# we can manually stage the VCFs per chromosome as below:
-
-# Note that this should be run once for each workspace for best parallelization
+# Note: this workflow is scattered across all five workspaces for max parallelization
+# It must be submitted as below in each workspace
 
 # Reaffirm staging directory
-staging_dir=staging/PosthocCleanup
+staging_dir=staging/JGSecondPass
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
-# Locate and stage successfully genotyped shards, then clear all prior execution buckets
-while read contig; do
-
-  echo $contig
-
-  # Find and stage successful shards
-  wid=$( tail -n1 cromshell/job_ids/dfci-g2c.v1.JointGenotyping.$contig.job_ids.list )
-  gsutil -m cp \
-    $WORKSPACE_BUCKET/cromwell-execution/GnarlyJointGenotypingPart1/$wid/**/call-GnarlyGenotyperFT/**dfci-g2c.v1.$contig.*.vcf.gz* \
-    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/
-
-  # Clear all prior execution buckets
-  gsutil ls $( awk -v prefix=$WORKSPACE_BUCKET '{ print prefix"/cromwell-execution/GnarlyJointGenotypingPart1/"$1"/**" }' \
-                 cromshell/job_ids/dfci-g2c.v1.JointGenotyping.$contig.job_ids.list \
-               | paste -s - ) \
-  > uris_to_delete.list
-  cleanup_garbage
-
-done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
-                     contig_lists/dfci-g2c.v1.contigs.$WN.list )
-
-# Re-shard unsuccessful intervals and copy them to temporary bucket
-while read contig; do
-
-  echo $contig
-
-  # Reaffirm contig-specific staging directory
-  contig_dir=$staging_dir/$contig
-  if ! [ -e $contig_dir ]; then mkdir $contig_dir; fi
-
-  # Get expected number of shards
-  gsutil -m cp \
-    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
-    $contig_dir/
-  n_shards=$( fgrep -v "@" $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list | wc -l )
-
-  # Derive list of failed shards
-  gsutil -m ls \
-    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/*vcf.gz \
-  | xargs -I {} basename {} \
-  | sed -e "s/\.$contig\./\t/g" -e 's/\.0\.vcf/\t/g' \
-  | awk '{ print $2 }' \
-  | sort -nk1,1 \
-  > $contig_dir/$contig.complete_shards.idx.list
-
-  # Infer list of shards to be rerun
-  seq 0 $((n_shards - 1)) \
-  | fgrep -xvf $contig_dir/$contig.complete_shards.idx.list \
-  > $contig_dir/$contig.failed_shards.idx.list
-  awk '{ $1+1 }' $contig_dir/$contig.failed_shards.idx.list
-
-  # Make list of actual intervals to be rerun
-  fgrep "@" $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
-  > $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.preshard.interval_list
-  fgrep -v "@" $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
-  | awk 'NR==FNR {a[$1+1]; next} FNR in a' \
-    $contig_dir/$contig.failed_shards.idx.list - \
-  | sort -Vk1,1 -k2,2n -k3,3n \
-  | bedtools merge -i - -o distinct -c 4,5 \
-  >> $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.preshard.interval_list
-
-  # Shard failed intervals up to a max of 5x or the contig-specific shard limit
-  n_failed_shards=$( cat $contig_dir/$contig.failed_shards.idx.list | wc -l )
-  max_permitted_shards=$n_shards
-  max_permitted_scalar=5
-  n_new_shards=$( echo -e "$(( $n_failed_shards * $max_permitted_scalar ))\n$max_permitted_shards" | sort -n | head -n1 )
-  code/scripts/split_intervals.py \
-    -i $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.preshard.interval_list \
-    --n-shards $n_new_shards \
-    --verbose \
-    --min-size 1000 \
-    -o $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.resharded.interval_list
-  gsutil cp \
-    $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.resharded.interval_list \
-    $WORKSPACE_BUCKET/misc/gatkhc_debug/
-
-done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
-                     contig_lists/dfci-g2c.v1.contigs.$WN.list )
-
-# Write .json of contig-specific scatter counts for second pass of joint genotyping on failed shards
+# Write .json of contig-specific scatter counts
 echo "{ " > $staging_dir/contig_variable_overrides.json
 while read contig; do
   kc=$( fgrep -v "@" \
-          $staging_dir/$contig/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.resharded.interval_list \
+          $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.sharded.interval_list \
         | wc -l | awk '{ printf "%i\n", $1 }' )
   echo "\"$contig\" : {\"CONTIG_SCATTER_COUNT\" : $kc },"
 done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
-                     contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
+            contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
 | paste -s -d\  | sed 's/,$//g' \
 >> $staging_dir/contig_variable_overrides.json
 echo " }" >> $staging_dir/contig_variable_overrides.json
 
-# Write template input .json for second pass of joint genotyping on failed shards
-cat << EOF > $staging_dir/GnarlyJointGenotypingPart1Patch.inputs.template.json
+# Write template .json for input
+cat << EOF > $staging_dir/GnarlyJointGenotypingPart1.patch1.inputs.template.json
 {
-  "GnarlyJointGenotypingPart1.callset_name": "dfci-g2c.v1.\$CONTIG.patch",
+  "GnarlyJointGenotypingPart1.callset_name": "dfci-g2c.v1.\$CONTIG.patch1",
   "GnarlyJointGenotypingPart1.dbsnp_vcf": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.dbsnp138.vcf",
-  "GnarlyJointGenotypingPart1.GnarlyGenotyperFT.machine_mem_mb": 16000,
+  "GnarlyJointGenotypingPart1.GnarlyGenotyperFT.machine_mem_mb": 12000,
   "GnarlyJointGenotypingPart1.gnarly_scatter_count": 1,
   "GnarlyJointGenotypingPart1.import_gvcfs_batch_size": 100,
   "GnarlyJointGenotypingPart1.import_gvcfs_disk_gb": 20,
-  "GnarlyJointGenotypingPart1.ImportGVCFsFT.machine_mem_mb": 48000,
+  "GnarlyJointGenotypingPart1.ImportGVCFsFT.jvm_max_mb": 25000,
+  "GnarlyJointGenotypingPart1.ImportGVCFsFT.machine_mem_mb": 44000,
+  "GnarlyJointGenotypingPart1.ImportGVCFsFT.n_preemptible_tries": 1,
   "GnarlyJointGenotypingPart1.intervals_already_split": true,
   "GnarlyJointGenotypingPart1.make_hard_filtered_sites": false,
   "GnarlyJointGenotypingPart1.ref_dict": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.dict",
@@ -512,31 +472,179 @@ cat << EOF > $staging_dir/GnarlyJointGenotypingPart1Patch.inputs.template.json
   "GnarlyJointGenotypingPart1.ref_fasta_index": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai",
   "GnarlyJointGenotypingPart1.sample_name_map": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/dfci-g2c.v1.gatkhc.sample_map.tsv",
   "GnarlyJointGenotypingPart1.top_level_scatter_count": \$CONTIG_SCATTER_COUNT,
-  "GnarlyJointGenotypingPart1.unpadded_intervals_file": "$WORKSPACE_BUCKET/misc/gatkhc_debug/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.resharded.interval_list"
+  "GnarlyJointGenotypingPart1.unpadded_intervals_file": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/patch1/gatkhc.wgs_calling_regions.hg38.\$CONTIG.patch1.sharded.interval_list"
 }
 EOF
 
-# Submit & monitor joint genotyping patch
+# Joint genotype patch 1 per chromosome using chromsharded manager
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/gatk-hc/GnarlyJointGenotypingPart1.wdl \
-  --input-json-template $staging_dir/GnarlyJointGenotypingPart1Patch.inputs.template.json \
+  --input-json-template $staging_dir/GnarlyJointGenotypingPart1.patch1.inputs.template.json \
   --contig-variable-overrides $staging_dir/contig_variable_overrides.json \
-  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/patch/ \
-  --name JointGenotypingPatch \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch1/ \
+  --dependencies-zip gatkhc.dependencies.zip \
+  --name JointGenotypingPatch1 \
   --contig-list <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
-                              contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
-  --status-tsv cromshell/progress/dfci-g2c.v1.JointGenotypingPatch.progress.tsv \
+                     contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
+  --status-tsv cromshell/progress/dfci-g2c.v1.JointGenotypingPatch1.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 60 \
-  --submission-gate 30 \
-  --vm-gate 1000 \
-  --max-attempts 3
+  --submission-gate 60 \
+  --gcp-report-period 10 \
+  --vm-gate 500 \
+  --max-attempts 1
 
-# Relocate the outputs from successful patch jobs to the main staging bucket
-# TODO: implement this
 
-# TODO: probably will need to handle shards that continue to fail
-# TBD on how much to automate this
+
+# ################################################
+# # Clean up failed shards from joint genotyping #
+# ################################################
+
+# # In practice, it seems almost unavoidable that a handful (<5%) of shards will fail
+# # either at ImportGVCFs or GnarlyGenotyper, usually due to inadequate resources.
+# # Instead of increasing the resources for all tasks (and therefore increasing cost),
+# # we can manually stage the VCFs per chromosome as below:
+
+# # Note that this should be run once for each workspace for best parallelization
+
+# # Reaffirm staging directory
+# staging_dir=staging/PosthocCleanup
+# if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+
+# # Locate and stage successfully genotyped shards, then clear all prior execution buckets
+# while read contig; do
+
+#   echo $contig
+
+#   # Find and stage successful shards
+#   wid=$( tail -n1 cromshell/job_ids/dfci-g2c.v1.JointGenotyping.$contig.job_ids.list )
+#   gsutil -m cp \
+#     $WORKSPACE_BUCKET/cromwell-execution/GnarlyJointGenotypingPart1/$wid/**/call-GnarlyGenotyperFT/**dfci-g2c.v1.$contig.*.vcf.gz* \
+#     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/
+
+#   # Clear all prior execution buckets
+#   gsutil ls $( awk -v prefix=$WORKSPACE_BUCKET '{ print prefix"/cromwell-execution/GnarlyJointGenotypingPart1/"$1"/**" }' \
+#                  cromshell/job_ids/dfci-g2c.v1.JointGenotyping.$contig.job_ids.list \
+#                | paste -s - ) \
+#   > uris_to_delete.list
+#   cleanup_garbage
+
+# done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+#                      contig_lists/dfci-g2c.v1.contigs.$WN.list )
+
+# # Re-shard unsuccessful intervals and copy them to temporary bucket
+# while read contig; do
+
+#   echo $contig
+
+#   # Reaffirm contig-specific staging directory
+#   contig_dir=$staging_dir/$contig
+#   if ! [ -e $contig_dir ]; then mkdir $contig_dir; fi
+
+#   # Get expected number of shards
+#   gsutil -m cp \
+#     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
+#     $contig_dir/
+#   n_shards=$( fgrep -v "@" $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list | wc -l )
+
+#   # Derive list of failed shards
+#   gsutil -m ls \
+#     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/*vcf.gz \
+#   | xargs -I {} basename {} \
+#   | sed -e "s/\.$contig\./\t/g" -e 's/\.0\.vcf/\t/g' \
+#   | awk '{ print $2 }' \
+#   | sort -nk1,1 \
+#   > $contig_dir/$contig.complete_shards.idx.list
+
+#   # Infer list of shards to be rerun
+#   seq 0 $((n_shards - 1)) \
+#   | fgrep -xvf $contig_dir/$contig.complete_shards.idx.list \
+#   > $contig_dir/$contig.failed_shards.idx.list
+#   awk '{ $1+1 }' $contig_dir/$contig.failed_shards.idx.list
+
+#   # Make list of actual intervals to be rerun
+#   fgrep "@" $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
+#   > $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.preshard.interval_list
+#   fgrep -v "@" $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
+#   | awk 'NR==FNR {a[$1+1]; next} FNR in a' \
+#     $contig_dir/$contig.failed_shards.idx.list - \
+#   | sort -Vk1,1 -k2,2n -k3,3n \
+#   | bedtools merge -i - -o distinct -c 4,5 \
+#   >> $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.preshard.interval_list
+
+#   # Shard failed intervals up to a max of 5x or the contig-specific shard limit
+#   n_failed_shards=$( cat $contig_dir/$contig.failed_shards.idx.list | wc -l )
+#   max_permitted_shards=$n_shards
+#   max_permitted_scalar=5
+#   n_new_shards=$( echo -e "$(( $n_failed_shards * $max_permitted_scalar ))\n$max_permitted_shards" | sort -n | head -n1 )
+#   code/scripts/split_intervals.py \
+#     -i $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.preshard.interval_list \
+#     --n-shards $n_new_shards \
+#     --verbose \
+#     --min-size 1000 \
+#     -o $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.resharded.interval_list
+#   gsutil cp \
+#     $contig_dir/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.resharded.interval_list \
+#     $WORKSPACE_BUCKET/misc/gatkhc_debug/
+
+# done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+#                      contig_lists/dfci-g2c.v1.contigs.$WN.list )
+
+# # Write .json of contig-specific scatter counts for second pass of joint genotyping on failed shards
+# echo "{ " > $staging_dir/contig_variable_overrides.json
+# while read contig; do
+#   kc=$( fgrep -v "@" \
+#           $staging_dir/$contig/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.resharded.interval_list \
+#         | wc -l | awk '{ printf "%i\n", $1 }' )
+#   echo "\"$contig\" : {\"CONTIG_SCATTER_COUNT\" : $kc },"
+# done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+#                      contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
+# | paste -s -d\  | sed 's/,$//g' \
+# >> $staging_dir/contig_variable_overrides.json
+# echo " }" >> $staging_dir/contig_variable_overrides.json
+
+# # Write template input .json for second pass of joint genotyping on failed shards
+# cat << EOF > $staging_dir/GnarlyJointGenotypingPart1Patch.inputs.template.json
+# {
+#   "GnarlyJointGenotypingPart1.callset_name": "dfci-g2c.v1.\$CONTIG.patch",
+#   "GnarlyJointGenotypingPart1.dbsnp_vcf": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.dbsnp138.vcf",
+#   "GnarlyJointGenotypingPart1.GnarlyGenotyperFT.machine_mem_mb": 16000,
+#   "GnarlyJointGenotypingPart1.gnarly_scatter_count": 1,
+#   "GnarlyJointGenotypingPart1.import_gvcfs_batch_size": 100,
+#   "GnarlyJointGenotypingPart1.import_gvcfs_disk_gb": 20,
+#   "GnarlyJointGenotypingPart1.ImportGVCFsFT.machine_mem_mb": 48000,
+#   "GnarlyJointGenotypingPart1.intervals_already_split": true,
+#   "GnarlyJointGenotypingPart1.make_hard_filtered_sites": false,
+#   "GnarlyJointGenotypingPart1.ref_dict": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.dict",
+#   "GnarlyJointGenotypingPart1.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
+#   "GnarlyJointGenotypingPart1.ref_fasta_index": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai",
+#   "GnarlyJointGenotypingPart1.sample_name_map": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/dfci-g2c.v1.gatkhc.sample_map.tsv",
+#   "GnarlyJointGenotypingPart1.top_level_scatter_count": \$CONTIG_SCATTER_COUNT,
+#   "GnarlyJointGenotypingPart1.unpadded_intervals_file": "$WORKSPACE_BUCKET/misc/gatkhc_debug/gatkhc.wgs_calling_regions.hg38.$contig.sharded.patch.resharded.interval_list"
+# }
+# EOF
+
+# # Submit & monitor joint genotyping patch
+# code/scripts/manage_chromshards.py \
+#   --wdl code/wdl/gatk-hc/GnarlyJointGenotypingPart1.wdl \
+#   --input-json-template $staging_dir/GnarlyJointGenotypingPart1Patch.inputs.template.json \
+#   --contig-variable-overrides $staging_dir/contig_variable_overrides.json \
+#   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/patch/ \
+#   --name JointGenotypingPatch \
+#   --contig-list <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+#                               contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
+#   --status-tsv cromshell/progress/dfci-g2c.v1.JointGenotypingPatch.progress.tsv \
+#   --workflow-id-log-prefix "dfci-g2c.v1" \
+#   --outer-gate 60 \
+#   --submission-gate 30 \
+#   --vm-gate 1000 \
+#   --max-attempts 3
+
+# # Relocate the outputs from successful patch jobs to the main staging bucket
+# # TODO: implement this
+
+# # TODO: probably will need to handle shards that continue to fail
+# # TBD on how much to automate this
 
 ###############
 # VCF cleanup #
