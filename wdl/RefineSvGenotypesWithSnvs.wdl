@@ -265,9 +265,14 @@ task QuerySnvs {
         --apply-filters PASS,. \
         --min-alleles 2 \
         --max-alleles 2 \
+        --samples-file ~{samples_list} \
+        --force-samples \
+      | bcftools +fill-tags -- -t all \
+      | bcftools view \
         --min-ac ~{min_ac} \
         --min-af $global_min_af \
         --max-af $global_max_af \
+        --include 'INFO/F_MISSING <= ~{max_ncr}' \
         -Oz -o local_vcfs/$idx.vcf.gz \
         $vcf_uri
       tabix -p vcf -f local_vcfs/$idx.vcf.gz
