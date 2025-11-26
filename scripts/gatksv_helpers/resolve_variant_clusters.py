@@ -19,6 +19,20 @@ from g2cpy import integrate_cpx_intervals, integrate_gts, integrate_infos, recur
 from sys import stdin, stdout
 
 
+def write_nonredundant_records(records, outvcf):
+    """
+    Given a list of pysam.VariantRecord objects, write those with 
+    unique POS, END, and ALT values to outvcf
+    """
+
+    pe = set([(r.pos, r.stop) for r in records])
+    for pos, end in sorted(list(pe)):
+        for rec in records:
+            if rec.pos == pos and rec.stop == end:
+                outvcf.write(rec)
+                break
+
+
 def main():
     """
     Main block
@@ -87,14 +101,13 @@ def main():
         if records[0].info.get('SVTYPE') == 'CPX':
             cpx_types = list(set([r.info.get('CPX_TYPE') for r in records]))
             if len(cpx_types) > 1:
-                for rec in records:
-                    outvcf.write(rec)
+                write_nonredundant_records(records, outvcf)
                 continue
             try:
                 cpx_ints = integrate_cpx_intervals(records, cpx_types[0], cpos, cend)
             except:
-                for rec in records:
-                    outvcf.write(rec)
+                import pdb; pdb.set_trace()
+                write_nonredundant_records(records, outvcf)
                 continue
 
         # Use first record as a template

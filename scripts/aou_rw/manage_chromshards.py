@@ -30,6 +30,7 @@ from time import sleep
 # Define constants
 hg38_primary_contigs = ['chr{}'.format(x+1) for x in range(22)] + ['chrX', 'chrY']
 strict_sub_status = 'failed aborted aborting unstaged not_started'.split()
+running_status = 'running doomed submitted'.split()
 
 # Define global thread lock
 print_lock = threading.Lock()
@@ -149,6 +150,11 @@ def relocate_outputs(workflow_id, staging_bucket, wdl_name, output_json_uri,
             exit(msg.format(key))
 
         for src_uri in src_vals:
+            
+            # Explicit skipping of Nones is necessary when src_vals is rendered as a generator
+            if src_uri is None:
+                continue
+
             # Format destination URI to keep nested structure of subworkflows
             # but to remove all arbitrary Cromwell hashes
             dest_parts = [sub('^call-', '', x) for x in src_uri.split('/') 
@@ -314,6 +320,9 @@ def main():
     parser.add_argument('--vm-gate', type=int, default=1100, help='Maximum ' +
                         'number of active GCP VMs before skipping submission; ' +
                         'useful for throttling Cromwell server load')
+    parser.add_argument('--contig-gate', type=int, default=len(hg38_primary_contigs), 
+                        help='Maximum number of active contigs before skipping ' +
+                        'submission; useful for throttling Cromwell server load')
     parser.add_argument('--submission-gate', type=float, default=0.5, help='Number ' +
                         'of minutes to pause after a new workflow submission ' +
                         '[default: 30 seconds]')
@@ -408,6 +417,7 @@ def main():
                             'Outer gate' : args.outer_gate,
                             'Submission gate' : args.submission_gate,
                             'Active VM gate' : args.vm_gate,
+                            'Active contig gate' : args.contig_gate,
                             'GCP load report period' : args.gcp_report_period,
                             'Max cycles' : max_cycles,
                             'Dry run' : args.dry_run,
@@ -589,6 +599,21 @@ def main():
                                 print(msg2.format(clean_date(), contig, n_active_vms,
                                                   args.vm_gate))
                         status = 'vm_gate_skipped'
+
+                    # Check to ensure that a permissible number of contigs are in flight
+                    n_active_contigs = sum([s in running_status for s in run_status.values()])
+                    if n_active_contigs > args.contig_gate:
+                        if not args.quiet:
+                            with print_lock:
+                                msg1 = '[{}] Status of contig {}: {}'
+                                print(msg1.format(clean_date(), contig, status))
+                                msg2 = '[{}] Skipped submission of {} due to the ' + \
+                                       'number of active contigs ({:,}) being greater ' + \
+                                       'than the value of --contig-gate ({:,})'
+                                print(msg2.format(clean_date(), contig, 
+                                                  n_active_contigs,
+                                                  args.contig_gate))
+                        status = 'contig_gate_skipped'
 
                     # Otherwise, submit workflow as normal
                     else:

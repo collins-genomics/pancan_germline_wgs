@@ -20,8 +20,14 @@ workflow RefineSvGenotypesWithSnvs {
   input {
     File sv_vcf
     File sv_vcf_idx
-    Array[File] snv_vcfs # VCFs of SNVs (can also include indels, which will be dropped)
-    Array[File] snv_vcf_idxs
+
+    # Two ways to provide SNV VCF information: as arrays for VCF & indexes, or
+    # as a two-column .tsv with URIs for VCF and index. If both are provided,
+    # the array-style inputs will be used. Also note that these VCFs don't need
+    # to exclusively include SNVs, but all non-SNVs will be dropped for genotyping
+    Array[File]? snv_vcfs
+    Array[File]? snv_vcf_idxs
+    File? snv_vcf_info_tsv
 
     # SV/SNV filtering parameters
     Float min_sv_af = 0.05
@@ -38,6 +44,29 @@ workflow RefineSvGenotypesWithSnvs {
     String linux_docker
   }
 
+  # Determine method of SNV VCF input
+  if ( defined(snv_vcfs) && defined(snv_vcf_idxs) ) {
+    call WriteSnvInfo {
+      input:
+        vcf_uris = snv_vcfs,
+        tbi_uris = snv_vcf_idxs,
+        output_prefix = output_prefix,
+        docker = linux_docker
+    }
+  }
+  File snv_info_tsv = select_first(select_all([WriteSnvInfo.snv_info_tsv, snv_vcf_info_tsv]))
+  if ( !defined(snv_vcfs) ) {
+    call GetFirstSnvVcf {
+      input:
+        tsv = snv_vcf_info_tsv,
+        docker = linux_docker
+    }
+  }
+  File first_snv_vcf = select_first(flatten(select_all([select_all(snv_vcfs), 
+                                            select_all([GetFirstSnvVcf.vcf_uri])])))
+  File first_snv_idx = select_first(flatten(select_all([select_all(snv_vcf_idxs), 
+                                            select_all([GetFirstSnvVcf.tbi_uri])])))
+
   # Gather list of matching samples between snv_vcfs and sv_vcf
   call Utils.StreamSamplesFromVcfHeader as GetSvSamples {
     input:
@@ -47,8 +76,8 @@ workflow RefineSvGenotypesWithSnvs {
   }
   call Utils.StreamSamplesFromVcfHeader as GetSnvSamples {
     input:
-      vcf = snv_vcfs[0],
-      vcf_idx = snv_vcf_idxs[0],
+      vcf = first_snv_vcf,
+      vcf_idx = first_snv_idx,
       bcftools_docker = g2c_pipeline_docker
   }
   call Utils.IntersectTextFiles as FindSharedSamples {
@@ -89,8 +118,7 @@ workflow RefineSvGenotypesWithSnvs {
       input:
         sv_vcf = vcf_info.left,
         sv_vcf_idx = vcf_info.right,
-        snv_vcfs = snv_vcfs,
-        snv_vcf_idxs = snv_vcf_idxs,
+        snv_info_tsv = snv_info_tsv,
         breakpoint_buffer_bp = breakpoint_buffer_bp,
         breakpoint_window_bp = breakpoint_window_bp,
         snv_exclusion_bed = snv_exclusion_bed
@@ -128,6 +156,37 @@ workflow RefineSvGenotypesWithSnvs {
 }
 
 
+# Extracts the first SNV VCF URI from a .tsv of VCF info
+task GetFirstSnvVcf {
+  input {
+    File tsv
+    String docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+
+    cat ~{read_tsv(tsv)} | sed -n '1p' > first_info.tsv
+    awk -v FS="\t" '{ print $1 }' first_info.tsv > vcf.list
+    awk -v FS="\t" '{ print $2 }' first_info.tsv > tbi.list
+  >>>
+
+  output {
+    String vcf_uri = read_string("vcf.list")
+    String tbi_uri = read_string("tbi.list")
+  }
+
+  runtime {
+    docker: docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 25 HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
+
+
 # Bifurcates an SV VCF based on frequency and number of alleles
 task SplitSvs {
   input {
@@ -151,11 +210,6 @@ task SplitSvs {
   command <<<
     set -eu -o pipefail
 
-    # Relocate samples list to pwd, if provided
-    if ~{defined(samples_list)}; then
-      cp ~{default="" samples_list} ./
-    fi
-
     /opt/pancan_germline_wgs/scripts/variant_filtering/bifurcate_svs_for_regenotyping.py \
       -i ~{vcf} \
       -e "~{elig_outfile}" \
@@ -177,7 +231,7 @@ task SplitSvs {
   }
 
   runtime {
-    docker: bcftools_docker
+    docker: g2c_pipeline_docker
     memory: "3.75 GB"
     cpu: 2
     disks: "local-disk " + disk_gb + " HDD"
@@ -187,3 +241,36 @@ task SplitSvs {
 }
 
 
+# Writes a two-column .tsv of SNV VCF and index information
+task WriteSnvInfo {
+  input {
+    Array[String] vcf_uris
+    Array[String] tbi_uris
+    String output_prefix
+    String docker
+  }
+
+  String outfile = output_prefix + ".snv_vcf_info.tsv"
+
+  command <<<
+    set -eu -o pipefail
+
+    paste \
+      ~{write_lines(vcf_uris)} \
+      ~{write_lines(tbi_uris)} \
+    > ~{outfile}
+  >>>
+
+  output {
+    File snv_info_tsv = outfile
+  }
+
+  runtime {
+    docker: docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 25 HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}

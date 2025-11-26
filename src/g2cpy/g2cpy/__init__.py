@@ -6,3 +6,4 @@ from .aourw import *
 from .gatksv import *
 from .genomics import *
 from .utilities import *
+from .vcf import *

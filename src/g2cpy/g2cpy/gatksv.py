@@ -12,6 +12,7 @@ GATK-SV utility functions
 
 import pybedtools as pbt
 import re
+from .genomics import cluster_bedtool
 from .utilities import recursive_flatten
 
 
@@ -24,12 +25,13 @@ def integrate_cpx_intervals(records, cpx_type, cpos, cend):
     """
 
     itypes = 'del dup ins inv'.split()
+    cpx_type = cpx_type.lower()
 
     # First, infer how many intervals there _should_ be
     exp_ints = {itype : cpx_type.count(itype) for itype in itypes}
 
     # Next, count how many intervals there _actually_ are
-    cpx_ints = tuple(set(recursive_flatten([r.get('CPX_INTERVALS') for r in records])))
+    cpx_ints = tuple(set(recursive_flatten([r.info.get('CPX_INTERVALS') for r in records])))
     obs_ints = {itype : sum([x.lower().startswith(itype) for x in cpx_ints]) 
                 for itype in itypes}
 
@@ -61,17 +63,17 @@ def integrate_cpx_intervals(records, cpx_type, cpos, cend):
         ibt_str = [re.sub('[:-]', '\t', i.split('_')[1]) 
                    for i in cpx_ints if i.startswith(itype.upper())]
         ibt = pbt.BedTool('\n'.join(ibt_str), from_string=True)
-        # TODO: implement this
+        recip = 1.01
+        while obs_ints[itype] > exp_ints[itype]:
+            recip -= 0.01
+            ibt = cluster_bedtool(ibt, recip)
+            obs_ints[itype] = len(ibt)
 
-        # OLD
-        # idf = ibt.coverage(recbt).to_dataframe()
-        # idf = idf.sort_values(by=idf.columns[-1], ascending=False)
-        # keep_ints = ['{}_{}:{}-{}'.format(itype.upper(), *il) 
-        #              for il in idf.iloc[0:exp_ints[itype], 0:3].values.tolist()]
-        # cpx_ints = [i for i in cpx_ints if not i.startswith(itype.upper())] + keep_ints
+        # Trim all intervals s/t they do not extend beyond cpos/cend
+        # TODO: implement this        
 
-    # Trim all intervals s/t they do not extend beyond cpos/cend
-    # TODO: implement this
+        import pdb; pdb.set_trace()
+        # TODO: finish implementing this
 
     return tuple(cpx_ints)
 

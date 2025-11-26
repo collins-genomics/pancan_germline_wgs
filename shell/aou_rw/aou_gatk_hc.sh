@@ -353,7 +353,7 @@ code/scripts/manage_chromshards.py \
   --submission-gate 90 \
   --max-attempts 3
 
-# Copy all original calling intervals to staging bucket
+# Copy all original calling intervals to staging directory
 if ! [ -e $staging_dir/original_intervals/ ]; then
   mkdir $staging_dir/original_intervals/
 fi
@@ -385,7 +385,7 @@ while read contig; do
   | awk -v OFS="\t" '{ print $1, $2, $3, $3/$2 }'
 
 done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
-            contig_lists/dfci-g2c.v1.contigs.w$w.list )
+            contig_lists/dfci-g2c.v1.contigs.$WN.list )
 
 # Find the list of unfinished shards per contig
 # Note that this requires the prior two steps to have been run
@@ -411,7 +411,7 @@ while read contig; do
     target_bp=$( fgrep -v "@" \
                   $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list \
                 | awk '{ sum+=$3-$2 }END{ print int(sum / 50) }' )
-    code/scripts/split_intervals.py -v \
+    code/scripts/split_intervals.py \
       -i $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list \
       -t $target_bp \
       --min-interval-size 1000 \
@@ -460,7 +460,7 @@ cat << EOF > $staging_dir/GnarlyJointGenotypingPart1.patch1.inputs.template.json
   "GnarlyJointGenotypingPart1.dbsnp_vcf": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.dbsnp138.vcf",
   "GnarlyJointGenotypingPart1.GnarlyGenotyperFT.machine_mem_mb": 12000,
   "GnarlyJointGenotypingPart1.gnarly_scatter_count": 1,
-  "GnarlyJointGenotypingPart1.import_gvcfs_batch_size": 100,
+  "GnarlyJointGenotypingPart1.import_gvcfs_batch_size": 250,
   "GnarlyJointGenotypingPart1.import_gvcfs_disk_gb": 20,
   "GnarlyJointGenotypingPart1.ImportGVCFsFT.jvm_max_mb": 25000,
   "GnarlyJointGenotypingPart1.ImportGVCFsFT.machine_mem_mb": 44000,
@@ -490,10 +490,8 @@ code/scripts/manage_chromshards.py \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 60 \
   --submission-gate 60 \
-  --gcp-report-period 10 \
   --vm-gate 500 \
   --max-attempts 1
-
 
 
 # ################################################
