@@ -5,7 +5,7 @@
 # Contact: Ryan Collins <Ryan_Collins@dfci.harvard.edu>
 # Distributed under the terms of the GNU GPL v2.0
 
-# Quality control and filtering of G2C germline callset after joint genotyping
+# Initial quality control of G2C germline callset after joint genotyping
 
 # Note that this code is designed to be run inside the AoU Researcher Workbench
 

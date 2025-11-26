@@ -329,6 +329,41 @@ task GetContigsFromVcfHeader {
 }
 
 
+task GetSamplesFromVcfHeader {
+  input {
+    File vcf
+    File vcf_idx
+    String bcftools_docker
+  }
+
+  String out_filename = basename(vcf, ".vcf.gz") + ".samples.list"
+  Int disk_gb = ceil(1.2 * size(vcf, "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    if [ "~{vcf_idx}" != "~{vcf}.tbi" ]; then
+      ln -s ~{vcf_idx} ~{vcf.tbi}
+    fi
+
+    bcftools query -l ~{vcf} > ~{out_filename}
+  >>>
+
+  output {
+    String sample_list = out_filename
+    Int n_samples = length(read_lines(out_filename))
+  }
+
+  runtime {
+    docker: bcftools_docker
+    memory: "3.75 GB"
+    cpu: 2
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+  }
+}
+
+
 task IntersectTextFiles {
   input {
     Array[File] files
@@ -591,7 +626,6 @@ task StreamSamplesFromVcfHeader {
   }
 
   String out_filename = basename(vcf, ".vcf.gz") + ".samples.list"
-  Int disk_gb = ceil(1.2 * size(vcf, "GB")) + 10
 
   parameter_meta {
     vcf: {
@@ -617,7 +651,7 @@ task StreamSamplesFromVcfHeader {
     docker: bcftools_docker
     memory: "3.75 GB"
     cpu: 2
-    disks: "local-disk " + disk_gb + " HDD"
+    disks: "local-disk 25 HDD"
     preemptible: 3
   }
 }

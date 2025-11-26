@@ -30,12 +30,15 @@ workflow RefineSvGenotypesWithSnvs {
     File? snv_vcf_info_tsv
 
     # SV/SNV filtering parameters
-    Float min_sv_af = 0.05
-    Int min_sv_ac = 20
-    Int breakpoint_buffer_bp = 5000
-    Int breakpoint_window_bp = 100000
-    File? snv_exclusion_bed
+    Float min_sv_af = 0.05             # Minimum SV AF to be regenotyped. Max is 1 - this
+    Int min_sv_ac = 20                 # Minimum SV AC to be regenotyped. Max is max(AN) - this
+    Int breakpoint_buffer_bp = 5000    # SNVs closer than this distance to each breakpoint will not be included
+    Int breakpoint_window_bp = 100000  # SNVs farther than this distance + buffer from each breakpoint will not be included
+    Float min_snv_call_rate = 0.95     # Minimum call rate for SNVs to be included
+    Float snv_freq_scalar = 5          # Frequency control parameter for SNVs, defined as AF ~ [min_sv_af / this, min_sv_af * this]
+    File? snv_exclusion_bed            # SNVs overlapping this BED file will be excluded
 
+    # Parallelization options
     Int svs_per_shard = 100
 
     String output_prefix
@@ -48,8 +51,8 @@ workflow RefineSvGenotypesWithSnvs {
   if ( defined(snv_vcfs) && defined(snv_vcf_idxs) ) {
     call WriteSnvInfo {
       input:
-        vcf_uris = snv_vcfs,
-        tbi_uris = snv_vcf_idxs,
+        vcf_uris = select_first([snv_vcfs, []]),
+        tbi_uris = select_first([snv_vcf_idxs, []]),
         output_prefix = output_prefix,
         docker = linux_docker
     }
@@ -58,14 +61,16 @@ workflow RefineSvGenotypesWithSnvs {
   if ( !defined(snv_vcfs) ) {
     call GetFirstSnvVcf {
       input:
-        tsv = snv_vcf_info_tsv,
+        tsv = select_first(select_all([snv_vcf_info_tsv])),
         docker = linux_docker
     }
   }
-  File first_snv_vcf = select_first(flatten(select_all([select_all(snv_vcfs), 
-                                            select_all([GetFirstSnvVcf.vcf_uri])])))
-  File first_snv_idx = select_first(flatten(select_all([select_all(snv_vcf_idxs), 
-                                            select_all([GetFirstSnvVcf.tbi_uri])])))
+  File first_snv_vcf = if defined(snv_vcfs) 
+                       then select_first([snv_vcfs, []])[0] 
+                       else select_first(select_all([GetFirstSnvVcf.vcf_uri]))
+  File first_snv_idx = if defined(snv_vcf_idxs) 
+                       then select_first([snv_vcf_idxs, []])[0] 
+                       else select_first(select_all([GetFirstSnvVcf.tbi_uri]))
 
   # Gather list of matching samples between snv_vcfs and sv_vcf
   call Utils.StreamSamplesFromVcfHeader as GetSvSamples {
@@ -95,7 +100,7 @@ workflow RefineSvGenotypesWithSnvs {
       min_af = min_sv_af,
       max_af = 1 - min_sv_af,
       min_ac = min_sv_ac,
-      max_ac = (2 * GetSvSamples.n_samples) - min_sv_ac,
+      max_ac = floor((2 * GetSvSamples.n_samples) - min_sv_ac),
       output_prefix = basename(sv_vcf, ".vcf.gz"),
       g2c_pipeline_docker = g2c_pipeline_docker
   }
@@ -110,20 +115,22 @@ workflow RefineSvGenotypesWithSnvs {
       n_preemptible = 1
   }
 
-  # Process each qualifying SV VCF in parallel
-  scatter ( vcf_info in zip(ShardVcf.vcf_shards, ShardVcf.vcf_shard_idxs) ) {
+  # # Process each qualifying SV VCF in parallel
+  # scatter ( vcf_info in zip(ShardVcf.vcf_shards, ShardVcf.vcf_shard_idxs) ) {
 
-    # Filter SNVs
-    call QuerySnvs {
-      input:
-        sv_vcf = vcf_info.left,
-        sv_vcf_idx = vcf_info.right,
-        snv_info_tsv = snv_info_tsv,
-        breakpoint_buffer_bp = breakpoint_buffer_bp,
-        breakpoint_window_bp = breakpoint_window_bp,
-        snv_exclusion_bed = snv_exclusion_bed
-
-    }
+  #   # Filter SNVs
+  #   call QuerySnvs {
+  #     input:
+  #       sv_vcf = vcf_info.left,
+  #       sv_vcf_idx = vcf_info.right,
+  #       snv_info_tsv = snv_info_tsv,
+  #       samples_list = FindSharedSamples.intersection_file,
+  #       breakpoint_buffer_bp = breakpoint_buffer_bp,
+  #       breakpoint_window_bp = breakpoint_window_bp,
+  #       max_ncr = 1 - min_snv_call_rate,
+  #       snv_freq_scalar = snv_freq_scalar,
+  #       snv_exclusion_bed = snv_exclusion_bed
+  #   }
     # TODO: implement this
     # - Query SNVs to the left of POS and right of END (buffer in windows of 5kb-100kb away)
     #   - Filter on min call rate
@@ -147,7 +154,7 @@ workflow RefineSvGenotypesWithSnvs {
     # Update SV GTs
     # TODO: implement this
     # - If SNV-predicted GQ > GATK-SV GQ, return (sample, SV ID, GT, GQ) to be updated in SV VCF
-  }
+  # }
 
   # Concatenate all updated SV VCFs with the passthrough VCF
   # TODO: implement this
@@ -166,7 +173,7 @@ task GetFirstSnvVcf {
   command <<<
     set -eu -o pipefail
 
-    cat ~{read_tsv(tsv)} | sed -n '1p' > first_info.tsv
+    sed -n '1p' ~{tsv} > first_info.tsv
     awk -v FS="\t" '{ print $1 }' first_info.tsv > vcf.list
     awk -v FS="\t" '{ print $2 }' first_info.tsv > tbi.list
   >>>
@@ -187,6 +194,57 @@ task GetFirstSnvVcf {
 }
 
 
+# Extracts SNVs qualified for regenotyping from a list of SNV VCFs
+task QuerySnvs {
+  input {
+    # Input data
+    File sv_vcf
+    File sv_vcf_idx
+    File snv_info_tsv
+    File samples_list
+    
+    # SNV filtering parameters
+    Int breakpoint_buffer_bp
+    Int breakpoint_window_bp
+    Float max_ncr
+    Float snv_freq_scalar
+    File? snv_exclusion_bed
+
+    Int disk_gb = 275
+    String bcftools_docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+
+    # Relocate SV tabix index, if necessary
+    if [ "~{sv_vcf_idx}" != "~{sv_vcf}.tbi" ]; then
+      ln -s ~{sv_vcf_idx} ~{sv_vcf}.tbi
+    fi
+
+    # Build query intervals
+    bcftools query \
+      -f '%CHROM\t%POS\t%INFO/END\t%INFO/AF\n' \
+      ~{sv_vcf} \
+    | awk -v FS="\t" -v OFS="\t" -v scalar=~{snv_freq_scalar} \
+        -v buffer=~{breakpoint_buffer_bp} -v window=~{breakpoint_window_bp} \
+        '{ print $1, $2-buffer-window, $2-buffer, $4/scalar, $4*scalar"\n"\
+                 $1, $3+buffer, $3+buffer+window, $4/scalar, $4*scalar }'
+  >>>
+
+  output {}
+
+  runtime {
+    docker: bcftools_docker
+    memory: "3.75 GB"
+    cpu: 2
+    disks: "local-disk " + disk_gb +" HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
+
+
 # Bifurcates an SV VCF based on frequency and number of alleles
 task SplitSvs {
   input {
@@ -196,7 +254,7 @@ task SplitSvs {
     Float min_af
     Float max_af
     Int min_ac
-    Float max_ac
+    Int max_ac
 
     String output_prefix
 
