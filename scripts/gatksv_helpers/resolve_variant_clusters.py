@@ -104,9 +104,9 @@ def main():
                 write_nonredundant_records(records, outvcf)
                 continue
             try:
-                cpx_ints = integrate_cpx_intervals(records, cpx_types[0], cpos, cend)
+                cpx_ints = integrate_cpx_intervals(records, cpx_types[0], 
+                                                   chrom, cpos, cend)
             except:
-                import pdb; pdb.set_trace()
                 write_nonredundant_records(records, outvcf)
                 continue
 

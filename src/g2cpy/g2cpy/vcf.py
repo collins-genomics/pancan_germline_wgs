@@ -192,7 +192,8 @@ def integrate_infos(records, do_cpx_intervals=False):
             if key == 'CPX_INTERVALS' and do_cpx_intervals:
                 newinfo[key] = \
                     integrate_cpx_intervals(records,
-                                            records[0].get('CPX_TYPE'),
+                                            records[0].info.get('CPX_TYPE'),
+                                            records[0].chrom,
                                             int(np.floor(np.nanmedian([r.pos for r in records]))),
                                             int(np.floor(np.nanmedian([r.stop for r in records]))))
 

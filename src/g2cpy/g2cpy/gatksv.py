@@ -12,11 +12,12 @@ GATK-SV utility functions
 
 import pybedtools as pbt
 import re
+import sys
 from .genomics import cluster_bedtool
 from .utilities import recursive_flatten
 
 
-def integrate_cpx_intervals(records, cpx_type, cpos, cend):
+def integrate_cpx_intervals(records, cpx_type, chrom, cpos, cend):
     """
     Integrates INFO/CPX_INTERVALS across two or more pysam.VariantRecord objects
     corresponding to SVTYPE=CPX from GATK-SV
@@ -69,11 +70,22 @@ def integrate_cpx_intervals(records, cpx_type, cpos, cend):
             ibt = cluster_bedtool(ibt, recip)
             obs_ints[itype] = len(ibt)
 
-        # Trim all intervals s/t they do not extend beyond cpos/cend
-        # TODO: implement this        
+            # If there is no degree of reciprocal overlap that would salvage this
+            # configuration, we exit the function
+            if recip == 0:
+                sys.exit(1)
 
-        import pdb; pdb.set_trace()
-        # TODO: finish implementing this
+        # Trim all intervals s/t they do not extend beyond cpos/cend
+        void_bounds = [['0', str(int(cpos))], [str(int(cend)), str(int(4e8))]]
+        void_str = '\n'.join(['\t'.join([chrom, sv, ev]) for sv, ev in void_bounds])
+        void_bt = pbt.BedTool(void_str, from_string=True)
+        ibt = ibt.subtract(void_bt).sort()
+
+        # Replace all intervals of this type with new, reclustered intervals
+        cpx_ints = [i for i in cpx_ints if not i.startswith(itype.upper())]
+        new_ints = ['{}_{}:{}-{}'.format(itype.upper(), chrom, start, end) 
+                    for chrom, start, end in ibt.cut(range(3))]
+        cpx_ints += new_ints
 
     return tuple(cpx_ints)
 
