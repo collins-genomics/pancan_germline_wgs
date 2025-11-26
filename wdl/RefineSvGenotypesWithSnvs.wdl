@@ -40,6 +40,7 @@ workflow RefineSvGenotypesWithSnvs {
 
     # Parallelization options
     Int svs_per_shard = 100
+    Int snv_vcfs_per_shard = 100
 
     String output_prefix
 
@@ -116,22 +117,54 @@ workflow RefineSvGenotypesWithSnvs {
       n_preemptible = 1
   }
 
+  # Shard SNV VCF information
+  call Utils.ShardTextFile as ShardVcfInfo {
+    input:
+      input_file = snv_info_tsv,
+      lines_per_split = snv_vcfs_per_shard,
+      out_prefix = output_prefix + ".snv_vcf_info",
+      g2c_analysis_docker = g2c_pipeline_docker
+  }
+  Array[File] vcf_info_chunks = ShardVcfInfo.shards
+
   # Process each qualifying SV VCF in parallel
   scatter ( vcf_info in zip(ShardTargetSvs.vcf_shards, ShardTargetSvs.vcf_shard_idxs) ) {
 
-    # Filter SNVs
-    call QuerySnvs {
+    String shard_prefix = basename(vcf_info.left, ".vcf.gz")
+
+    # Define SNV query intervals for this shard
+    call DefineQueryIntervals {
       input:
         sv_vcf = vcf_info.left,
         sv_vcf_idx = vcf_info.right,
-        snv_info_tsv = snv_info_tsv,
-        samples_list = FindSharedSamples.intersection_file,
         breakpoint_buffer_bp = breakpoint_buffer_bp,
         breakpoint_window_bp = breakpoint_window_bp,
-        min_ac = floor(min_sv_ac / snv_freq_scalar),
-        max_ncr = 1 - min_snv_call_rate,
         snv_freq_scalar = snv_freq_scalar,
-        snv_exclusion_bed = snv_exclusion_bed
+        snv_exclusion_bed = snv_exclusion_bed,
+        output_prefix = shard_prefix,
+        bcftools_docker = g2c_pipeline_docker
+    }
+
+    # Scatter over SNV VCF chunks and filter SNVs
+    scatter ( i in range(length(vcf_info_chunks)) ) {
+      call QuerySnvs {
+        input:
+          snv_info_tsv = vcf_info_chunks[i],
+          query_intervals = DefineQueryIntervals.query_intervals,
+          samples_list = FindSharedSamples.intersection_file,
+          min_ac = floor(min_sv_ac / snv_freq_scalar),
+          max_ncr = 1 - min_snv_call_rate,
+          output_prefix = shard_prefix + ".chunk_" + i,
+          g2c_pipeline_docker = g2c_pipeline_docker
+      }
+    }
+    call Utils.ConcatVcfs as ConcatSnvs {
+      input:
+        vcfs = QuerySnvs.snv_vcf,
+        vcf_idxs = QuerySnvs.snv_vcf_idx,
+        out_prefix = shard_prefix,
+        bcftools_concat_options = "--allow-overlaps --remove-duplicates",
+        bcftools_docker = g2c_pipeline_docker
     }
 
     # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
@@ -157,6 +190,73 @@ workflow RefineSvGenotypesWithSnvs {
   output {}
 }
 
+
+# Defines interval information for SNV querying
+task DefineQueryIntervals {
+  input {
+    File sv_vcf
+    File sv_vcf_idx
+
+    Int breakpoint_buffer_bp
+    Int breakpoint_window_bp
+    Float snv_freq_scalar
+    File? snv_exclusion_bed
+
+    String output_prefix
+
+    String bcftools_docker
+  }
+
+  String outfile = output_prefix + ".snv_query_intervals.tsv"
+
+  String excl_cmd = if defined(snv_exclusion_bed) 
+                    then "| bedtools subtract -a - -b " + basename(select_first([snv_exclusion_bed, ""]))
+                    else ""
+
+  Int disk_gb = ceil(2 * size(sv_vcf, "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    # Relocate SV tabix index, if necessary
+    if [ "~{sv_vcf_idx}" != "~{sv_vcf}.tbi" ]; then
+      ln -s ~{sv_vcf_idx} ~{sv_vcf}.tbi
+    fi
+
+    # Relocate exclusion bed to pwd, if provided
+    if ~{defined(snv_exclusion_bed)}; then
+      ln -s ~{default="" snv_exclusion_bed} .
+    fi
+
+    # Build query intervals
+    bcftools query \
+      -f '%CHROM\t%POS\t%INFO/END\t%INFO/AF\n' \
+      ~{sv_vcf} \
+    | awk -v FS="\t" -v OFS="\t" -v scalar=~{snv_freq_scalar} \
+        -v buffer=~{breakpoint_buffer_bp} -v window=~{breakpoint_window_bp} \
+        '{ print $1, $2-buffer-window, $2-buffer, $4/scalar, $4*scalar"\n"\
+                 $1, $3+buffer, $3+buffer+window, $4/scalar, $4*scalar }' \
+    | awk -v FS="\t" -v OFS="\t" '{ if ($2<0) $2=0; if ($5>1) $5=1; print }' \
+    ~{excl_cmd} \
+    | sort -Vk1,1 -k2,2n -k3,3n \
+    | bedtools merge -i - -d 5000 -c 4,5 -o min,max \
+    | awk -v OFS="\t" '{ print NR, $0 }' \
+    > ~{outfile}
+  >>>
+
+  output {
+    File query_intervals = outfile
+  }
+
+  runtime {
+    docker: bcftools_docker
+    memory: "3.5 GB"
+    cpu: 2
+    disks: "local-disk " + disk_gb +" HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
 
 # Extracts the first SNV VCF URI from a .tsv of VCF info
 task GetFirstSnvVcf {
@@ -192,19 +292,12 @@ task GetFirstSnvVcf {
 # Extracts SNVs qualified for regenotyping from a list of SNV VCFs
 task QuerySnvs {
   input {
-    # Input data
-    File sv_vcf
-    File sv_vcf_idx
     File snv_info_tsv
+    File query_intervals
     File samples_list
     
-    # SNV filtering parameters
-    Int breakpoint_buffer_bp
-    Int breakpoint_window_bp
     Int min_ac
     Float max_ncr
-    Float snv_freq_scalar
-    File? snv_exclusion_bed
 
     String output_prefix
 
@@ -212,15 +305,11 @@ task QuerySnvs {
     Float mem_gb = 3.5
     Int n_cpu = 2
     Int n_preemptible = 1
-    String bcftools_docker
+    String g2c_pipeline_docker
   }
 
   String out_vcf = output_prefix + ".snvs.vcf.gz"
   String out_tbi = out_vcf + ".tbi"
-
-  String excl_cmd = if defined(snv_exclusion_bed) 
-                    then "| bedtools subtract -a - -b " + select_first([snv_exclusion_bed, ""]) 
-                    else ""
 
   Int concat_threads = 2 * n_cpu
   Int sort_mem_mb = floor(1000 * (mem_gb / 2))
@@ -228,30 +317,10 @@ task QuerySnvs {
   command <<<
     set -eu -o pipefail
 
-    # Relocate SV tabix index, if necessary
-    if [ "~{sv_vcf_idx}" != "~{sv_vcf}.tbi" ]; then
-      ln -s ~{sv_vcf_idx} ~{sv_vcf}.tbi
-    fi
-
-    # Build query intervals
-    bcftools query \
-      -f '%CHROM\t%POS\t%INFO/END\t%INFO/AF\n' \
-      ~{sv_vcf} \
-    | awk -v FS="\t" -v OFS="\t" -v scalar=~{snv_freq_scalar} \
-        -v buffer=~{breakpoint_buffer_bp} -v window=~{breakpoint_window_bp} \
-        '{ print $1, $2-buffer-window, $2-buffer, $4/scalar, $4*scalar"\n"\
-                 $1, $3+buffer, $3+buffer+window, $4/scalar, $4*scalar }' \
-    | awk -v FS="\t" -v OFS="\t" '{ if ($2<0) $2=0; if ($5>1) $5=1; print }' \
-    ~{excl_cmd} \
-    | sort -Vk1,1 -k2,2n -k3,3n \
-    | bedtools merge -i - -d 5000 -c 4,5 -o min,max \
-    | awk -v OFS="\t" '{ print NR, $0 }' \
-    > snv_query_intervals.tsv
-
     # Get absolute minimum & maximum frequencies to permit in any interval
-    global_min_af=$( cut -f5 snv_query_intervals.tsv | sort -nk1,1 | sed -n '1p' )
-    global_max_af=$( cut -f6 snv_query_intervals.tsv | sort -nrk1,1 | sed -n '1p' )
-    cut -f2-4 snv_query_intervals.tsv > snv_query_intervals.bed
+    global_min_af=$( cut -f5 ~{query_intervals} | sort -nk1,1 | sed -n '1p' )
+    global_max_af=$( cut -f6 ~{query_intervals} | sort -nrk1,1 | sed -n '1p' )
+    cut -f2-4 ~{query_intervals} > snv_query_intervals.bed
 
     # Make local mini-VCFs across all query intervals
     mkdir local_vcfs
@@ -265,16 +334,19 @@ task QuerySnvs {
         --apply-filters PASS,. \
         --min-alleles 2 \
         --max-alleles 2 \
+        --min-ac ~{min_ac} \
         --samples-file ~{samples_list} \
         --force-samples \
-      | bcftools +fill-tags -- -t all \
+        $vcf_uri \
+      | bcftools +fill-tags -- -t AC,AN,AF,F_MISSING \
       | bcftools view \
         --min-ac ~{min_ac} \
         --min-af $global_min_af \
         --max-af $global_max_af \
         --include 'INFO/F_MISSING <= ~{max_ncr}' \
-        -Oz -o local_vcfs/$idx.vcf.gz \
-        $vcf_uri
+      | /opt/pancan_germline_wgs/scripts/vcf_qc/set_g2c_qc_variant_ids.py \
+      | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
+        -Oz -o local_vcfs/$idx.vcf.gz
       tabix -p vcf -f local_vcfs/$idx.vcf.gz
       if [ $( bcftools query -f '%CHROM\n' local_vcfs/$idx.vcf.gz | wc -l ) -eq 0 ]; then
         rm local_vcfs/$idx.vcf.gz local_vcfs/$idx.vcf.gz.tbi
@@ -288,7 +360,7 @@ task QuerySnvs {
     mkdir region_vcfs
     while read ridx chrom start end minaf maxaf; do
       echo -e "\nMerging local VCFs for region $ridx ($chrom:$start-$end)..."
-      while read vidx, vcf; do
+      while read vidx vcf; do
         bcftools view \
           --region "$chrom:$start-$end" \
           --min-af $minaf \
@@ -313,7 +385,7 @@ task QuerySnvs {
         -Oz -o region_vcfs/$ridx.clean.vcf.gz
       tabix -p vcf region_vcfs/cleaned.$ridx.vcf.gz
       rm region_vcfs/$ridx.*.vcf.gz* region_vcfs/$ridx.input_vcfs.list
-    done < snv_query_intervals.tsv
+    done < ~{query_intervals}
 
     # Finally, combine cleaned & sorted VCFs across all regions
     find region_vcfs/ -name "cleaned.*.vcf.gz" \
@@ -332,7 +404,7 @@ task QuerySnvs {
   }
 
   runtime {
-    docker: bcftools_docker
+    docker: g2c_pipeline_docker
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb +" HDD"
