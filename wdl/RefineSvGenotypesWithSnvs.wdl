@@ -39,7 +39,7 @@ workflow RefineSvGenotypesWithSnvs {
     File? snv_exclusion_bed            # SNVs overlapping this BED file will be excluded
 
     # Parallelization options
-    Int svs_per_shard = 100
+    Int svs_per_shard = 200
     Int snv_vcfs_per_shard = 100
 
     String output_prefix
@@ -162,22 +162,25 @@ workflow RefineSvGenotypesWithSnvs {
       input:
         vcfs = QuerySnvs.snv_vcf,
         vcf_idxs = QuerySnvs.snv_vcf_idx,
-        out_prefix = shard_prefix,
+        out_prefix = shard_prefix + ".eligible_snvs",
         bcftools_concat_options = "--allow-overlaps --remove-duplicates",
         bcftools_docker = g2c_pipeline_docker
     }
 
     # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
-    # TODO: implement this
-    # - Make VCF sandwich of (left flanking SNVs) + SV + (right flanking SNVs)
-    # - Compute all LD with plink (min R2 > 0.2?)
-    # - Rank-order SNVs by LD R2 per flank and take up to 5 best tag SNVs from each flank
-    # - Extract allele dosage for each SNP (2 * AB)
-    # - Load tag SNP AD and SV GTs into R
-    # - Fit linear regression of SV AC ~ tag SNP ADs using 10-fold CV
-    #   - Need to think about how to handle/prespecify train/test split (by cohort etc)
-    # - Predict SV AC from tag SNPs using best-fit regression model
-    # - Compute SNV-based GQ by ratio of linear distances between integer AC states (or maybe multivariate gaussian)
+    call ImputeSvs {
+      input:
+        sv_vcf = vcf_info.left,
+        sv_vcf_idx = vcf_info.right,
+        snv_vcf = ConcatSnvs.merged_vcf,
+        snv_vcf_idx = ConcatSnvs.merged_vcf_idx,
+        training_samples_list = FindSharedSamples.intersection_file,
+        breakpoint_buffer_bp = breakpoint_buffer_bp,
+        breakpoint_window_bp = breakpoint_window_bp,
+        snv_freq_scalar = snv_freq_scalar,
+        output_prefix = shard_prefix,
+        g2c_pipeline_docker = g2c_pipeline_docker
+    }
 
     # Update SV GTs
     # TODO: implement this
@@ -289,6 +292,154 @@ task GetFirstSnvVcf {
 }
 
 
+# Combines curated SNVs & SVs to impute SV genotypes for all eligible samples
+task ImputeSvs {
+  input {
+    File sv_vcf
+    File sv_vcf_idx
+    
+    File snv_vcf
+    File snv_vcf_idx
+    
+    File training_samples_list
+    Int breakpoint_buffer_bp
+    Int breakpoint_window_bp
+    Float snv_freq_scalar
+    Float min_ld_r2 = 0.2
+    String ref_build = "hg38"
+    Int max_snps_per_flank = 10
+    
+    String output_prefix
+
+    String g2c_pipeline_docker
+
+    Float mem_gb = 15.5
+    Int n_cpu = 8
+    Int n_preemptible = 1
+  }
+
+  Int plink_ld_window_kb = breakpoint_buffer_bp + breakpoint_window_bp + 1
+
+  Int disk_gb = ceil(2 * size([sv_vcf, snv_vcf])) + 10
+
+  Int bcftools_threads = (2 * n_cpu) - 1
+
+  command <<<
+    set -eu -o pipefail
+
+    # Make list of SVs to process
+    bcftools query -f '%CHROM\t%POS\t%INFO/END\t%ID\t%INFO/AF\n' ~{sv_vcf} \
+    | sort -Vk1,1 -k2,2n -k3,3n -k4,4V \
+    > svs.bed
+
+    # Make dummy .fam file
+    awk -v OFS="\t" '{ print $1, $1, 0, 0, 0, 0 }' ~{training_samples_list} > samples.fam
+
+    # Process each SV in serial
+    while read chrom start end svid svaf; do
+
+      echo -e "\nNow processing $svid..."
+
+      mkdir $svid
+
+      # Compile information for SNV filtering
+      echo "$chrom\t$start" \
+      | awk -v FS="\t" -v OFS="\t" \
+        -v buffer=~{breakpoint_buffer_bp} -v window=~{breakpoint_window_bp} \
+        '{ print $1, $2-buffer-window, $2-buffer }' \
+      | awk -v FS="\t" -v OFS="\t" '{ if ($2<0) $2=0; print }' \
+      > $svid/left.window.bed
+      echo "$chrom\t$end" \
+      | awk -v FS="\t" -v OFS="\t" \
+        -v buffer=~{breakpoint_buffer_bp} -v window=~{breakpoint_window_bp} \
+        '{ print $1, $2+buffer, $2+buffer+window }' \
+      | awk -v FS="\t" -v OFS="\t" '{ if ($2<0) $2=0; print }' \
+      > $svid/right.window.bed
+      min_snv_af=$( echo $svaf | awk -v scalar=~{snv_freq_scalar} '{ print $1 / scalar }' )
+      max_snv_af=$( echo $svaf | awk -v scalar=~{snv_freq_scalar} '{ print $1 * scalar }' )
+    
+      # Make VCF sandwich of (left flanking SNVs) + SV + (right flanking SNVs)
+      for flank in left right; do
+        bcftools view \
+          --samples-file ~{training_samples_list} \
+          --force-samples \
+          --region-file $svid/$flank.window.bed \
+          --min-af $min_snv_af \
+          --max-af $max_snv_af \
+          -Oz -o $svid/$flank.snvs.vcf.gz \
+          ~{snv_vcf}
+        tabix -p vcf -f $svid/$flank.snvs.vcf.gz
+      done
+      bcftools view \
+        --samples-file ~{training_samples_list} \
+        --force-samples \
+        --include "ID = \"$svid\"" \
+        -Oz -o $svid/sv.vcf.gz \
+        ~{snv_vcf}
+      tabix -p vcf -f $svid/sv.vcf.gz
+      bcftools merge \
+        --force-samples \
+        -m none \
+        --threads ~{bcftools_threads} \
+        -Oz -o $svid/sandwich.vcf.gz \
+        $svid/left.snvs.vcf.gz \
+        $svid/sv.vcf.gz \
+        $svid/right.snvs.vcf.gz
+      tabix -p vcf -f $svid/sandwich.vcf.gz
+
+      # Compute all LD vs. target SV with plink
+      plink2 \
+        --r2-unphased 'yes-really' \
+        --ld-window-kb ~{plink_ld_window_kb} \
+        --ld-window-r2 ~{min_ld_r2} \
+        --split-par "~{ref_build}" \
+        --polyploid-mode missing \
+        --fam samples.fam \
+        --ld-snp "$svid" \
+        --vcf $svid/sandwich.vcf.gz \
+        --out $svid/ld
+      cut -f6,7 $svid/ld.vcor | sed '1d' | sort -nrk2,2 -k1,1V > $svid/ld.vcor.slim
+
+      # Rank-order SNVs by LD R2 per flank and take up to N best tag SNVs from each flank
+      for flank in left right; do
+        bcftools query -f '%ID\n' $svid/$flank.snvs.vcf.gz > $svid/$flank.vids.list
+        fgrep \
+          -wf $svid/$flank.vids.list \
+          $svid/ld.vcor.slim \
+         | head -n ~{max_snps_per_flank} \
+         | cut -f1 \
+         > $svid/$flank.keep_vids.list || true
+      done
+
+      # TODO: finish implementing this
+      # - Extract allele dosage for each SNP (2 * AB)
+      # - Load tag SNP AD and SV GTs into R
+      # - Fit linear regression of SV AC ~ tag SNP ADs using 10-fold CV
+      #   - Need to think about how to handle/prespecify train/test split (by cohort etc)
+      # - Predict SV AC from tag SNPs using best-fit regression model
+      # - Compute SNV-based GQ by ratio of linear distances between integer AC states (or maybe multivariate gaussian)
+
+      # Clean up
+      rm -rf $svid
+
+    done < svs.bed
+
+
+  >>>
+
+  output {}
+
+  runtime {
+    docker: g2c_pipeline_docker
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: n_preemptible
+    maxRetries: 1
+  }
+}
+
+
 # Extracts SNVs qualified for regenotyping from a list of SNV VCFs
 task QuerySnvs {
   input {
@@ -298,6 +449,8 @@ task QuerySnvs {
     
     Int min_ac
     Float max_ncr
+
+    Int max_stream_attempts = 5
 
     String output_prefix
 
@@ -325,77 +478,135 @@ task QuerySnvs {
     # Make local mini-VCFs across all query intervals
     mkdir local_vcfs
     while read idx vcf_uri tbi_uri; do
+
       echo -e "\nQuerying $( basename $vcf_uri )..."
-      gsutil cp $tbi_uri ./
-      export GCS_OAUTH_TOKEN=`gcloud auth application-default print-access-token`
-      bcftools view \
-        --regions-file snv_query_intervals.bed \
-        --types snps \
-        --apply-filters PASS,. \
-        --min-alleles 2 \
-        --max-alleles 2 \
-        --min-ac ~{min_ac} \
-        --samples-file ~{samples_list} \
-        --force-samples \
-        $vcf_uri \
-      | bcftools +fill-tags -- -t AC,AN,AF,F_MISSING \
-      | bcftools view \
-        --min-ac ~{min_ac} \
-        --min-af $global_min_af \
-        --max-af $global_max_af \
-        --include 'INFO/F_MISSING <= ~{max_ncr}' \
-      | /opt/pancan_germline_wgs/scripts/vcf_qc/set_g2c_qc_variant_ids.py \
-      | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
-        -Oz -o local_vcfs/$idx.vcf.gz
-      tabix -p vcf -f local_vcfs/$idx.vcf.gz
+    
+      gsutil cp "$tbi_uri" ./
+
+      # Fault-tolerance loop for dropped htslib remote streams
+      attempt=1
+      success=0
+      while [[ $attempt -le ~{max_stream_attempts} ]]; do
+
+        echo "Attempt $attempt for $( basename $vcf_uri )..."
+
+        # Clear previous unsuccessful attempts
+        rm -f "local_vcfs/$idx.vcf.gz" "local_vcfs/$idx.vcf.gz.tbi" || true
+      
+        # Refresh token
+        export GCS_OAUTH_TOKEN=`gcloud auth application-default print-access-token`
+
+        # Subshell this extraction command so the task isn't killed by set -e
+        (
+          bcftools view \
+            --regions-file snv_query_intervals.bed \
+            --types snps \
+            --apply-filters PASS,. \
+            --min-alleles 2 \
+            --max-alleles 2 \
+            --min-ac ~{min_ac} \
+            --samples-file ~{samples_list} \
+            --force-samples \
+            $vcf_uri \
+          | bcftools +fill-tags -- -t AC,AN,AF,F_MISSING \
+          | bcftools view \
+            --min-ac ~{min_ac} \
+            --min-af $global_min_af \
+            --max-af $global_max_af \
+            --include 'INFO/F_MISSING <= ~{max_ncr}' \
+          | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
+          | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
+            -Oz -o local_vcfs/$idx.vcf.gz
+        )
+        pipe_status=$?
+
+        # Completion check
+        if [[ $pipe_status -ne 0 ]]; then
+          echo "Remote streaming failed with status $pipe_status"
+        else
+          # Index output as success criteria
+          if tabix -p vcf -f "local_vcfs/$idx.vcf.gz"; then
+            echo "Tabix index succeeded; moving on."
+            success=1
+            break
+          else
+            echo "Tabix index failed; retrying."
+          fi
+        fi
+
+        attempt=$(( attempt + 1 ))
+        sleep 5
+      done
+      if [[ $success -eq 0 ]]; then
+        echo "Failed after ~{max_stream_attempts} attempts. Killing task."
+        exit 1
+      fi
+
+      # Delete VCF & index if no variants are found
       if [ $( bcftools query -f '%CHROM\n' local_vcfs/$idx.vcf.gz | wc -l ) -eq 0 ]; then
         rm local_vcfs/$idx.vcf.gz local_vcfs/$idx.vcf.gz.tbi
       fi
+
     done < <( awk -v FS="\t" -v OFS="\t" '{ print NR, $1, $2 }' ~{snv_info_tsv} )
     find local_vcfs/ -name "*.vcf.gz" \
     | sort -V | awk -v OFS="\t" '{ print NR, $1 }' \
     > local_vcfs.list
 
-    # Combine all local mini-VCFs per query region, with more precise filtering
-    mkdir region_vcfs
-    while read ridx chrom start end minaf maxaf; do
-      echo -e "\nMerging local VCFs for region $ridx ($chrom:$start-$end)..."
-      while read vidx vcf; do
-        bcftools view \
-          --region "$chrom:$start-$end" \
-          --min-af $minaf \
-          --max-af $maxaf \
-          -Oz -o region_vcfs/$ridx.$vidx.vcf.gz \
-          $vcf
-        tabix -p vcf -f region_vcfs/$ridx.$vidx.vcf.gz
-        if [ $( bcftools query -f '%CHROM\n' region_vcfs/$ridx.$vidx.vcf.gz | wc -l ) -eq 0 ]; then
-          rm region_vcfs/$ridx.$vidx.vcf.gz region_vcfs/$ridx.$vidx.vcf.gz.tbi
-        fi
-      done < local_vcfs.list
-      find region_vcfs/ -name "$ridx.*.vcf.gz" \
-      | sort -V > region_vcfs/$ridx.input_vcfs.list
+    # Check to ensure some VCFs overlapped query intervals; otherwise, make dummy VCF and exit
+    if [ $( cat local_vcfs.list | wc -l) -eq 0 ]; then
+
+      gsutil cat \
+        $( cut -f1 ~{snv_info_tsv} | sed -n '1p' ) \
+      | bcftools --header-only \
+        --samples-file ~{samples_list} \
+        --force-samples \
+        -Oz -o ~{out_vcf}
+      tabix ~{out_vcf}
+    
+    else
+
+      # Combine all local mini-VCFs per query region, with more precise filtering
+      mkdir region_vcfs
+      while read ridx chrom start end minaf maxaf; do
+        echo -e "\nMerging local VCFs for region $ridx ($chrom:$start-$end)..."
+        while read vidx vcf; do
+          bcftools view \
+            --region "$chrom:$start-$end" \
+            --min-af $minaf \
+            --max-af $maxaf \
+            -Oz -o region_vcfs/$ridx.$vidx.vcf.gz \
+            $vcf
+          tabix -p vcf -f region_vcfs/$ridx.$vidx.vcf.gz
+          if [ $( bcftools query -f '%CHROM\n' region_vcfs/$ridx.$vidx.vcf.gz | wc -l ) -eq 0 ]; then
+            rm region_vcfs/$ridx.$vidx.vcf.gz region_vcfs/$ridx.$vidx.vcf.gz.tbi
+          fi
+        done < local_vcfs.list
+        find region_vcfs/ -name "$ridx.*.vcf.gz" \
+        | sort -V > region_vcfs/$ridx.input_vcfs.list
+        bcftools concat \
+          --threads ~{concat_threads} \
+          --allow-overlaps \
+          --remove-duplicates \
+          --file-list region_vcfs/$ridx.input_vcfs.list \
+        | bcftools sort \
+          --max-mem "~{sort_mem_mb}M" \
+          --temp-dir region_vcfs/ \
+          -Oz -o region_vcfs/$ridx.clean.vcf.gz
+        tabix -p vcf region_vcfs/cleaned.$ridx.vcf.gz
+        rm region_vcfs/$ridx.*.vcf.gz* region_vcfs/$ridx.input_vcfs.list
+      done < ~{query_intervals}
+
+      # Finally, combine cleaned & sorted VCFs across all regions
+      find region_vcfs/ -name "cleaned.*.vcf.gz" \
+      | sort -V > outer_merge_inputs.list
       bcftools concat \
         --threads ~{concat_threads} \
-        --allow-overlaps \
-        --remove-duplicates \
-        --file-list region_vcfs/$ridx.input_vcfs.list \
-      | bcftools sort \
-        --max-mem "~{sort_mem_mb}M" \
-        --temp-dir region_vcfs/ \
-        -Oz -o region_vcfs/$ridx.clean.vcf.gz
-      tabix -p vcf region_vcfs/cleaned.$ridx.vcf.gz
-      rm region_vcfs/$ridx.*.vcf.gz* region_vcfs/$ridx.input_vcfs.list
-    done < ~{query_intervals}
+        --naive \
+        --file-list outer_merge_inputs.list \
+        -Oz -o ~{out_vcf}
+      tabix -p vcf -f ~{out_vcf}
 
-    # Finally, combine cleaned & sorted VCFs across all regions
-    find region_vcfs/ -name "cleaned.*.vcf.gz" \
-    | sort -V > outer_merge_inputs.list
-    bcftools concat \
-      --threads ~{concat_threads} \
-      --naive \
-      --file-list outer_merge_inputs.list \
-      -Oz -o ~{out_vcf}
-    tabix -p vcf -f ~{out_vcf}
+    fi
   >>>
 
   output {
