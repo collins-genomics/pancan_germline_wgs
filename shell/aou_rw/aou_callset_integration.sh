@@ -59,7 +59,7 @@ cd ~
 code/scripts/setup_cromshell.py
 
 # Install necessary packages
-. code/refs/install_packages.sh python R
+. code/refs/install_packages.sh python
 
 # Infer workspace number and save as environment variable
 export WN=$( get_workspace_number )

@@ -343,14 +343,14 @@ task GetSamplesFromVcfHeader {
     set -eu -o pipefail
 
     if [ "~{vcf_idx}" != "~{vcf}.tbi" ]; then
-      ln -s ~{vcf_idx} ~{vcf.tbi}
+      ln -s ~{vcf_idx} ~{vcf}.tbi
     fi
 
     bcftools query -l ~{vcf} > ~{out_filename}
   >>>
 
   output {
-    String sample_list = out_filename
+    File sample_list = out_filename
     Int n_samples = length(read_lines(out_filename))
   }
 
@@ -368,10 +368,9 @@ task IntersectTextFiles {
   input {
     Array[File] files
     String outfile = "intersection.txt"
+    Int disk_gb = 25
     String docker
   }
-
-  Int disk_gb = 2 * ceil(size(files, "GB")) + 10
 
   command <<<
     set -eu -o pipefail
@@ -643,7 +642,7 @@ task StreamSamplesFromVcfHeader {
   >>>
 
   output {
-    String sample_list = out_filename
+    File sample_list = out_filename
     Int n_samples = length(read_lines(out_filename))
   }
 

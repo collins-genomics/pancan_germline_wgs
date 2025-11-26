@@ -85,9 +85,10 @@ workflow RefineSvGenotypesWithSnvs {
       vcf_idx = first_snv_idx,
       bcftools_docker = g2c_pipeline_docker
   }
+  Array[File] raw_sample_lists = select_all([GetSvSamples.sample_list, GetSnvSamples.sample_list])
   call Utils.IntersectTextFiles as FindSharedSamples {
     input:
-      files = [GetSvSamples.sample_list, GetSnvSamples.sample_list],
+      files = raw_sample_lists,
       outfile = output_prefix + ".shared_samples.list",
       docker = linux_docker
   }
@@ -115,29 +116,23 @@ workflow RefineSvGenotypesWithSnvs {
       n_preemptible = 1
   }
 
-  # # Process each qualifying SV VCF in parallel
-  # scatter ( vcf_info in zip(ShardVcf.vcf_shards, ShardVcf.vcf_shard_idxs) ) {
+  # Process each qualifying SV VCF in parallel
+  scatter ( vcf_info in zip(ShardTargetSvs.vcf_shards, ShardTargetSvs.vcf_shard_idxs) ) {
 
-  #   # Filter SNVs
-  #   call QuerySnvs {
-  #     input:
-  #       sv_vcf = vcf_info.left,
-  #       sv_vcf_idx = vcf_info.right,
-  #       snv_info_tsv = snv_info_tsv,
-  #       samples_list = FindSharedSamples.intersection_file,
-  #       breakpoint_buffer_bp = breakpoint_buffer_bp,
-  #       breakpoint_window_bp = breakpoint_window_bp,
-  #       max_ncr = 1 - min_snv_call_rate,
-  #       snv_freq_scalar = snv_freq_scalar,
-  #       snv_exclusion_bed = snv_exclusion_bed
-  #   }
-    # TODO: implement this
-    # - Query SNVs to the left of POS and right of END (buffer in windows of 5kb-100kb away)
-    #   - Filter on min call rate
-    #   - Mask low-complexity regions & segdups
-    #   - Filter on AF ~ [1/5, 5] * SV_AF
-    #   - Biallelic filter PASS
-    # Should be clever about this -- can maybe make bedgraph or bed with min AF / min AC for any relevant SV for that window?
+    # Filter SNVs
+    call QuerySnvs {
+      input:
+        sv_vcf = vcf_info.left,
+        sv_vcf_idx = vcf_info.right,
+        snv_info_tsv = snv_info_tsv,
+        samples_list = FindSharedSamples.intersection_file,
+        breakpoint_buffer_bp = breakpoint_buffer_bp,
+        breakpoint_window_bp = breakpoint_window_bp,
+        min_ac = floor(min_sv_ac / snv_freq_scalar),
+        max_ncr = 1 - min_snv_call_rate,
+        snv_freq_scalar = snv_freq_scalar,
+        snv_exclusion_bed = snv_exclusion_bed
+    }
 
     # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
     # TODO: implement this
@@ -154,7 +149,7 @@ workflow RefineSvGenotypesWithSnvs {
     # Update SV GTs
     # TODO: implement this
     # - If SNV-predicted GQ > GATK-SV GQ, return (sample, SV ID, GT, GQ) to be updated in SV VCF
-  # }
+  }
 
   # Concatenate all updated SV VCFs with the passthrough VCF
   # TODO: implement this
@@ -206,13 +201,29 @@ task QuerySnvs {
     # SNV filtering parameters
     Int breakpoint_buffer_bp
     Int breakpoint_window_bp
+    Int min_ac
     Float max_ncr
     Float snv_freq_scalar
     File? snv_exclusion_bed
 
+    String output_prefix
+
     Int disk_gb = 275
+    Float mem_gb = 3.5
+    Int n_cpu = 2
+    Int n_preemptible = 1
     String bcftools_docker
   }
+
+  String out_vcf = output_prefix + ".snvs.vcf.gz"
+  String out_tbi = out_vcf + ".tbi"
+
+  String excl_cmd = if defined(snv_exclusion_bed) 
+                    then "| bedtools subtract -a - -b " + select_first([snv_exclusion_bed, ""]) 
+                    else ""
+
+  Int concat_threads = 2 * n_cpu
+  Int sort_mem_mb = floor(1000 * (mem_gb / 2))
 
   command <<<
     set -eu -o pipefail
@@ -229,17 +240,98 @@ task QuerySnvs {
     | awk -v FS="\t" -v OFS="\t" -v scalar=~{snv_freq_scalar} \
         -v buffer=~{breakpoint_buffer_bp} -v window=~{breakpoint_window_bp} \
         '{ print $1, $2-buffer-window, $2-buffer, $4/scalar, $4*scalar"\n"\
-                 $1, $3+buffer, $3+buffer+window, $4/scalar, $4*scalar }'
+                 $1, $3+buffer, $3+buffer+window, $4/scalar, $4*scalar }' \
+    | awk -v FS="\t" -v OFS="\t" '{ if ($2<0) $2=0; if ($5>1) $5=1; print }' \
+    ~{excl_cmd} \
+    | sort -Vk1,1 -k2,2n -k3,3n \
+    | bedtools merge -i - -d 5000 -c 4,5 -o min,max \
+    | awk -v OFS="\t" '{ print NR, $0 }' \
+    > snv_query_intervals.tsv
+
+    # Get absolute minimum & maximum frequencies to permit in any interval
+    global_min_af=$( cut -f5 snv_query_intervals.tsv | sort -nk1,1 | sed -n '1p' )
+    global_max_af=$( cut -f6 snv_query_intervals.tsv | sort -nrk1,1 | sed -n '1p' )
+    cut -f2-4 snv_query_intervals.tsv > snv_query_intervals.bed
+
+    # Make local mini-VCFs across all query intervals
+    mkdir local_vcfs
+    while read idx vcf_uri tbi_uri; do
+      echo -e "\nQuerying $( basename $vcf_uri )..."
+      gsutil cp $tbi_uri ./
+      export GCS_OAUTH_TOKEN=`gcloud auth application-default print-access-token`
+      bcftools view \
+        --regions-file snv_query_intervals.bed \
+        --types snps \
+        --apply-filters PASS,. \
+        --min-alleles 2 \
+        --max-alleles 2 \
+        --min-ac ~{min_ac} \
+        --min-af $global_min_af \
+        --max-af $global_max_af \
+        -Oz -o local_vcfs/$idx.vcf.gz \
+        $vcf_uri
+      tabix -p vcf -f local_vcfs/$idx.vcf.gz
+      if [ $( bcftools query -f '%CHROM\n' local_vcfs/$idx.vcf.gz | wc -l ) -eq 0 ]; then
+        rm local_vcfs/$idx.vcf.gz local_vcfs/$idx.vcf.gz.tbi
+      fi
+    done < <( awk -v FS="\t" -v OFS="\t" '{ print NR, $1, $2 }' ~{snv_info_tsv} )
+    find local_vcfs/ -name "*.vcf.gz" \
+    | sort -V | awk -v OFS="\t" '{ print NR, $1 }' \
+    > local_vcfs.list
+
+    # Combine all local mini-VCFs per query region, with more precise filtering
+    mkdir region_vcfs
+    while read ridx chrom start end minaf maxaf; do
+      echo -e "\nMerging local VCFs for region $ridx ($chrom:$start-$end)..."
+      while read vidx, vcf; do
+        bcftools view \
+          --region "$chrom:$start-$end" \
+          --min-af $minaf \
+          --max-af $maxaf \
+          -Oz -o region_vcfs/$ridx.$vidx.vcf.gz \
+          $vcf
+        tabix -p vcf -f region_vcfs/$ridx.$vidx.vcf.gz
+        if [ $( bcftools query -f '%CHROM\n' region_vcfs/$ridx.$vidx.vcf.gz | wc -l ) -eq 0 ]; then
+          rm region_vcfs/$ridx.$vidx.vcf.gz region_vcfs/$ridx.$vidx.vcf.gz.tbi
+        fi
+      done < local_vcfs.list
+      find region_vcfs/ -name "$ridx.*.vcf.gz" \
+      | sort -V > region_vcfs/$ridx.input_vcfs.list
+      bcftools concat \
+        --threads ~{concat_threads} \
+        --allow-overlaps \
+        --remove-duplicates \
+        --file-list region_vcfs/$ridx.input_vcfs.list \
+      | bcftools sort \
+        --max-mem "~{sort_mem_mb}M" \
+        --temp-dir region_vcfs/ \
+        -Oz -o region_vcfs/$ridx.clean.vcf.gz
+      tabix -p vcf region_vcfs/cleaned.$ridx.vcf.gz
+      rm region_vcfs/$ridx.*.vcf.gz* region_vcfs/$ridx.input_vcfs.list
+    done < snv_query_intervals.tsv
+
+    # Finally, combine cleaned & sorted VCFs across all regions
+    find region_vcfs/ -name "cleaned.*.vcf.gz" \
+    | sort -V > outer_merge_inputs.list
+    bcftools concat \
+      --threads ~{concat_threads} \
+      --naive \
+      --file-list outer_merge_inputs.list \
+      -Oz -o ~{out_vcf}
+    tabix -p vcf -f ~{out_vcf}
   >>>
 
-  output {}
+  output {
+    File snv_vcf = out_vcf
+    File snv_vcf_idx = out_tbi
+  }
 
   runtime {
     docker: bcftools_docker
-    memory: "3.75 GB"
-    cpu: 2
+    memory: mem_gb + " GB"
+    cpu: n_cpu
     disks: "local-disk " + disk_gb +" HDD"
-    preemptible: 1
+    preemptible: n_preemptible
     maxRetries: 1
   }
 }
