@@ -15,6 +15,7 @@ Note that functions related to VCF parsing or manipulation are found in vcf.py
 import pybedtools as pbt
 import networkx as nx
 import subprocess
+from .utilities import hash_string
 from numpy import nanmedian
 from re import sub
 

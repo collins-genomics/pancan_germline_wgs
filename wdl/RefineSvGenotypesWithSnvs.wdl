@@ -38,13 +38,18 @@ workflow RefineSvGenotypesWithSnvs {
     Float snv_freq_scalar = 5          # Frequency control parameter for SNVs, defined as AF ~ [min_sv_af / this, min_sv_af * this]
     File? snv_exclusion_bed            # SNVs overlapping this BED file will be excluded
 
+    # Imputation parameters
+    Int max_snps_per_flank = 10        # Max number of SNPs to include per flank
+    Float min_ld_r2 = 0.2              # Minimum LD between SNV & SV to permit for imputation
+    String ref_build = "hg38"          # Plink-styled reference indicator
+
     # Parallelization options
     Int svs_per_shard = 200
     Int snv_vcfs_per_shard = 100
 
     String output_prefix
 
-    String g2c_pipeline_docker
+    String g2c_analysis_docker
     String linux_docker
   }
 
@@ -78,13 +83,13 @@ workflow RefineSvGenotypesWithSnvs {
     input:
       vcf = sv_vcf,
       vcf_idx = sv_vcf_idx,
-      bcftools_docker = g2c_pipeline_docker
+      bcftools_docker = g2c_analysis_docker
   }
   call Utils.StreamSamplesFromVcfHeader as GetSnvSamples {
     input:
       vcf = first_snv_vcf,
       vcf_idx = first_snv_idx,
-      bcftools_docker = g2c_pipeline_docker
+      bcftools_docker = g2c_analysis_docker
   }
   Array[File] raw_sample_lists = select_all([GetSvSamples.sample_list, GetSnvSamples.sample_list])
   call Utils.IntersectTextFiles as FindSharedSamples {
@@ -104,7 +109,7 @@ workflow RefineSvGenotypesWithSnvs {
       min_ac = min_sv_ac,
       max_ac = floor((2 * GetSvSamples.n_samples) - min_sv_ac),
       output_prefix = basename(sv_vcf, ".vcf.gz"),
-      g2c_pipeline_docker = g2c_pipeline_docker
+      g2c_analysis_docker = g2c_analysis_docker
   }
 
   # Shard qualifying SV VCF for parallel processing
@@ -113,7 +118,7 @@ workflow RefineSvGenotypesWithSnvs {
       vcf = SplitSvs.target_sv_vcf,
       vcf_idx = SplitSvs.target_sv_vcf_idx,
       records_per_shard = svs_per_shard,
-      bcftools_docker = g2c_pipeline_docker,
+      bcftools_docker = g2c_analysis_docker,
       n_preemptible = 1
   }
 
@@ -123,7 +128,7 @@ workflow RefineSvGenotypesWithSnvs {
       input_file = snv_info_tsv,
       lines_per_split = snv_vcfs_per_shard,
       out_prefix = output_prefix + ".snv_vcf_info",
-      g2c_analysis_docker = g2c_pipeline_docker
+      g2c_analysis_docker = g2c_analysis_docker
   }
   Array[File] vcf_info_chunks = ShardVcfInfo.shards
 
@@ -142,7 +147,7 @@ workflow RefineSvGenotypesWithSnvs {
         snv_freq_scalar = snv_freq_scalar,
         snv_exclusion_bed = snv_exclusion_bed,
         output_prefix = shard_prefix,
-        bcftools_docker = g2c_pipeline_docker
+        bcftools_docker = g2c_analysis_docker
     }
 
     # Scatter over SNV VCF chunks and filter SNVs
@@ -155,7 +160,7 @@ workflow RefineSvGenotypesWithSnvs {
           min_ac = floor(min_sv_ac / snv_freq_scalar),
           max_ncr = 1 - min_snv_call_rate,
           output_prefix = shard_prefix + ".chunk_" + i,
-          g2c_pipeline_docker = g2c_pipeline_docker
+          g2c_analysis_docker = g2c_analysis_docker
       }
     }
     call Utils.ConcatVcfs as ConcatSnvs {
@@ -164,7 +169,7 @@ workflow RefineSvGenotypesWithSnvs {
         vcf_idxs = QuerySnvs.snv_vcf_idx,
         out_prefix = shard_prefix + ".eligible_snvs",
         bcftools_concat_options = "--allow-overlaps --remove-duplicates",
-        bcftools_docker = g2c_pipeline_docker
+        bcftools_docker = g2c_analysis_docker
     }
 
     # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
@@ -178,8 +183,11 @@ workflow RefineSvGenotypesWithSnvs {
         breakpoint_buffer_bp = breakpoint_buffer_bp,
         breakpoint_window_bp = breakpoint_window_bp,
         snv_freq_scalar = snv_freq_scalar,
+        min_ld_r2 = min_ld_r2,
+        ref_build = ref_build,
+        max_snps_per_flank = max_snps_per_flank,
         output_prefix = shard_prefix,
-        g2c_pipeline_docker = g2c_pipeline_docker
+        g2c_analysis_docker = g2c_analysis_docker
     }
 
     # Update SV GTs
@@ -305,13 +313,14 @@ task ImputeSvs {
     Int breakpoint_buffer_bp
     Int breakpoint_window_bp
     Float snv_freq_scalar
-    Float min_ld_r2 = 0.2
-    String ref_build = "hg38"
-    Int max_snps_per_flank = 10
+
+    Float min_ld_r2
+    String ref_build
+    Int max_snps_per_flank
     
     String output_prefix
 
-    String g2c_pipeline_docker
+    String g2c_analysis_docker
 
     Float mem_gb = 15.5
     Int n_cpu = 8
@@ -411,8 +420,22 @@ task ImputeSvs {
          > $svid/$flank.keep_vids.list || true
       done
 
+      # Extract allele dosage for the SV and each flanking SNP
+      cat \
+        svid/left.keep_vids.list \
+        svid/right.keep_vids.list \
+        <( echo -e "$svid" ) \
+      | sort -V | uniq \
+      > $svid/all.keep_vids.list
+      /opt/pancan_germline_wgs/scripts/variant_filtering/extract_ad_matrix.py \
+        -i $svid/sandwich.vcf.gz \
+        -v $svid/all.keep_vids.list \
+        -o $svid/$svid.ad.tsv.gz
+
+      # Temporary task to deloc files for development
+      cp $svid/$svid.ad.tsv.gz ./
+
       # TODO: finish implementing this
-      # - Extract allele dosage for each SNP (2 * AB)
       # - Load tag SNP AD and SV GTs into R
       # - Fit linear regression of SV AC ~ tag SNP ADs using 10-fold CV
       #   - Need to think about how to handle/prespecify train/test split (by cohort etc)
@@ -427,10 +450,12 @@ task ImputeSvs {
 
   >>>
 
-  output {}
+  output {
+    Array[File?] ads_tmp = glob("*.ad.tsv.gz")
+  }
 
   runtime {
-    docker: g2c_pipeline_docker
+    docker: g2c_analysis_docker
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
@@ -458,7 +483,7 @@ task QuerySnvs {
     Float mem_gb = 3.5
     Int n_cpu = 2
     Int n_preemptible = 1
-    String g2c_pipeline_docker
+    String g2c_analysis_docker
   }
 
   String out_vcf = output_prefix + ".snvs.vcf.gz"
@@ -482,6 +507,10 @@ task QuerySnvs {
       echo -e "\nQuerying $( basename $vcf_uri )..."
     
       gsutil cp "$tbi_uri" ./
+      
+      # Refresh token
+      export GCS_OAUTH_TOKEN=$(gcloud auth application-default print-access-token)
+      export GCS_TOKEN=$(gcloud auth application-default print-refresh-token 2>/dev/null || echo "")
 
       # Fault-tolerance loop for dropped htslib remote streams
       attempt=1
@@ -492,10 +521,10 @@ task QuerySnvs {
 
         # Clear previous unsuccessful attempts
         rm -f "local_vcfs/$idx.vcf.gz" "local_vcfs/$idx.vcf.gz.tbi" || true
-      
-        # Refresh token
-        export GCS_OAUTH_TOKEN=`gcloud auth application-default print-access-token`
 
+        # temp file to hold stderr for this attempt
+        errfile=$(mktemp)
+        
         # Subshell this extraction command so the task isn't killed by set -e
         (
           bcftools view \
@@ -517,21 +546,20 @@ task QuerySnvs {
           | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
           | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
             -Oz -o local_vcfs/$idx.vcf.gz
-        )
+        ) 2> "$errfile"
         pipe_status=$?
 
         # Completion check
-        if [[ $pipe_status -ne 0 ]]; then
-          echo "Remote streaming failed with status $pipe_status"
+        if [[ $pipe_status -ne 0 ]] \
+           || grep -qiE "(Failed to open|Invalid argument|hts_open_format|stream)" "$errfile"
+        then
+            echo "Remote streaming failed (detected via stderr or exit code)"
         else
-          # Index output as success criteria
-          if tabix -p vcf -f "local_vcfs/$idx.vcf.gz"; then
-            echo "Tabix index succeeded; moving on."
-            success=1
-            break
-          else
-            echo "Tabix index failed; retrying."
-          fi
+            if tabix -p vcf -f "local_vcfs/$idx.vcf.gz"; then
+                echo "Success"
+                success=1
+                break
+            fi
         fi
 
         attempt=$(( attempt + 1 ))
@@ -557,7 +585,7 @@ task QuerySnvs {
 
       gsutil cat \
         $( cut -f1 ~{snv_info_tsv} | sed -n '1p' ) \
-      | bcftools --header-only \
+      | bcftools view --header-only \
         --samples-file ~{samples_list} \
         --force-samples \
         -Oz -o ~{out_vcf}
@@ -568,21 +596,24 @@ task QuerySnvs {
       # Combine all local mini-VCFs per query region, with more precise filtering
       mkdir region_vcfs
       while read ridx chrom start end minaf maxaf; do
+        
         echo -e "\nMerging local VCFs for region $ridx ($chrom:$start-$end)..."
+        
         while read vidx vcf; do
+
           bcftools view \
-            --region "$chrom:$start-$end" \
+            --regions "$chrom:$start-$end" \
             --min-af $minaf \
             --max-af $maxaf \
             -Oz -o region_vcfs/$ridx.$vidx.vcf.gz \
             $vcf
           tabix -p vcf -f region_vcfs/$ridx.$vidx.vcf.gz
-          if [ $( bcftools query -f '%CHROM\n' region_vcfs/$ridx.$vidx.vcf.gz | wc -l ) -eq 0 ]; then
-            rm region_vcfs/$ridx.$vidx.vcf.gz region_vcfs/$ridx.$vidx.vcf.gz.tbi
-          fi
+
         done < local_vcfs.list
+
         find region_vcfs/ -name "$ridx.*.vcf.gz" \
         | sort -V > region_vcfs/$ridx.input_vcfs.list
+        
         bcftools concat \
           --threads ~{concat_threads} \
           --allow-overlaps \
@@ -591,9 +622,11 @@ task QuerySnvs {
         | bcftools sort \
           --max-mem "~{sort_mem_mb}M" \
           --temp-dir region_vcfs/ \
-          -Oz -o region_vcfs/$ridx.clean.vcf.gz
+          -Oz -o region_vcfs/cleaned.$ridx.vcf.gz
         tabix -p vcf region_vcfs/cleaned.$ridx.vcf.gz
+
         rm region_vcfs/$ridx.*.vcf.gz* region_vcfs/$ridx.input_vcfs.list
+
       done < ~{query_intervals}
 
       # Finally, combine cleaned & sorted VCFs across all regions
@@ -615,7 +648,7 @@ task QuerySnvs {
   }
 
   runtime {
-    docker: g2c_pipeline_docker
+    docker: g2c_analysis_docker
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb +" HDD"
@@ -638,7 +671,7 @@ task SplitSvs {
 
     String output_prefix
 
-    String g2c_pipeline_docker
+    String g2c_analysis_docker
   }
 
   String elig_outfile = output_prefix + ".regeno_eligible_svs.vcf.gz"
@@ -669,7 +702,7 @@ task SplitSvs {
   }
 
   runtime {
-    docker: g2c_pipeline_docker
+    docker: g2c_analysis_docker
     memory: "3.75 GB"
     cpu: 2
     disks: "local-disk " + disk_gb + " HDD"

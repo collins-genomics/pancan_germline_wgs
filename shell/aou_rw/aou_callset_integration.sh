@@ -111,7 +111,8 @@ gsutil -m cp \
 # Write template input .json for hard filters, part 1
 cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
-  "RefineSvGenotypesWithSnvs.g2c_pipeline_docker": "vanallenlab/g2c_analysis:55cb65b",
+  "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 0,
+  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:55cb65b",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
   "RefineSvGenotypesWithSnvs.min_sv_ac": 50,
   "RefineSvGenotypesWithSnvs.min_sv_af": 0.001,

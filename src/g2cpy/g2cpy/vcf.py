@@ -15,7 +15,7 @@ import numpy as np
 from collections.abc import Iterable
 from statistics import multimode
 from .genomics import classify_variant, name_variant
-from .utilities import hash_string, recursive_flatten
+from .utilities import recursive_flatten
 
 
 def apply_across_samples(record, function=None, field='GT', samples=None):
@@ -62,6 +62,19 @@ def compute_allele_freq_stats(record, keys=['AC', 'AN', 'AF']):
             res.pop(ak)
 
     return res
+
+
+def parse_gt(gt):
+    """
+    Digests a pysam GT-style tuple into a dict keyed by AC, AN, and N_missing
+    """
+
+    an = len(gt)
+    gt_def = [a for a in gt if a is not None]
+    n_missing = an - len(gt_def)
+    ac = len([a for a in gt_def if a > 0])
+
+    return {'AC' : ac, 'AN' : an, 'N_missing' : n_missing}
 
 
 def integrate_gts(target_record, records, sort_key='GQ'):
