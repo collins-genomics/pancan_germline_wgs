@@ -494,6 +494,158 @@ code/scripts/manage_chromshards.py \
   --max-attempts 1
 
 
+#####################################
+# Cleanup of genotyping second pass #
+#####################################
+
+# This must be run once for each workspace
+
+# Reaffirm staging directory
+staging_dir=staging/JGFinalPass
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+
+# First, copy all VCFs that completed during the first pass of joint genotyping
+while read contig; do
+  # Otherwise, first determine the full list of all VCFs generated for this 
+  # contig in any second pass joint genotyping run
+  while read wid; do
+    gsutil -m ls \
+      $WORKSPACE_BUCKET/cromwell-execution/GnarlyJointGenotypingPart1/$wid/**dfci-g2c.v1.$contig.*.vcf.gz \
+    > $staging_dir/$contig.jg_vcfs.uris.list
+  done < cromshell/job_ids/dfci-g2c.v1.JointGenotypingPatch1.$contig.job_ids.list
+
+  # Count the number of VCFs generated for each base workflow ID, sort s/t 
+  # workflows with fewer VCFs are processed first (assuming less completion),
+  # and copy all VCFs from each workflow into the staging directory
+  while read wid; do
+    awk -v FS="/" -v OFS="\n" -v wid="$wid" \
+      '{ if ($6==wid) print $0, $0".tbi" }' \
+      $staging_dir/$contig.jg_vcfs.uris.list \
+    | gsutil -m cp -I \
+      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/
+  done < <( awk -v FS="/" '{ print $6 }' \
+            $staging_dir/$contig.jg_vcfs.uris.list \
+            | sort | uniq -c | sort -nk1,1 | awk '{ print $2 }' )
+done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+            contig_lists/dfci-g2c.v1.contigs.$WN.list )
+
+# Our next step is to find intervals covered by VCFs that successfully completed
+# Gnarly joint genotyping part 1 second pass. This requires a subworkflow, below:
+
+# Build chromosome-specific override json of VCFs
+while read contig; do
+  gsutil -m ls \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/**vcf.gz 2>/dev/null \
+  | sort -V > $staging_dir/$contig.vcfs.list
+  gsutil cp \
+    $staging_dir/$contig.vcfs.list \
+    $WORKSPACE_BUCKET/misc/cromwell-inputs/
+done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+            contig_lists/dfci-g2c.v1.contigs.$WN.list )
+
+# Write template .json for input
+cat << EOF > $staging_dir/UltraParallelGetVcfTerritories.inputs.template.json
+{
+  "UltraParallelGetVcfTerritories.g2c_analysis_docker": "vanallenlab/g2c_analysis:bd86493",
+  "UltraParallelGetVcfTerritories.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
+  "UltraParallelGetVcfTerritories.output_prefix": "dfci-g2c.v1.\$CONTIG",
+  "UltraParallelGetVcfTerritories.vcf_uri_list": "$WORKSPACE_BUCKET/misc/cromwell-inputs/\$CONTIG.vcfs.list"
+}
+EOF
+
+# Gather chromosomal territory covered by variant calls in finished Gnarly VCF shards
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/pancan_germline_wgs/UltraParallelGetVcfTerritories.wdl \
+  --input-json-template $staging_dir/UltraParallelGetVcfTerritories.inputs.template.json \
+  --dependencies-zip g2c.dependencies.zip \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/GetTerritoriesGnarlySecondPass/ \
+  --contig-list <( fgrep \
+                     -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+                     contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
+  --name GetTerritoriesGnarlySecondPass \
+  --status-tsv cromshell/progress/dfci-g2c.v1.GetTerritoriesGnarlySecondPass.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 40 \
+  --submission-gate 40 \
+  --max-attempts 3
+
+# Copy all original calling intervals to staging directory
+if ! [ -e $staging_dir/original_intervals/ ]; then
+  mkdir $staging_dir/original_intervals/
+fi
+gsutil -m cp \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/gatkhc.wgs_calling_regions.hg38.chr*.sharded.interval_list \
+  $staging_dir/original_intervals/
+
+# Build table comparing callable intervals to finished intervals for each contig
+while read contig; do
+  # Convert original intervals to BED
+  fgrep -v "@" \
+    $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
+  | awk -v OFS="\t" '{ print $1, int($2), int($3) }' \
+  | sort -Vk1,1 -k2,2n -k3,3n \
+  | bedtools merge -i - \
+  > $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.intervals.bed
+
+  # Get total number of callable bases
+  total=$( awk '{ sum+=$3-$2 }END{ print sum }' \
+             $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.intervals.bed )
+
+  # Get total territory spanned by complete VCFs
+  called=$( gsutil -m cat \
+              $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/GetTerritoriesGnarlySecondPass/$contig/CalcDensity/dfci-g2c.v1.$contig.density.bed.gz \
+            | gunzip -c | awk '{ sum+=$3-$2 }END{ print sum }' )
+
+  # Report
+  echo -e "$contig\t$total\t$called" \
+  | awk -v OFS="\t" '{ print $1, $2, $3, $3/$2 }'
+
+done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+            contig_lists/dfci-g2c.v1.contigs.$WN.list )
+
+# # Find the list of unfinished shards per contig
+# # Note that this requires the prior two steps to have been run
+# while read contig; do
+#   # Only retain missed intervals ≥1kb in size
+#   # We assume anything smaller than this is due to boundaries at the edges of 
+#   # calling intervals where no variants were found
+#   fgrep "@" \
+#     $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
+#   > $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list
+#   gsutil -m cat \
+#     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/GetTerritoriesGnarlyFirstPass/$contig/CalcDensity/dfci-g2c.v1.$contig.density.bed.gz \
+#   | bedtools subtract \
+#     -a $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.intervals.bed \
+#     -b - \
+#   | awk -v OFS="\t" '{ if ($3-$2>=1000) print $1, $2, $3, "+", ". intersection ACGTmer"}' \
+#   >> $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list
+
+#   # If fewer than 50 shards remain, re-shard these intervals s/t >50 shards are processed.
+#   # This will help to solve the issues seen for LCRs clogging some shards.
+#   n_shards_raw=$( fgrep -v "@" $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list | wc -l )
+#   if [ $n_shards_raw -lt 50 ]; then
+#     target_bp=$( fgrep -v "@" \
+#                   $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list \
+#                 | awk '{ sum+=$3-$2 }END{ print int(sum / 50) }' )
+#     code/scripts/split_intervals.py \
+#       -i $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list \
+#       -t $target_bp \
+#       --min-interval-size 1000 \
+#       -o $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.sharded.interval_list
+#   else
+#     cp \
+#       $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.preshard.interval_list \
+#       $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.sharded.interval_list
+#   fi
+#   gsutil -m cp \
+#     $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch1.sharded.interval_list \
+#     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/patch1/
+
+# done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+#             contig_lists/dfci-g2c.v1.contigs.$WN.list )
+
+
+
 # ################################################
 # # Clean up failed shards from joint genotyping #
 # ################################################

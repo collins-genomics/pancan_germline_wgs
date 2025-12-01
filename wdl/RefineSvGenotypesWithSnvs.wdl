@@ -352,27 +352,27 @@ task ImputeSvs {
       mkdir $svid
 
       # Compile information for SNV filtering
-      echo "$chrom\t$start" \
+      echo -e "$chrom\t$start" \
       | awk -v FS="\t" -v OFS="\t" \
         -v buffer=~{breakpoint_buffer_bp} -v window=~{breakpoint_window_bp} \
         '{ print $1, $2-buffer-window, $2-buffer }' \
       | awk -v FS="\t" -v OFS="\t" '{ if ($2<0) $2=0; print }' \
       > $svid/left.window.bed
-      echo "$chrom\t$end" \
+      echo -e "$chrom\t$end" \
       | awk -v FS="\t" -v OFS="\t" \
         -v buffer=~{breakpoint_buffer_bp} -v window=~{breakpoint_window_bp} \
         '{ print $1, $2+buffer, $2+buffer+window }' \
       | awk -v FS="\t" -v OFS="\t" '{ if ($2<0) $2=0; print }' \
       > $svid/right.window.bed
-      min_snv_af=$( echo $svaf | awk -v scalar=~{snv_freq_scalar} '{ print $1 / scalar }' )
-      max_snv_af=$( echo $svaf | awk -v scalar=~{snv_freq_scalar} '{ print $1 * scalar }' )
+      min_snv_af=$( echo $svaf | awk -v scalar=5 '{ af=($1 / scalar); if (af<0) af=0; print af }' )
+      max_snv_af=$( echo $svaf | awk -v scalar=5 '{ af=($1 * scalar); if (af>1) af=1; print af }' )
     
       # Make VCF sandwich of (left flanking SNVs) + SV + (right flanking SNVs)
       for flank in left right; do
         bcftools view \
           --samples-file ~{training_samples_list} \
           --force-samples \
-          --region-file $svid/$flank.window.bed \
+          --regions-file $svid/$flank.window.bed \
           --min-af $min_snv_af \
           --max-af $max_snv_af \
           -Oz -o $svid/$flank.snvs.vcf.gz \
@@ -384,11 +384,9 @@ task ImputeSvs {
         --force-samples \
         --include "ID = \"$svid\"" \
         -Oz -o $svid/sv.vcf.gz \
-        ~{snv_vcf}
+        ~{sv_vcf}
       tabix -p vcf -f $svid/sv.vcf.gz
-      bcftools merge \
-        --force-samples \
-        -m none \
+      bcftools concat \
         --threads ~{bcftools_threads} \
         -Oz -o $svid/sandwich.vcf.gz \
         $svid/left.snvs.vcf.gz \
