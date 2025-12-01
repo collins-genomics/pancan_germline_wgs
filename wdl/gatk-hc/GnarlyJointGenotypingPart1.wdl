@@ -47,6 +47,7 @@ workflow GnarlyJointGenotypingPart1 {
 
     Int? top_level_scatter_count
     Boolean intervals_already_split = false
+    Array[File]? custom_unpadded_intervals # If provided, this array will override any interval sharding operations
     Float unbounded_scatter_count_scale_factor = 0.15
     Int gnarly_scatter_count = 10
   }
@@ -65,13 +66,13 @@ workflow GnarlyJointGenotypingPart1 {
 
   # We deviate from the WARP protocol by enabling the user to provide custom pre-split intervals
   # This requires a custom task to strictly split the interval list into single-interval shards
-  if ( intervals_already_split ) {
+  if ( ( intervals_already_split ) && ( !defined(custom_unpadded_intervals) ) ) {
     call G2CUtils.SplitIntervalList as G2CSplitIntervals {
       input:
         interval_list = unpadded_intervals_file
     }
   }
-  if ( !intervals_already_split ) {
+  if ( ( !intervals_already_split ) && ( !defined(custom_unpadded_intervals) ) ) {
     call Tasks.SplitIntervalList as GatkSplitIntervals {
       input:
         interval_list = unpadded_intervals_file,
@@ -84,7 +85,9 @@ workflow GnarlyJointGenotypingPart1 {
     }
   }
   
-  Array[File] unpadded_intervals = select_first([G2CSplitIntervals.output_intervals, GatkSplitIntervals.output_intervals])
+  Array[File] unpadded_intervals = select_first([custom_unpadded_intervals, 
+                                                 G2CSplitIntervals.output_intervals, 
+                                                 GatkSplitIntervals.output_intervals])
 
   scatter (idx in range(length(unpadded_intervals))) {
     call ImportGVCFsFT {

@@ -277,6 +277,10 @@ def main():
                         'of variants present in --var-sites to allocate per shard. ' +
                         'Required for variant density-based shard balancing ' +
                         'if --var-sites is also optioned.')
+    parser.add_argument('-d', '--maximum-distance-between-intervals', type=int,
+                        help='Maximum distance to permit between adjacent ' +
+                        'intervals before writing to a new output file. By ' +
+                        'default, all output intervals will be written to one file')
     parser.add_argument('--min-interval-size', type=int, default=5000,
                         help='Size of smallest interval shard to be emitted, in ' +
                         'base pairs.')
@@ -289,8 +293,13 @@ def main():
     parser.add_argument('--bed-style', action='store_true', default=False,
                         help='Write output as BED intervals with 0-based coordinates ' +
                         '[default: write Picard-style intervals with header]')
-    parser.add_argument('-o', '--output-intervals', required=True,
-                        help='Path to output .interval_list', default='stdout')
+    parser.add_argument('-o', '--output-intervals', type=str, default='stdout',
+                        help='Path to output .interval_list')
+    parser.add_argument('-p', '--output-prefix', type=str,
+                        help='Filename prefix for interval_list shards. Only ' +
+                        'used if --maximum-distance-between-intervals is ' +
+                        'specified, otherwise all intervals will be written to ' +
+                        '--output-intervals')
     parser.add_argument('-v', '--verbose', action='store_true', help='Print ' +
                         'diagnostic logging to stdout')
     args = parser.parse_args()
@@ -321,19 +330,34 @@ def main():
             infile = open(args.input_intervals)
 
     # Open connection to output file
-    if args.output_intervals in '- stdout /dev/stdout'.split():
-        outfile = stdout
+    multi_out = args.maximum_distance_between_intervals is not None
+    if multi_out:
+        if not args.gatk_style:
+            outfile_suffix = 'interval_list'
+        else:
+            outfile_suffix = 'intervals'
+        outfile_fmt = args.output_prefix + '.{}.' + outfile_suffix
+        n_outfiles = 0
+        outfile = None
     else:
-        outfile = open(args.output_intervals, 'w')
+        if args.output_intervals in '- stdout /dev/stdout'.split():
+            outfile = stdout
+        else:
+            outfile = open(args.output_intervals, 'w')
 
     # Read input file into memory
     int_list = []
+    if multi_out:
+            out_header = ''
     for line in infile.readlines():
 
         # Write header from input to output
         if line.startswith('@'):
             if not args.gatk_style:
-                outfile.write(line)
+                if multi_out:
+                    out_header += line
+                else:
+                    outfile.write(line)
 
         # Store input intervals as tuples of (interval size, list of fields)
         # or as strings for pbt.BedTool, depending on split_mode
@@ -361,14 +385,30 @@ def main():
                                args.bed_style)
 
     # Sort sharded intervals and write to output file
+    prev_chrom = 'notreal'
+    prev_end = -9e8
     for vals in sorted(shards, key=lambda x: (chrom2int(x[0]), int(x[1]), int(x[2]))):
+        # Format output line
         if args.gatk_style:
             outline = '{}:{}-{}'.format(*vals[:3])
         elif args.bed_style:
             outline = '{}\t{}\t{}'.format(*vals[:3])
         else:
             outline = '\t'.join([str(k) for k in vals[:3] + ['+', '. intersection ACGTmer']])
+
+        # Write to output file depending on desired output behavior
+        if multi_out:
+            # Check if a new outfile is necessary
+            if vals[0] != prev_chrom \
+            or int(vals[1]) > prev_end + args.maximum_distance_between_intervals:
+                if outfile is not None:
+                    outfile.close()
+                n_outfiles += 1
+                outfile = open(outfile_fmt.format(n_outfiles), 'w')
+                outfile.write(out_header)
         outfile.write(outline + '\n')
+        prev_chrom = vals[0]
+        prev_end = int(vals[2])
 
     # Clear buffer
     outfile.close()
