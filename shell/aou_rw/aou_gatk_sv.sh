@@ -826,6 +826,53 @@ cat << EOF > cromshell/inputs/AnnotateVcf.inputs.chr1_test.json
   "AnnotateVcf.external_af_population": ["ALL","AFR","AMR","EAS","EUR","MID","FIN","ASJ","RMI","SAS","AMI"],
   "AnnotateVcf.use_hail": false,
   "AnnotateVcf.gcs_project": "$GPROJECT",
+  "AnnotateVcf.sv_pipeline_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-pipeline:2024-11-15-v1.0-488d7cb0",
+  "AnnotateVcf.sv_base_mini_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+  "AnnotateVcf.gatk_docker": "us.gcr.io/broad-dsde-methods/eph/gatk:2024-07-02-4.6.0.0-1-g4af2b49e9-NIGHTLY-SNAPSHOT"
+}
+EOF
+
+# Submit chr1 annotation test
+cromshell --no_turtle -t 120 -mc submit \
+  --options-json code/refs/json/aou.cromwell_options.default.json \
+  --dependencies-zip gatksv.dependencies.zip \
+  code/wdl/gatk-sv/AnnotateVcf.wdl \
+  cromshell/inputs/AnnotateVcf.inputs.chr1_test.json \
+| jq .id | tr -d '"' \
+>> cromshell/job_ids/annotation_test.job_ids.list
+
+# Monitor annotation test
+monitor_workflow $( tail -n1 cromshell/job_ids/annotation_test.job_ids.list )
+
+# For debugging purposes, we are also going to test annotating chr1 before collapsing redundant variants
+# This will help us understand if the annotation issues are specific to how the WDL is implemented here
+# versus our collapsing protocol
+
+# Extract complex variants from chr1 before collapse
+gsutil -m cat \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/19/chr1/RecalibrateGq/ConcatVcfs/dfci-g2c.v1.chr1.concordance.gq_recalibrated.vcf.gz \
+| bcftools view \
+  -i 'INFO/SVTYPE = "CPX"' \
+  -Oz -o scratch/dfci-g2c.v1.chr1.concordance.gq_recalibrated.cpx_only.chr1.vcf.gz
+tabix -p vcf -f scratch/dfci-g2c.v1.chr1.concordance.gq_recalibrated.cpx_only.chr1.vcf.gz
+gsutil -m cp \
+  scratch/dfci-g2c.v1.chr1.concordance.gq_recalibrated.cpx_only.chr1.vcf.gz* \
+  $WORKSPACE_BUCKET/scratch/
+
+# Write .json input for chr1 annotation test
+cat << EOF > cromshell/inputs/AnnotateVcf.inputs.chr1_test.json
+{
+  "AnnotateVcf.runtime_attr_svannotate": {"cpu_cores" : 4, "mem_gb": 7.5},
+  "AnnotateVcf.vcf": "$WORKSPACE_BUCKET/scratch/dfci-g2c.v1.chr1.concordance.gq_recalibrated.cpx_only.chr1.vcf.gz",
+  "AnnotateVcf.contig_list": "gs://dfci-g2c-refs/hg38/contig_lists/chr1.list",
+  "AnnotateVcf.prefix": "dfci-ufc.v1.sv.annotation_test.pre_collapse.chr1",
+  "AnnotateVcf.protein_coding_gtf": "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/gencode.v47.basic.protein_coding.canonical.gtf",
+  "AnnotateVcf.sv_per_shard": 5000,
+  "AnnotateVcf.external_af_ref_bed": "gs://gatk-sv-resources-public/gnomad_AF/gnomad_v4_SV.Freq.tsv.gz",
+  "AnnotateVcf.external_af_ref_prefix": "gnomad_v4.1_sv",
+  "AnnotateVcf.external_af_population": ["ALL","AFR","AMR","EAS","EUR","MID","FIN","ASJ","RMI","SAS","AMI"],
+  "AnnotateVcf.use_hail": false,
+  "AnnotateVcf.gcs_project": "$GPROJECT",
   "AnnotateVcf.sv_pipeline_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-pipeline:2025-06-27-v1.0.4-63e6c81e",
   "AnnotateVcf.sv_base_mini_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
   "AnnotateVcf.gatk_docker": "us.gcr.io/broad-dsde-methods/tsharpe/gatk:4.2.6.1-57-g9e03432"

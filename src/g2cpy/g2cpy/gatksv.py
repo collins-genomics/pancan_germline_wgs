@@ -13,7 +13,7 @@ GATK-SV utility functions
 import pybedtools as pbt
 import re
 import sys
-from .genomics import cluster_bedtool
+from .genomics import cluster_bedtool, chrom2int
 from .utilities import recursive_flatten
 
 
@@ -86,6 +86,14 @@ def integrate_cpx_intervals(records, cpx_type, chrom, cpos, cend):
         new_ints = ['{}_{}:{}-{}'.format(itype.upper(), chrom, start, end) 
                     for chrom, start, end in ibt.cut(range(3))]
         cpx_ints += new_ints
+
+    # Lastly, sort intervals for downstream tool compatability (e.g., GATK SVAnnotate)
+    def _cpx_int_sort_key(istr):
+        i1 = chrom2int(istr.split('_')[1].split(':')[0])
+        i2 = int(istr.split('_')[1].split(':')[1].split('-')[0])
+        i3 = int(istr.split('_')[1].split(':')[1].split('-')[1])
+        return (i1, i2, i3, )
+    cpx_ints = sorted(cpx_ints, key=_cpx_int_sort_key)
 
     return tuple(cpx_ints)
 
