@@ -15,9 +15,10 @@ import argparse
 import numpy as np
 import pysam
 from g2cpy import is_multiallelic, compute_allele_freq_stats
+from sys import stdin, stdout
 
 
-def label_sv(record, min_af=0, max_af=1, min_ac=0, max_ac=10e10):
+def label_sv(record, min_af=0, max_af=1, min_ac=0, max_ac=10e10, min_an=0):
     """
     Assign an SV to either 'eligible' or 'passthrough' VCF subsets based on frequency
     """
@@ -26,19 +27,19 @@ def label_sv(record, min_af=0, max_af=1, min_ac=0, max_ac=10e10):
     if is_multiallelic(record):
         return 'passthrough'
 
-    # Get AF and AC if annotated, otherwise compute on the fly
+    # Get AF, AC, and AN if annotated, otherwise compute on the fly
     if all([f in record.info.keys() for f in 'AC AN AF'.split()]):
         ac = record.info.get('AC')[0]
         af = record.info.get('AF')[0]
+        an = record.info.get('AN')
     else:
         freq_dat = compute_allele_freq_stats(record)
         ac = freq_dat.get('AC')
         af = freq.dat.get('AF')
+        an = freq.dat.get('AN')
 
     # Compare frequency statistics to gates and emit corresponding label
-    if af < min_af or af > max_af:
-        return 'passthrough'
-    if ac < min_ac or ac > max_ac:
+    if af < min_af or af > max_af or ac < min_ac or ac > max_ac or an < min_an:
         return 'passthrough'
     else:
         return 'eligible'
@@ -51,13 +52,13 @@ def main():
     parser = argparse.ArgumentParser(
              description=__doc__,
              formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('-i', '--input-vcf', required=True, metavar='VCF', 
-                        type=str, help='Input .vcf. Required.')
+    parser.add_argument('-i', '--input-vcf', default='stdin', metavar='VCF', 
+                        type=str, help='Input .vcf. [default: stdin].')
     parser.add_argument('-e', '--eligible-output-vcf', 
-                        help='Output .vcf for eligible SVs',
-                        required=True, metavar='VCF', type=str)
+                        help='Output .vcf for eligible SVs. [default: stdout]',
+                        default='stdout', metavar='VCF', type=str)
     parser.add_argument('-p', '--passthrough-output-vcf', 
-                        help='Output .vcf for ineligible "pass-through" SVs',
+                        help='Optional output .vcf for ineligible "pass-through" SVs',
                         metavar='VCF', type=str)
     parser.add_argument('--min-af', default=0.05, type=float, metavar='Float',
                         help='Lower AF threshold for eligibility [default: 0.05]')
@@ -67,14 +68,22 @@ def main():
                         help='Minimum AC for eligibility [default: 20]')
     parser.add_argument('--max-ac', default=10e10, type=int, metavar='Int',
                         help='Minimum AC for eligibility [default: ~infinite]')
+    parser.add_argument('--min-an', default=100, type=int, metavar='Int',
+                        help='Minimum AN for eligibility [default: 100]')
     args = parser.parse_args()
 
     # Open connection to input VCF
-    invcf = pysam.VariantFile(args.input_vcf)
+    if args.input_vcf in 'stdin /dev/stdin -'.split():
+        invcf = pysam.VariantFile(stdin)
+    else:
+        invcf = pysam.VariantFile(args.input_vcf)
     
     # Open connection to output VCF(s)
     header = invcf.header.copy()
-    elig_vcf = pysam.VariantFile(args.eligible_output_vcf, 'w', header=header)
+    if args.eligible_output_vcf in 'stdout /dev/stdout -'.split():
+        elig_vcf = pysam.VariantFile(stdout, 'w', header=header)
+    else:
+        elig_vcf = pysam.VariantFile(args.eligible_output_vcf, 'w', header=header)
     if args.passthrough_output_vcf is not None:
         pass_vcf = pysam.VariantFile(args.passthrough_output_vcf, 'w', header=header)
 
@@ -82,8 +91,8 @@ def main():
     for record in invcf:
 
         # Determine record eligibility
-        route = label_sv(record, args.min_af, args.max_af, args.min_ac, args.max_ac)
-
+        route = label_sv(record, args.min_af, args.max_af, args.min_ac, 
+                         args.max_ac, args.min_an)
         if route == 'eligible':
             elig_vcf.write(record)
         elif args.passthrough_output_vcf is not None:
