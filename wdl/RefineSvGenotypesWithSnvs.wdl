@@ -55,7 +55,6 @@ workflow RefineSvGenotypesWithSnvs {
     String output_prefix
 
     String g2c_analysis_docker
-    String g2c_pipeline_docker
     String linux_docker
   }
 
@@ -158,7 +157,7 @@ workflow RefineSvGenotypesWithSnvs {
           min_ac = min_sv_ac,
           max_ac = max_sv_ac,
           output_prefix = output_prefix + ".sl_masked",
-          g2c_pipeline_docker = g2c_pipeline_docker
+          g2c_analysis_docker = g2c_analysis_docker
       }
     }
     File sv_training_vcf = select_first([MaskSvGts.filtered_vcf, vcf_info.left])
@@ -509,7 +508,7 @@ task MaskSvGts {
 
     String output_prefix
 
-    String g2c_pipeline_docker
+    String g2c_analysis_docker
   }
 
   Int disk_gb = ceil(3.5 * size(vcf, "GB")) + 10
@@ -545,7 +544,7 @@ task MaskSvGts {
   }
 
   runtime {
-    docker: g2c_pipeline_docker
+    docker: g2c_analysis_docker
     memory: "3.75 GB"
     cpu: 2
     disks: "local-disk " + disk_gb + " HDD"
