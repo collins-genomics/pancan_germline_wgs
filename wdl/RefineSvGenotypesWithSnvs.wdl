@@ -29,19 +29,24 @@ workflow RefineSvGenotypesWithSnvs {
     Array[File]? snv_vcf_idxs
     File? snv_vcf_info_tsv
 
-    # SV/SNV filtering parameters
-    Float min_sv_af = 0.05             # Minimum SV AF to be regenotyped. Max is 1 - this
-    Int min_sv_ac = 20                 # Minimum SV AC to be regenotyped. Max is max(AN) - this
-    Int breakpoint_buffer_bp = 5000    # SNVs closer than this distance to each breakpoint will not be included
-    Int breakpoint_window_bp = 100000  # SNVs farther than this distance + buffer from each breakpoint will not be included
-    Float min_snv_call_rate = 0.95     # Minimum call rate for SNVs to be included
-    Float snv_freq_scalar = 5          # Frequency control parameter for SNVs, defined as AF ~ [min_sv_af / this, min_sv_af * this]
-    File? snv_exclusion_bed            # SNVs overlapping this BED file will be excluded
+    # SV filtering parameters for GT imputation training
+    Float min_sv_af = 0.05               # Minimum SV AF to be regenotyped. Max is 1 - this
+    Int min_sv_ac = 20                   # Minimum SV AC to be regenotyped. Max is max(AN) - this
+    Boolean mask_training_sv_gts = true  # Should SV GTs be filtered by SL before model training?
+    String? sv_training_sl_filter_args   # SV SL filter args used before training. See GATK-SV FilterGenotypes.wdl.
+    File? ploidy_table                   # GATK-SV ploidy table required for SL filtering. See FilterGenotypes.wdl.
+
+    # SNV filtering parameters
+    Int breakpoint_buffer_bp = 5000      # SNVs closer than this distance to each breakpoint will not be included
+    Int breakpoint_window_bp = 100000    # SNVs farther than this distance + buffer from each breakpoint will not be included
+    Float min_snv_call_rate = 0.95       # Minimum call rate for SNVs to be included
+    Float snv_freq_scalar = 5            # Frequency control parameter for SNVs, defined as AF ~ [min_sv_af / this, min_sv_af * this]
+    File? snv_exclusion_bed              # SNVs overlapping this BED file will be excluded
 
     # Imputation parameters
-    Int max_snps_per_flank = 10        # Max number of SNPs to include per flank
-    Float min_ld_r2 = 0.2              # Minimum LD between SNV & SV to permit for imputation
-    String ref_build = "hg38"          # Plink-styled reference indicator
+    Int max_snps_per_flank = 10          # Max number of SNPs to include per flank
+    Float min_ld_r2 = 0.2                # Minimum LD between SNV & SV to permit for imputation
+    String ref_build = "hg38"            # Plink-styled reference indicator
 
     # Parallelization options
     Int svs_per_shard = 200
@@ -50,6 +55,7 @@ workflow RefineSvGenotypesWithSnvs {
     String output_prefix
 
     String g2c_analysis_docker
+    String g2c_pipeline_docker
     String linux_docker
   }
 
@@ -98,8 +104,9 @@ workflow RefineSvGenotypesWithSnvs {
       outfile = output_prefix + ".shared_samples.list",
       docker = linux_docker
   }
+  Int max_sv_ac = floor((2 * GetSvSamples.n_samples) - min_sv_ac)
 
-  # Separate qualifying and non-qualifying SVs
+  # Separate initial qualifying and non-qualifying SVs
   call SplitSvs {
     input:
       vcf = sv_vcf,
@@ -107,7 +114,7 @@ workflow RefineSvGenotypesWithSnvs {
       min_af = min_sv_af,
       max_af = 1 - min_sv_af,
       min_ac = min_sv_ac,
-      max_ac = floor((2 * GetSvSamples.n_samples) - min_sv_ac),
+      max_ac = max_sv_ac,
       output_prefix = basename(sv_vcf, ".vcf.gz"),
       g2c_analysis_docker = g2c_analysis_docker
   }
@@ -137,11 +144,31 @@ workflow RefineSvGenotypesWithSnvs {
 
     String shard_prefix = basename(vcf_info.left, ".vcf.gz")
 
+    # Apply minimal SV quality filters to enrich for true-positive SV genotypes
+    # Also ensure all SVs still meet frequency criteria after filtering
+    if ( mask_training_sv_gts ) {
+      call MaskSvGts {
+        input:
+          vcf = vcf_info.left,
+          vcf_idx = vcf_info.right,
+          sl_filter_args = select_first([sv_training_sl_filter_args, ""]),
+          ploidy_table = select_first(select_all([ploidy_table])),
+          min_af = min_sv_af,
+          max_af = 1 - min_sv_af,
+          min_ac = min_sv_ac,
+          max_ac = max_sv_ac,
+          output_prefix = output_prefix + ".sl_masked",
+          g2c_pipeline_docker = g2c_pipeline_docker
+      }
+    }
+    File sv_training_vcf = select_first([MaskSvGts.filtered_vcf, vcf_info.left])
+    File sv_training_vcf_idx = select_first([MaskSvGts.filtered_vcf_idx, vcf_info.right])
+
     # Define SNV query intervals for this shard
     call DefineQueryIntervals {
       input:
-        sv_vcf = vcf_info.left,
-        sv_vcf_idx = vcf_info.right,
+        sv_vcf = sv_training_vcf,
+        sv_vcf_idx = sv_training_vcf_idx,
         breakpoint_buffer_bp = breakpoint_buffer_bp,
         breakpoint_window_bp = breakpoint_window_bp,
         snv_freq_scalar = snv_freq_scalar,
@@ -173,10 +200,11 @@ workflow RefineSvGenotypesWithSnvs {
     }
 
     # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
+    # TODO: need to update this to train on filtered SV VCF but apply to full cohort of SNV GTs
     call ImputeSvs {
       input:
-        sv_vcf = vcf_info.left,
-        sv_vcf_idx = vcf_info.right,
+        sv_vcf = sv_training_vcf,
+        sv_vcf_idx = sv_training_vcf_idx,
         snv_vcf = ConcatSnvs.merged_vcf,
         snv_vcf_idx = ConcatSnvs.merged_vcf_idx,
         training_samples_list = FindSharedSamples.intersection_file,
@@ -192,6 +220,7 @@ workflow RefineSvGenotypesWithSnvs {
 
     # Update SV GTs
     # TODO: implement this
+    # NOTE: must apply to vcf_info.left, *not* SL-filtered VCF
     # - If SNV-predicted GQ > GATK-SV GQ, return (sample, SV ID, GT, GQ) to be updated in SV VCF
   }
 
@@ -388,15 +417,16 @@ task ImputeSvs {
       tabix -p vcf -f $svid/sv.vcf.gz
       bcftools concat \
         --threads ~{bcftools_threads} \
-        -Oz -o $svid/sandwich.vcf.gz \
         $svid/left.snvs.vcf.gz \
         $svid/sv.vcf.gz \
-        $svid/right.snvs.vcf.gz
+        $svid/right.snvs.vcf.gz \
+      | bcftools annotate -x ^FORMAT/GT \
+        -Oz -o $svid/sandwich.vcf.gz
       tabix -p vcf -f $svid/sandwich.vcf.gz
 
       # Compute all LD vs. target SV with plink
       plink2 \
-        --r2-unphased 'yes-really' \
+        --r2-unphased 'yes-really' 'ref-based' \
         --ld-window-kb ~{plink_ld_window_kb} \
         --ld-window-r2 ~{min_ld_r2} \
         --split-par "~{ref_build}" \
@@ -458,6 +488,68 @@ task ImputeSvs {
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: n_preemptible
+    maxRetries: 1
+  }
+}
+
+
+# Apply an SL filter to all SV genotypes and retain only SVs still qualified by frequency
+task MaskSvGts {
+  input {
+    File vcf
+    File vcf_idx
+
+    String sl_filter_args = ""
+    File ploidy_table
+
+    Float min_af
+    Float max_af
+    Int min_ac
+    Int max_ac
+
+    String output_prefix
+
+    String g2c_pipeline_docker
+  }
+
+  Int disk_gb = ceil(3.5 * size(vcf, "GB")) + 10
+
+  String vcf_out = output_prefix + ".vcf.gz"
+
+  command <<<
+    set -eu -o pipefail
+
+    # Apply SL filter mask and update AC/AN/AF
+    python /opt/sv-pipeline/scripts/apply_sl_filter.py \
+      --vcf ~{vcf} \
+      --ploidy-table ~{ploidy_table} \
+      ~{sl_filter_args} \
+    | bcftools +fill-tags tmp.vcf.gz -- -t AC,AN,AF \
+    | bcftools view --no-update -i 'SVTYPE=="CNV" || AC>0' \
+      -Oz -o tmp.vcf.gz
+
+    # Filter again by frequency to ensure eligibility
+    /opt/pancan_germline_wgs/scripts/variant_filtering/bifurcate_svs_for_regenotyping.py \
+      -i tmp.vcf.gz \
+      -e "~{vcf_out}" \
+      --min-af ~{min_af} \
+      --max-af ~{max_af} \
+      --min-ac ~{min_ac} \
+      --max-ac ~{max_ac}
+    tabix -p vcf "~{vcf_out}"
+  >>>
+
+  output {
+    File filtered_vcf = vcf_out
+    File filtered_vcf_idx = "~{vcf_out}.tbi"
+  }
+
+  runtime {
+    docker: g2c_pipeline_docker
+    memory: "3.75 GB"
+    cpu: 2
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 1
     maxRetries: 1
   }
 }

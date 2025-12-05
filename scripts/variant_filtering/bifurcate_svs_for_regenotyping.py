@@ -12,9 +12,9 @@ Bifurcate an SV VCF to prepare for SNV-based GT refinement
 
 
 import argparse
-import g2cpy as g2c
 import numpy as np
 import pysam
+from g2cpy import is_multiallelic, compute_allele_freq_stats
 
 
 def label_sv(record, min_af=0, max_af=1, min_ac=0, max_ac=10e10):
@@ -23,7 +23,7 @@ def label_sv(record, min_af=0, max_af=1, min_ac=0, max_ac=10e10):
     """
 
     # Only biallelic variants are eligible for regenotyping
-    if g2c.is_multiallelic(record):
+    if is_multiallelic(record):
         return 'passthrough'
 
     # Get AF and AC if annotated, otherwise compute on the fly
@@ -31,7 +31,7 @@ def label_sv(record, min_af=0, max_af=1, min_ac=0, max_ac=10e10):
         ac = record.info.get('AC')[0]
         af = record.info.get('AF')[0]
     else:
-        freq_dat = g2c.compute_allele_freq_stats(record)
+        freq_dat = compute_allele_freq_stats(record)
         ac = freq_dat.get('AC')
         af = freq.dat.get('AF')
 

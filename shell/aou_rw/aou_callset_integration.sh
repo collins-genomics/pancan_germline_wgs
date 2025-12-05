@@ -108,7 +108,7 @@ gsutil -m cp \
   $staging_dir/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.*.tsv \
   $MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/
 
-# Write template input .json for hard filters, part 1
+# Write template input .json for SV GT refinement
 cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 0,
@@ -125,7 +125,7 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 }
 EOF
 
-# Submit, monitor, and stage/cleanup redundant variant reclustering
+# Submit, monitor, and stage/cleanup SV GT refinement
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/pancan_germline_wgs/RefineSvGenotypesWithSnvs.wdl \
   --input-json-template $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json \

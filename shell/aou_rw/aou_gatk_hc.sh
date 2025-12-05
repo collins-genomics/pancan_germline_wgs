@@ -843,9 +843,11 @@ code/scripts/manage_chromshards.py \
 # Stage all VCFs and indexes from patch 2
 while read contig; do
   # First determine the full list of all VCFs generated for this contig
+  # Don't worry about TotallyRadicalGatherVcfs as we are going to re-shard VCFs downstream anyway
   while read wid; do
     gsutil -m ls \
       $WORKSPACE_BUCKET/cromwell-execution/GnarlyJointGenotypingPart1/$wid/**dfci-g2c.v1.$contig.*.vcf.gz \
+    | fgrep -v TotallyRadicalGatherVcfs \
     > $staging_dir/$contig.jg_vcfs.uris.list
   done < cromshell/job_ids/dfci-g2c.v1.JointGenotypingPatch2.$contig.job_ids.list
 
@@ -895,7 +897,82 @@ while read contig; do
   done < scratch/vcfs.missing_indexes.list
 done < contig_lists/dfci-g2c.v1.contigs.$WN.list
 
-# TODO: final territory check
+
+#############################
+# Final VCF territory check #
+#############################
+
+# Build chromosome-specific override json of VCFs
+while read contig; do
+  gsutil -m ls \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/**vcf.gz 2>/dev/null \
+  | sort -V > $staging_dir/$contig.vcfs.list
+  gsutil cp \
+    $staging_dir/$contig.vcfs.list \
+    $WORKSPACE_BUCKET/misc/cromwell-inputs/
+done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+            contig_lists/dfci-g2c.v1.contigs.$WN.list )
+
+# Write template .json for input
+cat << EOF > $staging_dir/UltraParallelGetVcfTerritories.inputs.template.json
+{
+  "UltraParallelGetVcfTerritories.g2c_analysis_docker": "vanallenlab/g2c_analysis:bd86493",
+  "UltraParallelGetVcfTerritories.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
+  "UltraParallelGetVcfTerritories.output_prefix": "dfci-g2c.v1.\$CONTIG",
+  "UltraParallelGetVcfTerritories.vcf_uri_list": "$WORKSPACE_BUCKET/misc/cromwell-inputs/\$CONTIG.vcfs.list"
+}
+EOF
+
+# Gather chromosomal territory covered by variant calls in finished Gnarly VCF shards
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/pancan_germline_wgs/UltraParallelGetVcfTerritories.wdl \
+  --input-json-template $staging_dir/UltraParallelGetVcfTerritories.inputs.template.json \
+  --dependencies-zip g2c.dependencies.zip \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/FinalGetTerritories/ \
+  --contig-list <( fgrep \
+                     -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+                     contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
+  --name FinalGetTerritories \
+  --status-tsv cromshell/progress/dfci-g2c.v1.FinalGetTerritories.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 40 \
+  --submission-gate 40 \
+  --max-attempts 3
+
+# Copy all original calling intervals to staging directory
+if ! [ -e $staging_dir/original_intervals/ ]; then
+  mkdir $staging_dir/original_intervals/
+fi
+gsutil -m cp \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/gatkhc.wgs_calling_regions.hg38.chr*.sharded.interval_list \
+  $staging_dir/original_intervals/
+
+# Build table comparing callable intervals to finished intervals for each contig
+while read contig; do
+  # Convert original intervals to BED
+  fgrep -v "@" \
+    $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
+  | awk -v OFS="\t" '{ print $1, int($2), int($3) }' \
+  | sort -Vk1,1 -k2,2n -k3,3n \
+  | bedtools merge -i - \
+  > $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.intervals.bed
+
+  # Get total number of callable bases
+  total=$( awk '{ sum+=$3-$2 }END{ print sum }' \
+             $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.intervals.bed )
+
+  # Get total territory spanned by complete VCFs
+  called=$( gsutil -m cat \
+              $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/FinalGetTerritories/$contig/CalcDensity/dfci-g2c.v1.$contig.density.bed.gz \
+            | gunzip -c | awk '{ sum+=$3-$2 }END{ print sum }' )
+
+  # Report
+  echo -e "$contig\t$total\t$called" \
+  | awk -v OFS="\t" '{ print $1, $2, $3, $3/$2 }'
+
+done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+            contig_lists/dfci-g2c.v1.contigs.$WN.list )
+
 
 ###############
 # VCF cleanup #
