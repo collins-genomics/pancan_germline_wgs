@@ -18,6 +18,7 @@ workflow PosthocCleanupPart1 {
   input {
     Array[File] vcfs
     Array[File] vcf_idxs
+    File samples_list
     String output_prefix
 
     File ref_fasta
@@ -40,6 +41,7 @@ workflow PosthocCleanupPart1 {
       input:
         vcf = in_vcf_shard,
         vcf_idx = in_vcf_shard_idx,
+        samples_list = samples_list,
         outfile_name = out_vcf_fname,
         ref_fasta = ref_fasta,
         bcftools_docker = bcftools_docker
@@ -75,6 +77,7 @@ task NormalizeShortVariants {
     File vcf
     File vcf_idx
     String outfile_name
+    File samples_list
     File ref_fasta
     Float mem_gb = 7.5
     String bcftools_docker
@@ -85,10 +88,13 @@ task NormalizeShortVariants {
   command <<<
     set -eu -o pipefail
 
-    bcftools annotate \
+    bcftools view \
+      --samples-file ~{samples_list} \
+      --force-samples \
+      ~{vcf} \
+    | bcftools annotate \
       -x FORMAT/PGT,FORMAT/PID,FORMAT/PS,INFO/DB \
       -i 'FORMAT/DP>10 & FORMAT/GQ>20 & GT="alt"' \
-      ~{vcf} \
     | bcftools norm \
       --fasta-ref ~{ref_fasta} \
       --check-ref s \

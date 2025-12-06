@@ -55,6 +55,7 @@ workflow RefineSvGenotypesWithSnvs {
     String output_prefix
 
     String g2c_analysis_docker
+    String tmp_dev_docker
     String linux_docker
   }
 
@@ -158,7 +159,7 @@ workflow RefineSvGenotypesWithSnvs {
           max_ac = max_sv_ac,
           min_an = min_an,
           output_prefix = output_prefix + ".sl_masked",
-          g2c_analysis_docker = g2c_analysis_docker
+          g2c_analysis_docker = tmp_dev_docker
       }
     }
     File sv_training_vcf = select_first([MaskSvGts.filtered_vcf, vcf_info.left])
@@ -219,7 +220,7 @@ workflow RefineSvGenotypesWithSnvs {
         ref_build = ref_build,
         max_snps_per_flank = max_snps_per_flank,
         output_prefix = shard_prefix,
-        g2c_analysis_docker = g2c_analysis_docker
+        g2c_analysis_docker = tmp_dev_docker
     }
 
     # Update SV GTs
@@ -600,10 +601,6 @@ task QuerySnvs {
       echo -e "\nQuerying $( basename $vcf_uri )..."
     
       gsutil cp "$tbi_uri" ./
-      
-      # Refresh token
-      export GCS_OAUTH_TOKEN=$(gcloud auth application-default print-access-token)
-      export GCS_TOKEN=$(gcloud auth application-default print-refresh-token 2>/dev/null || echo "")
 
       # Fault-tolerance loop for dropped htslib remote streams
       attempt=1
@@ -614,49 +611,56 @@ task QuerySnvs {
 
         # Clear previous unsuccessful attempts
         rm -f "local_vcfs/$idx.vcf.gz" "local_vcfs/$idx.vcf.gz.tbi" || true
+      
+        # Refresh token
+        export GCS_OAUTH_TOKEN=$(gcloud auth application-default print-access-token)
+        export GCS_TOKEN=$(gcloud auth application-default print-refresh-token 2>/dev/null || echo "")
 
         # temp file to hold stderr for this attempt
         errfile=$(mktemp)
         
-        # Subshell this extraction command so the task isn't killed by set -e
-        (
-          bcftools view \
-            --regions-file snv_query_intervals.bed \
-            --types snps \
-            --apply-filters PASS,. \
-            --min-alleles 2 \
-            --max-alleles 2 \
-            --min-ac ~{min_ac} \
-            --min-an ~{min_an} \
-            --samples-file ~{samples_list} \
-            --force-samples \
-            $vcf_uri \
-          | bcftools +fill-tags -- -t AC,AN,AF,F_MISSING \
-          | bcftools view \
-            --min-ac ~{min_ac} \
-            --min-an ~{min_an} \
-            --min-af $global_min_af \
-            --max-af $global_max_af \
-            --include 'INFO/F_MISSING <= ~{max_ncr}' \
-          | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
-          | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
-            -Oz -o local_vcfs/$idx.vcf.gz
-        ) 2> "$errfile"
+        # Subshell this extraction command so the task isn't killed by global set -e
+        {
+          (
+            set -e -o pipefail
+            bcftools view \
+              --regions-file snv_query_intervals.bed \
+              --types snps \
+              --apply-filters PASS,. \
+              --min-alleles 2 \
+              --max-alleles 2 \
+              --min-ac ~{min_ac} \
+              --include 'INFO/AN >= ~{min_an}' \
+              --samples-file ~{samples_list} \
+              --force-samples \
+              $vcf_uri \
+            | bcftools +fill-tags -- -t AC,AN,AF,F_MISSING \
+            | bcftools view \
+              --min-ac ~{min_ac} \
+              --min-af $global_min_af \
+              --max-af $global_max_af \
+              --include 'INFO/AN >= ~{min_an} & INFO/F_MISSING <= ~{max_ncr}' \
+            | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
+            | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
+              -Oz -o local_vcfs/$idx.vcf.gz
+          )
+        } 2>>"$errfile"
         pipe_status=$?
 
-        # Completion check
+        # Failure detection
         if [[ $pipe_status -ne 0 ]] \
-           || grep -qiE "(Failed to open|Invalid argument|hts_open_format|stream)" "$errfile"
-        then
-            echo "Remote streaming failed (detected via stderr or exit code)"
+           || grep -qiE "(Failed to open|Invalid argument|hts_open_format|stream|Broken pipe|Traceback|Exception)" "$errfile"; then
+          echo "Remote streaming failed / stderr flagged"
         else
+          # Output validation
+          if [[ -s "local_vcfs/$idx.vcf.gz" ]]; then
             if tabix -p vcf -f "local_vcfs/$idx.vcf.gz"; then
-                echo "Success"
-                success=1
-                break
+              echo "Success"
+              success=1
+              break
             fi
+          fi
         fi
-
         attempt=$(( attempt + 1 ))
         sleep 5
       done

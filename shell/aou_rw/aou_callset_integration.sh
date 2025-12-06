@@ -112,17 +112,16 @@ gsutil -m cp \
 cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 0,
-  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:5419afd",
+  "RefineSvGenotypesWithSnvs.tmp_dev_docker": "vanallenlab/g2c_analysis:dd6cccc",
+  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:dd6cccc",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
   "RefineSvGenotypesWithSnvs.min_sv_ac": 50,
   "RefineSvGenotypesWithSnvs.min_sv_af": 0.001,
   "RefineSvGenotypesWithSnvs.min_an": 2000,
   "RefineSvGenotypesWithSnvs.output_prefix": "dfci-g2c.v1.\$CONTIG",
-  "RefineSvGenotypesWithSnvs.ploidy_table": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/17/dfci-g2c.v1.ploidy.tsv",
   "RefineSvGenotypesWithSnvs.snv_exclusion_bed": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_mask.bed.gz",
   "RefineSvGenotypesWithSnvs.snv_freq_scalar": 5,
   "RefineSvGenotypesWithSnvs.snv_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
-  "RefineSvGenotypesWithSnvs.sv_training_sl_filter_args": "--small-del-threshold 93 --medium-del-threshold 150 --small-dup-threshold -51 --medium-dup-threshold -4 --ins-threshold -13 --inv-threshold -19",
   "RefineSvGenotypesWithSnvs.sv_vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz",
   "RefineSvGenotypesWithSnvs.sv_vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz.tbi"
 }
@@ -154,7 +153,7 @@ cromshell --no_turtle -t 120 -mc submit \
 monitor_workflow $( cat scratch/dev.wid ) 1
 
 # (Dev) debug
-cromshell -t 120 metadata $( cat scratch/dev.wid ) | fgrep -A30 -B30 ailed
+cromshell -t 180 metadata $( cat scratch/dev.wid ) | fgrep -A30 -B30 ailed
 
 
 

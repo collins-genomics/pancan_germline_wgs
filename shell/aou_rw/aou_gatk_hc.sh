@@ -985,6 +985,15 @@ done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
 staging_dir=staging/PosthocCleanup
 if [ -e $staging_dir ]; then rm -rf $staging_dir; fi; mkdir $staging_dir
 
+# Make list of samples in desired order for output VCFs
+gsutil -m cat \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/dfci-g2c.v1.gatkhc.sample_map.tsv \
+| cut -f1 \
+> $staging_dir/dfci-g2c.v1.gatkhc.ordered_samples.list
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.gatkhc.ordered_samples.list \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/
+
 # Build chromosome-specific override json of VCFs and VCF indexes
 echo "{}" > $staging_dir/contig_variable_overrides.json
 while read contig; do
@@ -1023,6 +1032,7 @@ cat << EOF > $staging_dir/PosthocCleanupPart1.inputs.template.json
   "PosthocCleanupPart1.NormalizeVcf.mem_gb": 31,
   "PosthocCleanupPart1.output_prefix": "dfci-g2c.v1.\$CONTIG",
   "PosthocCleanupPart1.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
+  "PosthocCleanupPart1.samples_list": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/dfci-g2c.v1.gatkhc.ordered_samples.list",
   "PosthocCleanupPart1.vcfs": \$CONTIG_VCFS,
   "PosthocCleanupPart1.vcf_idxs": \$CONTIG_VCF_IDXS
 }
