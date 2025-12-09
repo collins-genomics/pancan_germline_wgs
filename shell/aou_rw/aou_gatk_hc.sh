@@ -1093,8 +1093,59 @@ while read contig; do
       $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/**vcf.gz.tbi \
       $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/
   else
-    # TODO: implement this
+    # First determine the full list of all VCFs generated for this contig
+    # Don't worry about TotallyRadicalGatherVcfs as we are going to re-shard VCFs downstream anyway
+    while read wid; do
+      gsutil -m ls \
+        $WORKSPACE_BUCKET/cromwell-execution/GnarlyJointGenotypingPart1/$wid/**dfci-g2c.v1.$contig.*.vcf.gz \
+      | fgrep -v TotallyRadicalGatherVcfs \
+      > $staging_dir/$contig.jg_vcfs.patch3.uris.list
+    done < cromshell/job_ids/dfci-g2c.v1.JointGenotypingPatch3.$contig.job_ids.list
+
+    # Count the number of VCFs generated for each base workflow ID, sort s/t 
+    # workflows with fewer VCFs are processed first (assuming less completion),
+    # and copy all VCFs from each workflow into the staging directory
+    while read wid; do
+      awk -v FS="/" -v OFS="\n" -v wid="$wid" \
+        '{ if ($6==wid) print $0, $0".tbi" }' \
+        $staging_dir/$contig.jg_vcfs.patch3.uris.list \
+      | gsutil -m cp -I \
+        $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/
+    done < <( awk -v FS="/" '{ print $6 }' \
+              $staging_dir/$contig.jg_vcfs.patch3.uris.list \
+              | sort | uniq -c | sort -nk1,1 | awk '{ print $2 }' )
   fi
+done < $staging_dir/patch3.contigs_to_run.list
+
+# Ensure all VCFs have corresponding indexes
+while read contig; do
+  # Write list of staged VCFs and indexes
+  gsutil -m ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/*vcf.gz \
+  > scratch/gatkhc.$contig.vcf.list
+  gsutil -m ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/*vcf.gz.tbi \
+  > scratch/gatkhc.$contig.tbi.list
+
+  # Find missing tabix indexes, if any
+  awk '{ print $1".tbi" }' scratch/gatkhc.$contig.vcf.list \
+  | fgrep -xvf scratch/gatkhc.$contig.tbi.list \
+  | sed 's/.tbi$//g' \
+  > scratch/vcfs.missing_indexes.list
+
+  # Repair and reindex each VCF as needed
+  while read vcf; do
+    gsutil -m cp $vcf scratch/
+    ~/code/scripts/fix_truncated_vcf.py \
+      -i scratch/$( basename $vcf ) \
+    | bgzip -c \
+    > scratch/$( basename $vcf | sed 's/.vcf.gz/.repaired.vcf.gz/g' )
+    tabix -p vcf -f scratch/$( basename $vcf | sed 's/.vcf.gz/.repaired.vcf.gz/g' )
+    gsutil -m cp \
+      scratch/$( basename $vcf | sed 's/.vcf.gz/.repaired.vcf.gz/g' ) \
+      $vcf
+    gsutil -m cp \
+      scratch/$( basename $vcf | sed 's/.vcf.gz/.repaired.vcf.gz/g' ).tbi \
+      ${vcf}.tbi
+  done < scratch/vcfs.missing_indexes.list
 done < $staging_dir/patch3.contigs_to_run.list
 
 
@@ -1152,7 +1203,6 @@ EOF
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/gatk-hc/PosthocCleanupPart1.wdl \
   --input-json-template $staging_dir/PosthocCleanupPart1.inputs.template.json \
-  --contig-variable-overrides $staging_dir/contig_variable_overrides.json \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/ \
   --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
