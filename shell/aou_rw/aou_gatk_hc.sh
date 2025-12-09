@@ -898,9 +898,13 @@ while read contig; do
 done < contig_lists/dfci-g2c.v1.contigs.$WN.list
 
 
-#############################
-# Final VCF territory check #
-#############################
+##############################################
+# Final VCF territory check & final JG patch #
+##############################################
+
+# Reaffirm staging directory
+staging_dir=staging/JGFinalPass
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
 # Build chromosome-specific override json of VCFs
 while read contig; do
@@ -973,19 +977,137 @@ while read contig; do
 done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
             contig_lists/dfci-g2c.v1.contigs.$WN.list )
 
+# Final patch run with higher resources for remaining missing shards
+
+# Define the final list of lingering unfinished intervals
+if [ -e $staging_dir/patch3.contigs_to_run.list ]; then
+  rm $staging_dir/patch3.contigs_to_run.list
+fi
+while read contig; do
+  # Only retain missed intervals ≥1kb in size. Anything below this size is an
+  # acceptable false negative region. Also we exclude LCRs for expediency.
+  fgrep "@" \
+    $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
+  > $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch3.preshard.interval_list
+  gsutil -m cat \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/FinalGetTerritories/$contig/CalcDensity/dfci-g2c.v1.$contig.density.bed.gz \
+  | bedtools subtract \
+    -a $staging_dir/original_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.intervals.bed \
+    -b - \
+  | awk -v OFS="\t" '{ if ($3-$2>=1000) print $1, $2, $3 }' \
+  | bedtools subtract -a - \
+    -b <( gsutil -m cat gs://dfci-g2c-refs/gatk/hg38.repmask_lcr.gatkhc_exclude.bed.gz ) \
+  | sort -Vk1,1 -k2,2n -k3,3n \
+  | bedtools merge -i - \
+  | awk -v OFS="\t" '{ print $1, $2, $3, "+", ". intersection ACGTmer"}' \
+  >> $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch3.preshard.interval_list
+
+  # If less than 100kb of total uncalled intervals remain, don't bother (not worth the cost)
+  bp_rem=$( fgrep -v "@" \
+              $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch3.preshard.interval_list \
+            | awk -v FS="\t" '{ sum+=$3-$2 }END{ print sum }' )
+  if [ $bp_rem -lt 100000 ]; then
+    echo -e "\n\nOnly $bp_rem bp total uncalled for $contig; skipping\n"
+    rm $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch3.preshard.interval_list
+  else
+    # Shard interval list into multiple lists based on maximal distance between intervals
+    code/scripts/split_intervals.py \
+      -i $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch3.preshard.interval_list \
+      -d 100000 \
+      --min-interval-size 0 \
+      -p $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch3.clumped
+    n_shards=$( find $staging_dir/ -name "gatkhc.wgs_calling_regions.hg38.$contig.patch3.clumped*" | wc -l )
+    echo -e "\n\nGenerated $n_shards separate interval_list files for $contig\n"
+
+    # Copy new interval lists to bucket for Cromwell referencing
+    gsutil -m cp \
+      $staging_dir/gatkhc.wgs_calling_regions.hg38.$contig.patch3.clumped* \
+      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/patch3/
+    echo -e "$contig" >> $staging_dir/patch3.contigs_to_run.list
+  fi
+done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
+            contig_lists/dfci-g2c.v1.contigs.$WN.list )
+
+# Write list of all interval lists
+while read contig; do
+  gsutil -m ls \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/patch3/gatkhc.wgs_calling_regions.hg38.$contig.patch3.clumped* \
+  | sort -V | uniq \
+  > $staging_dir/gatkhc.patch3.$contig.interval_lists.uris.list
+done < $staging_dir/patch3.contigs_to_run.list
+
+# Write .json of contig-specific interval lists
+echo "{ " > $staging_dir/contig_variable_overrides.patch3.json
+while read contig; do
+  echo "\"$contig\" : {\"CUSTOM_INTERVALS\" : $( collapse_txt $staging_dir/gatkhc.patch3.$contig.interval_lists.uris.list ) },"
+done < $staging_dir/patch3.contigs_to_run.list \
+| paste -s -d\  | sed 's/,$//g' \
+>> $staging_dir/contig_variable_overrides.patch3.json
+echo " }" >> $staging_dir/contig_variable_overrides.patch3.json
+
+# Write template .json for input
+cat << EOF > $staging_dir/GnarlyJointGenotypingPart1.patch3.inputs.template.json
+{
+  "GnarlyJointGenotypingPart1.callset_name": "dfci-g2c.v1.\$CONTIG.patch3",
+  "GnarlyJointGenotypingPart1.custom_unpadded_intervals": \$CUSTOM_INTERVALS,
+  "GnarlyJointGenotypingPart1.dbsnp_vcf": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.dbsnp138.vcf",
+  "GnarlyJointGenotypingPart1.GnarlyGenotyperFT.machine_mem_mb": 16000,
+  "GnarlyJointGenotypingPart1.gnarly_scatter_count": 5,
+  "GnarlyJointGenotypingPart1.import_gvcfs_batch_size": 100,
+  "GnarlyJointGenotypingPart1.import_gvcfs_disk_gb": 150,
+  "GnarlyJointGenotypingPart1.ImportGVCFsFT.jvm_max_mb": 25000,
+  "GnarlyJointGenotypingPart1.ImportGVCFsFT.machine_mem_mb": 48000,
+  "GnarlyJointGenotypingPart1.ImportGVCFsFT.n_preemptible_tries": 0,
+  "GnarlyJointGenotypingPart1.intervals_already_split": false,
+  "GnarlyJointGenotypingPart1.make_hard_filtered_sites": false,
+  "GnarlyJointGenotypingPart1.ref_dict": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.dict",
+  "GnarlyJointGenotypingPart1.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
+  "GnarlyJointGenotypingPart1.ref_fasta_index": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai",
+  "GnarlyJointGenotypingPart1.sample_name_map": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/dfci-g2c.v1.gatkhc.sample_map.tsv",
+  "GnarlyJointGenotypingPart1.unpadded_intervals_file": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/dummy.file"
+}
+EOF
+
+# Rerun joint genotype patch 3 on unfinished shards with more resources
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/gatk-hc/GnarlyJointGenotypingPart1.wdl \
+  --input-json-template $staging_dir/GnarlyJointGenotypingPart1.patch3.inputs.template.json \
+  --contig-variable-overrides $staging_dir/contig_variable_overrides.patch3.json \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/ \
+  --dependencies-zip gatkhc.dependencies.zip \
+  --name JointGenotypingPatch3 \
+  --contig-list $staging_dir/patch3.contigs_to_run.list \
+  --status-tsv cromshell/progress/dfci-g2c.v1.JointGenotypingPatch3.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 60 \
+  --vm-gate 500 \
+  --no-cleanup \
+  --max-attempts 3
+
+# Relocate successful final patches to main staging bucket
+# This depends on the status of each submission above
+while read contig; do
+  if [ $( gsutil ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/**vcf.gz | wc -l ) -gt 0 ]; then
+    gsutil -m cp \
+      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/**vcf.gz \
+      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/**vcf.gz.tbi \
+      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/
+  else
+    # TODO: implement this
+  fi
+done < $staging_dir/patch3.contigs_to_run.list
+
 
 ###############
 # VCF cleanup #
 ###############
-
-# Note: this workflow is scattered across all five workspaces for max parallelization
-# It must be submitted as below in each workspace
 
 # Refresh staging directory
 staging_dir=staging/PosthocCleanup
 if [ -e $staging_dir ]; then rm -rf $staging_dir; fi; mkdir $staging_dir
 
 # Make list of samples in desired order for output VCFs
+# This only needs to be run once (in one workspace) for the entire project
 gsutil -m cat \
   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/dfci-g2c.v1.gatkhc.sample_map.tsv \
 | cut -f1 \
@@ -994,47 +1116,34 @@ gsutil -m cp \
   $staging_dir/dfci-g2c.v1.gatkhc.ordered_samples.list \
   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/
 
-# Build chromosome-specific override json of VCFs and VCF indexes
-echo "{}" > $staging_dir/contig_variable_overrides.json
+# Note: everything below must be submitted separately for each workspace
+
+# Write list of VCFs and indexes for each chromosome
 while read contig; do
-  # VCFs
+  # Write list locally
   gsutil -m ls \
     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/**vcf.gz \
-  | sort -V > $staging_dir/$contig.vcfs.list
+  | sort -V \
+  | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
+  > $staging_dir/dfci-g2c.v1.gatkhc_posthoc_step1.$contig.vcf_info.tsv
 
-  # VCF indexes
-  awk '{ print $1".tbi" }' $staging_dir/$contig.vcfs.list \
-  > $staging_dir/$contig.vcf_idxs.list
-
-  # Write .json snippet for variable overrides for this contig
-  cat << EOF > $staging_dir/$contig.overrides.json
-{
-  "$contig" : {
-      "CONTIG_VCFS": $( collapse_txt $staging_dir/$contig.vcfs.list ),
-      "CONTIG_VCF_IDXS": $( collapse_txt $staging_dir/$contig.vcf_idxs.list )
-    }
-}
-EOF
-  
-  # Update main .json
-  code/scripts/update_json.py \
-    -i $staging_dir/contig_variable_overrides.json \
-    -u $staging_dir/$contig.overrides.json \
-    -o $staging_dir/contig_variable_overrides.json
+  # Copy to GSC for Cromwell reference
+  gsutil -m cp \
+    $staging_dir/dfci-g2c.v1.gatkhc_posthoc_step1.$contig.vcf_info.tsv \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/input_vcf_lists/
 done < contig_lists/dfci-g2c.v1.contigs.$WN.list
 
 # Write template .json for input
 cat << EOF > $staging_dir/PosthocCleanupPart1.inputs.template.json
 {
   "PosthocCleanupPart1.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
-  "PosthocCleanupPart1.g2c_pipeline_docker": "vanallenlab/g2c_pipeline:sv_counting",
+  "PosthocCleanupPart1.g2c_analysis_docker": "vanallenlab/g2c_analysis:dd6cccc",
   "PosthocCleanupPart1.linux_docker": "marketplace.gcr.io/google/ubuntu1804",
   "PosthocCleanupPart1.NormalizeVcf.mem_gb": 31,
   "PosthocCleanupPart1.output_prefix": "dfci-g2c.v1.\$CONTIG",
   "PosthocCleanupPart1.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
   "PosthocCleanupPart1.samples_list": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/dfci-g2c.v1.gatkhc.ordered_samples.list",
-  "PosthocCleanupPart1.vcfs": \$CONTIG_VCFS,
-  "PosthocCleanupPart1.vcf_idxs": \$CONTIG_VCF_IDXS
+  "PosthocCleanupPart1.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/input_vcf_lists/dfci-g2c.v1.gatkhc_posthoc_step1.$contig.vcf_info.tsv"
 }
 EOF
 
@@ -1050,6 +1159,8 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.PosthocCleanupPart1.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 45 \
+  --submission-gate 45 \
+  --vm-gate 400 \
   --max-attempts 2
 
 

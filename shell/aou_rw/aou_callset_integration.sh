@@ -153,7 +153,5 @@ cromshell --no_turtle -t 120 -mc submit \
 monitor_workflow $( cat scratch/dev.wid ) 1
 
 # (Dev) debug
-cromshell -t 180 metadata $( cat scratch/dev.wid ) | fgrep -A30 -B30 ailed
-
-
+cromshell -t 180 metadata $( cat scratch/dev.wid ) | fgrep -A30 -B30 ailed | head -n500
 

@@ -41,7 +41,7 @@ workflow UltraParallelGetVcfTerritories {
   # Scatter over sharded VCF lists
   scatter ( i in range(n_chunks) ) {
     # Extract URIs from sharded file as array of strings and indexes
-    call ExtractVcfArrays {
+    call Utils.ExtractVcfArrays {
       input:
         vcf_list = ShardVcfList.shards[i],
         linux_docker = g2c_analysis_docker
@@ -70,33 +70,5 @@ workflow UltraParallelGetVcfTerritories {
 
   output {
     File territory_density = CalcDensity.density_bed
-  }
-}
-
-
-task ExtractVcfArrays {
-  input {
-    File vcf_list
-    String linux_docker
-  }
-
-  command <<<
-    set -eu -o pipefail
-
-    awk '{ print $1".tbi" }' ~{vcf_list} > "index_uris.list"
-  >>>
-
-  output {
-    Array[String] vcf_uris = read_lines(vcf_list)
-    Array[String] vcf_tbi_uris = read_lines("index_uris.list")
-  }
-
-  runtime {
-    docker: linux_docker
-    memory: "1.75 GB"
-    cpu: 1
-    disks: "local-disk 20 HDD"
-    preemptible: 1
-    maxRetries: 1
   }
 }

@@ -206,6 +206,37 @@ task CountRecordsInVcf {
 }
 
 
+# Extract URIs of VCFs and indexes from a .tsv as an array of strings and indexes
+# Useful in combination with ShardTextFile for parallelizing tasks over very large input arrays
+task ExtractVcfArrays {
+  input {
+    File vcf_list
+    String linux_docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+
+    awk '{ print $1".tbi" }' ~{vcf_list} > "index_uris.list"
+  >>>
+
+  output {
+    Array[String] vcf_uris = read_lines(vcf_list)
+    Array[String] vcf_tbi_uris = read_lines("index_uris.list")
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
+
+
+
 # Generic task to efficiently download a file from an FTP server
 task FtpDownload {
   input {
@@ -686,6 +717,41 @@ task SumSvCountsPerSample {
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+  }
+}
+
+# Simple helper task to write VCF and index URIs to a two-column .tsv
+# Designed for downstream compatability with ShardTextFile and ExtractVcfArrays
+task VcfArrayToTsv {
+  input {
+    Array[String] vcfs
+    Array[String] vcf_idxs
+    String output_prefix
+    String docker
+  }
+
+  String outfile = output_prefix + ".vcf_uris.tsv"
+
+  command <<<
+    set -eu -o pipefail
+
+    paste \
+      ~{write_lines(vcfs)} \
+      ~{write_lines(vcf_idxs)} \
+    > ~{outfile}
+  >>>
+
+  output {
+    File vcf_info_tsv = outfile
+  }
+
+  runtime {
+    docker: docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    maxRetries: 1
     preemptible: 3
   }
 }
