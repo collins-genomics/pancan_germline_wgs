@@ -222,8 +222,8 @@ task ExtractVcfArrays {
                   | sort -nrk1,1 | sed -n '1p' )
 
     if [ $max_fields -gt 1 ]; then
-      awk -v FS="\t" '{ print $1 }' > vcf_uris.list
-      awk -v FS="\t" '{ print $2 }' > index_uris.list
+      awk -v FS="\t" '{ print $1 }' ~{vcf_info} > vcf_uris.list
+      awk -v FS="\t" '{ print $2 }' ~{vcf_info} > index_uris.list
     else
       cp ~{vcf_info} vcf_uris.list
       awk '{ print $1".tbi" }' ~{vcf_info} > index_uris.list
