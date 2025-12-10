@@ -574,7 +574,7 @@ task QuerySnvs {
     String output_prefix
 
     Int disk_gb = 275
-    Float mem_gb = 3.5
+    Float mem_gb = 7.5
     Int n_cpu = 2
     Int n_preemptible = 1
     String g2c_analysis_docker
@@ -584,7 +584,7 @@ task QuerySnvs {
   String out_tbi = out_vcf + ".tbi"
 
   Int concat_threads = 2 * n_cpu
-  Int sort_mem_mb = floor(1000 * (mem_gb / 2))
+  Int sort_mem_mb = floor(1000 * (mem_gb / 3))
 
   command <<<
     set -eu -o pipefail
@@ -680,7 +680,7 @@ task QuerySnvs {
     > local_vcfs.list
 
     # Check to ensure some VCFs overlapped query intervals; otherwise, make dummy VCF and exit
-    if [ $( cat local_vcfs.list | wc -l) -eq 0 ]; then
+    if [ $( cat local_vcfs.list | wc -l ) -eq 0 ]; then
 
       gsutil cat \
         $( cut -f1 ~{snv_info_tsv} | sed -n '1p' ) \
@@ -718,11 +718,14 @@ task QuerySnvs {
           --allow-overlaps \
           --remove-duplicates \
           --file-list region_vcfs/$ridx.input_vcfs.list \
-        | bcftools sort \
+          -Oz -o tmp.concat.vcf.gz
+        bcftools sort \
           --max-mem "~{sort_mem_mb}M" \
           --temp-dir region_vcfs/ \
-          -Oz -o region_vcfs/cleaned.$ridx.vcf.gz
+          -Oz -o region_vcfs/cleaned.$ridx.vcf.gz \
+          tmp.concat.vcf.gz
         tabix -p vcf region_vcfs/cleaned.$ridx.vcf.gz
+        rm tmp.concat.vcf.gz
 
         rm region_vcfs/$ridx.*.vcf.gz* region_vcfs/$ridx.input_vcfs.list
 

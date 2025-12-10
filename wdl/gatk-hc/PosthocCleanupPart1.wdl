@@ -71,8 +71,8 @@ workflow PosthocCleanupPart1 {
     scatter ( j in range(length(inner_vcf_infos)) ) {
 
       String out_vcf_fname = output_prefix + "." + i + "." + j + ".norm.vcf.gz"
-      File in_vcf_shard = inner_vcf_infos[i].left
-      File in_vcf_shard_idx = inner_vcf_infos[i].right
+      File in_vcf_shard = inner_vcf_infos[j].left
+      File in_vcf_shard_idx = inner_vcf_infos[j].right
 
       # Additional cleanup step added for G2C to coerce to parsimonious format
       call NormalizeShortVariants as NormalizeVcf {
