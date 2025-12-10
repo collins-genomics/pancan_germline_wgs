@@ -206,22 +206,32 @@ task CountRecordsInVcf {
 }
 
 
-# Extract URIs of VCFs and indexes from a .tsv as an array of strings and indexes
+# Extract URIs of VCFs and indexes from a flat text file of URI strings
 # Useful in combination with ShardTextFile for parallelizing tasks over very large input arrays
 task ExtractVcfArrays {
   input {
-    File vcf_list
+    File vcf_info # Either a .txt file with VCF URIs or a two-column .tsv of VCF and tabix URIs.
+                  # If provided as a single-column .txt file, we assume tabix indexes exist in the same bucket.
     String linux_docker
   }
 
   command <<<
     set -eu -o pipefail
 
-    awk '{ print $1".tbi" }' ~{vcf_list} > "index_uris.list"
+    max_fields=$( awk -v FS="\t" '{ print NF }' ~{vcf_info} \
+                  | sort -nrk1,1 | sed -n '1p' )
+
+    if [ $max_fields -gt 1 ]; then
+      awk -v FS="\t" '{ print $1 }' > vcf_uris.list
+      awk -v FS="\t" '{ print $2 }' > index_uris.list
+    else
+      cp ~{vcf_info} vcf_uris.list
+      awk '{ print $1".tbi" }' ~{vcf_info} > index_uris.list
+    fi
   >>>
 
   output {
-    Array[String] vcf_uris = read_lines(vcf_list)
+    Array[String] vcf_uris = read_lines("vcf_uris.list")
     Array[String] vcf_tbi_uris = read_lines("index_uris.list")
   }
 
@@ -234,7 +244,6 @@ task ExtractVcfArrays {
     maxRetries: 1
   }
 }
-
 
 
 # Generic task to efficiently download a file from an FTP server

@@ -1194,7 +1194,7 @@ cat << EOF > $staging_dir/PosthocCleanupPart1.inputs.template.json
   "PosthocCleanupPart1.output_prefix": "dfci-g2c.v1.\$CONTIG",
   "PosthocCleanupPart1.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
   "PosthocCleanupPart1.samples_list": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/dfci-g2c.v1.gatkhc.ordered_samples.list",
-  "PosthocCleanupPart1.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/input_vcf_lists/dfci-g2c.v1.gatkhc_posthoc_step1.$contig.vcf_info.tsv"
+  "PosthocCleanupPart1.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/input_vcf_lists/dfci-g2c.v1.gatkhc_posthoc_step1.\$CONTIG.vcf_info.tsv"
 }
 EOF
 
@@ -1211,7 +1211,7 @@ code/scripts/manage_chromshards.py \
   --outer-gate 45 \
   --submission-gate 45 \
   --vm-gate 400 \
-  --max-attempts 2
+  --max-attempts 3
 
 
 ###########################

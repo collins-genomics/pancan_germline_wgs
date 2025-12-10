@@ -43,7 +43,7 @@ workflow UltraParallelGetVcfTerritories {
     # Extract URIs from sharded file as array of strings and indexes
     call Utils.ExtractVcfArrays {
       input:
-        vcf_list = ShardVcfList.shards[i],
+        vcf_info = ShardVcfList.shards[i],
         linux_docker = g2c_analysis_docker
     }
 
