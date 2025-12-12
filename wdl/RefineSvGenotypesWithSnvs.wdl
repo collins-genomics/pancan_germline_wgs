@@ -377,6 +377,9 @@ task ImputeSvs {
     Int n_preemptible = 1
   }
 
+  String groups_cmd if defined(sample_group_labels) then "--sample-group-labels " + basename(sample_group_labels) else ""
+  String covars_cmd if defined(sample_covariates) then "--sample-covariates " + basename(sample_covariates) else ""
+
   Int disk_gb = ceil(2 * size([sv_vcf, snv_vcf], "GB")) + 10
 
   Int bcftools_threads = (2 * n_cpu) - 1
@@ -391,6 +394,14 @@ task ImputeSvs {
 
     # Make dummy .fam file
     awk -v OFS="\t" '{ print $1, $1, 0, 0, 0, 0 }' ~{training_samples_list} > samples.fam
+
+    # Localize optional files
+    if ~{defined(sample_group_labels)}; then
+      mv ~{sample_group_labels} ./
+    fi
+    if ~{defined(sample_covariates)}; then
+      mv ~{sample_covariates} ./
+    fi
 
     # Process each SV in serial
     while read chrom start end svid svaf; do
@@ -484,6 +495,13 @@ task ImputeSvs {
 
       # Temporary task to deloc files for development
       cp $svid/$svid.ad.tsv.gz ./
+
+      # Impute SV GTs
+      /opt/pancan_germline_wgs/scripts/variant_filtering/impute_sv_gts.R \
+        --ad $svid/$svid.ad.tsv.gz \
+        --sv-id "$svid" \
+        ~{covars_cmd} \
+        ~{groups_cmd}
 
       # TODO: finish implementing this
       # - Load tag SNP AD and SV GTs into R

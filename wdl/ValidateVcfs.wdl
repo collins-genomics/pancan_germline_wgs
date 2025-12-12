@@ -122,18 +122,16 @@ task ValidateVcf {
   Int disk_gb = ceil(3 * size(vcf, "GB")) + 10
 
   command <<<
-    {
-      set -eu -o pipefail
-      tabix -p vcf -f ~{vcf}
+    set -o pipefail
+    if tabix -p vcf -f ~{vcf}; then
       echo "~{vcf_basename}" > valid.txt
-    } || {
-      set -eu -o pipefail
+    else
       mkdir repaired/
       /opt/pancan_germline_wgs/scripts/utilities/fix_truncated_vcf.py -i ~{vcf} \
       | bgzip -c \
       > ~{repaired_vcf_path}
       tabix -p vcf ~{repaired_vcf_path}
-    }
+    fi
   >>>
 
   output {

@@ -892,7 +892,7 @@ cat << EOF > $staging_dir/ValidateVcfs.inputs.template.json
 }
 EOF
 
-# Gather chromosomal territory covered by variant calls in finished Gnarly VCF shards
+# Validate all VCFs prior to final territory check
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/pancan_germline_wgs/ValidateVcfs.wdl \
   --input-json-template $staging_dir/ValidateVcfs.inputs.template.json \
