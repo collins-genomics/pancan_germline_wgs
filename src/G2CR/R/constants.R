@@ -553,7 +553,28 @@ load.constants <- function(subset="all", envir=.GlobalEnv){
                           "stjude" = "cancer",
                           "ufc" = "cancer",
                           "wcdt" = "cancer",
-                          "other" = "other")
+                          "other" = "other"),
+    "cohort.realigned" = c("apollo" = FALSE,
+                           "aou" = FALSE,
+                           "biome" = FALSE,
+                           "ceph" = TRUE,
+                           "copdgene" = FALSE,
+                           "cptac" = FALSE,
+                           "eagle" = FALSE,
+                           "gmkf" = FALSE,
+                           "gtex" = FALSE,
+                           "hcmi" = FALSE,
+                           "hgsvc" = FALSE,
+                           "hmf" = TRUE,
+                           "icgc" = FALSE,
+                           "lcins" = TRUE,
+                           "mesa" = FALSE,
+                           "proactive-core" = FALSE,
+                           "proactive-other" = FALSE,
+                           "proactive" = FALSE,
+                           "stjude" = FALSE,
+                           "ufc" = TRUE,
+                           "wcdt" = FALSE)
   )
 
   # Assign constants to global environment

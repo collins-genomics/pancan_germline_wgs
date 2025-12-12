@@ -312,6 +312,7 @@ task DefineQueryIntervals {
   }
 }
 
+
 # Extracts the first SNV VCF URI from a .tsv of VCF info
 task GetFirstSnvVcf {
   input {

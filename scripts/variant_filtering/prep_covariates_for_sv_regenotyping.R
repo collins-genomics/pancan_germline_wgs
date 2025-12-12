@@ -15,6 +15,7 @@
 options(scipen=1000, stringsAsFactors=F)
 require(argparse, quietly=TRUE)
 require(G2CR, quietly=TRUE)
+G2CR::load.constants("other")
 
 
 ###########
@@ -43,10 +44,10 @@ df$short_reads <- as.numeric(df$read_length < 150)
 df$blood <- as.numeric(df$batching_tissue == "blood")
 df$aou <- as.numeric(df$cohort == "aou")
 df$g2c_id <- rownames(df)
-# TODO: add G2C realignment?
+df$realigned <- as.numeric(as.logical(remap(df$cohort, cohort.realigned, default=FALSE)))
 
 # Retain only covariates needed for SV imputation and write to --out-tsv
 df.out <- df[, c("g2c_id", "wgd_plus", "wgd_minus", "insert_size",
                  "mean_coverage", "charr", "chrX_ploidy", "chrY_ploidy",
-                 "short_reads", "blood", "aou")]
+                 "short_reads", "blood", "aou", "realigned")]
 write.table(df.out, args$out_tsv, col.names=T, row.names=F, quote=F, sep="\t")

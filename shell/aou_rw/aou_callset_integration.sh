@@ -59,7 +59,7 @@ cd ~
 code/scripts/setup_cromshell.py
 
 # Install necessary packages
-. code/refs/install_packages.sh python
+. code/refs/install_packages.sh python R
 
 # Infer workspace number and save as environment variable
 export WN=$( get_workspace_number )
@@ -94,6 +94,12 @@ gsutil -m cat \
 gsutil -m cp \
   $staging_dir/dfci-g2c.v1.sv_regenotyping.snv_mask.bed.gz \
   $MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/
+
+# Prepare sample covariates for refining imputation
+gsutil -m cp \
+  
+code/scripts/prep_covariates_for_sv_regenotyping.R \
+
 
 # Make lists of all SNV VCFs and indexes for each contig
 while read contig; do
