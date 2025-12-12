@@ -888,7 +888,7 @@ cat << EOF > $staging_dir/ValidateVcfs.inputs.template.json
   "ValidateVcfs.g2c_analysis_docker": "vanallenlab/g2c_analysis:dd6cccc",
   "ValidateVcfs.linux_docker": "ubuntu:plucky-20251001",
   "ValidateVcfs.vcfs_per_shard": 50,
-  "ValidateVcfs.vcf_info_tsv": "$WORKSPACE_BUCKET/misc/cromwell-inputs/validation.$contig.vcfs.list"
+  "ValidateVcfs.vcf_info_tsv": "$WORKSPACE_BUCKET/misc/cromwell-inputs/validation.\$CONTIG.vcfs.list"
 }
 EOF
 
@@ -903,7 +903,10 @@ code/scripts/manage_chromshards.py \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 40 \
   --submission-gate 40 \
-  --max-attempts 3
+  --max-attempts 5
+
+# Once complete, relocate all "repaired_vcf" outputs + indexes to overwrite their original staged versions
+# TODO: implement this
 
 
 ##############################################

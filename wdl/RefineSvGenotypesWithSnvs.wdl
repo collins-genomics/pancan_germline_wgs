@@ -52,6 +52,8 @@ workflow RefineSvGenotypesWithSnvs {
     Int svs_per_shard = 200
     Int snv_vcfs_per_shard = 100
 
+    File genome_file                     # BEDTools-style .genome file
+
     String output_prefix
 
     String g2c_analysis_docker
@@ -173,6 +175,7 @@ workflow RefineSvGenotypesWithSnvs {
       input:
         sv_vcf = sv_training_vcf,
         sv_vcf_idx = sv_training_vcf_idx,
+        genome_file = genome_file,
         breakpoint_buffer_bp = breakpoint_buffer_bp,
         breakpoint_window_bp = breakpoint_window_bp,
         snv_freq_scalar = snv_freq_scalar,
@@ -242,6 +245,7 @@ task DefineQueryIntervals {
   input {
     File sv_vcf
     File sv_vcf_idx
+    File genome_file
 
     Int breakpoint_buffer_bp
     Int breakpoint_window_bp
@@ -274,6 +278,9 @@ task DefineQueryIntervals {
       ln -s ~{default="" snv_exclusion_bed} .
     fi
 
+    # To ensure GATK strict interval compliance, we trim all intervals to the bounds of all chromosomes
+    awk -v OFS="\t" '{ print $1, $2-1, $2+100000000 }' ~{genome_file} > cliff.bed
+
     # Build query intervals
     bcftools query \
       -f '%CHROM\t%POS\t%INFO/END\t%INFO/AF\n' \
@@ -284,6 +291,7 @@ task DefineQueryIntervals {
                  $1, $3+buffer, $3+buffer+window, $4/scalar, $4*scalar }' \
     | awk -v FS="\t" -v OFS="\t" '{ if ($2<0) $2=0; if ($5>1) $5=1; print }' \
     ~{excl_cmd} \
+    | bedtools subtract -a - -b cliff.bed \
     | sort -Vk1,1 -k2,2n -k3,3n \
     | bedtools merge -i - -d 5000 -c 4,5 -o min,max \
     | awk -v OFS="\t" '{ print NR, $0 }' \
@@ -633,6 +641,11 @@ task QuerySnvs {
 
       # Delete VCF & index if no variants are found
       if [ $( bcftools query -f '%CHROM\n' local_vcfs/$idx.vcf.gz | wc -l ) -eq 0 ]; then
+        # Except for the first shard, which we save in case we need a dummy header-only VCF later
+        if [ $idx -eq 1 ]; then
+          cp local_vcfs/$idx.vcf.gz dummy.vcf.gz
+          cp local_vcfs/$idx.vcf.gz.tbi dummy.vcf.gz.tbi
+        fi
         rm local_vcfs/$idx.vcf.gz local_vcfs/$idx.vcf.gz.tbi
       fi
 
@@ -644,16 +657,8 @@ task QuerySnvs {
     # Check to ensure some VCFs overlapped query intervals; otherwise, make dummy VCF and exit
     if [ $( cat local_vcfs.list | wc -l ) -eq 0 ]; then
 
-      # Refresh token
-      export GCS_OAUTH_TOKEN=$(gcloud auth application-default print-access-token)
-      export GCS_TOKEN=$(gcloud auth application-default print-refresh-token 2>/dev/null || echo "")
-
-      # Stream header from first VCF in list
-      # We know tabix index must have been localized per the `while read` loop above
-      gatk SelectVariants \
-        -V $( cut -f1 ~{snv_info_tsv} | sed -n '1p' ) \
-        --select "false" \
-        --output ~{out_vcf}
+      cp dummy.vcf.gz ~{out_vcf}
+      cp dummy.vcf.gz.tbi ~{out_tbi}
     
     else
 
