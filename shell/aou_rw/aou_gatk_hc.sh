@@ -866,36 +866,44 @@ while read contig; do
 done < <( fgrep -xvf contig_lists/dfci-g2c.v1.contigs.dev.list \
             contig_lists/dfci-g2c.v1.contigs.$WN.list )
 
-# Ensure all VCFs have corresponding indexes
+# Repair/validate VCFs (if necessary; only needed this for chr1 in practice)
+
+# On a workspace-specific basis, fill the below heredoc with necessary contigs
+cat << EOF > $staging_dir/vcf_repair.contigs.list
+EOF
+
+# Build chromosome-specific override json of VCFs
 while read contig; do
-  # Write list of staged VCFs and indexes
-  gsutil -m ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/*vcf.gz \
-  > scratch/gatkhc.$contig.vcf.list
-  gsutil -m ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/*vcf.gz.tbi \
-  > scratch/gatkhc.$contig.tbi.list
+  gsutil -m ls \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/**vcf.gz 2>/dev/null \
+  | sort -V > $staging_dir/validation.$contig.vcfs.list
+  gsutil cp \
+    $staging_dir/validation.$contig.vcfs.list \
+    $WORKSPACE_BUCKET/misc/cromwell-inputs/
+done < $staging_dir/vcf_repair.contigs.list
 
-  # Find missing tabix indexes, if any
-  awk '{ print $1".tbi" }' scratch/gatkhc.$contig.vcf.list \
-  | fgrep -xvf scratch/gatkhc.$contig.tbi.list \
-  | sed 's/.tbi$//g' \
-  > scratch/vcfs.missing_indexes.list
+# Write template .json for input
+cat << EOF > $staging_dir/ValidateVcfs.inputs.template.json
+{
+  "ValidateVcfs.g2c_analysis_docker": "vanallenlab/g2c_analysis:dd6cccc",
+  "ValidateVcfs.linux_docker": "ubuntu:plucky-20251001",
+  "ValidateVcfs.vcfs_per_shard": 50,
+  "ValidateVcfs.vcf_info_tsv": "$WORKSPACE_BUCKET/misc/cromwell-inputs/validation.$contig.vcfs.list"
+}
+EOF
 
-  # Repair and reindex each VCF as needed
-  while read vcf; do
-    gsutil -m cp $vcf scratch/
-    ~/code/scripts/fix_truncated_vcf.py \
-      -i scratch/$( basename $vcf ) \
-    | bgzip -c \
-    > scratch/$( basename $vcf | sed 's/.vcf.gz/.repaired.vcf.gz/g' )
-    tabix -p vcf -f scratch/$( basename $vcf | sed 's/.vcf.gz/.repaired.vcf.gz/g' )
-    gsutil -m cp \
-      scratch/$( basename $vcf | sed 's/.vcf.gz/.repaired.vcf.gz/g' ) \
-      $vcf
-    gsutil -m cp \
-      scratch/$( basename $vcf | sed 's/.vcf.gz/.repaired.vcf.gz/g' ).tbi \
-      ${vcf}.tbi
-  done < scratch/vcfs.missing_indexes.list
-done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+# Gather chromosomal territory covered by variant calls in finished Gnarly VCF shards
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/pancan_germline_wgs/ValidateVcfs.wdl \
+  --input-json-template $staging_dir/ValidateVcfs.inputs.template.json \
+  --dependencies-zip g2c.dependencies.zip \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/VcfValidationBeforeFinalJGPatch/ \
+  --contig-list $staging_dir/vcf_repair.contigs.list \
+  --status-tsv cromshell/progress/dfci-g2c.v1.ValidateVcfs.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 40 \
+  --submission-gate 40 \
+  --max-attempts 3
 
 
 ##############################################
@@ -1189,7 +1197,7 @@ cat << EOF > $staging_dir/PosthocCleanupPart1.inputs.template.json
 {
   "PosthocCleanupPart1.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
   "PosthocCleanupPart1.g2c_analysis_docker": "vanallenlab/g2c_analysis:dd6cccc",
-  "PosthocCleanupPart1.linux_docker": "marketplace.gcr.io/google/ubuntu1804",
+  "PosthocCleanupPart1.linux_docker": "ubuntu:plucky-20251001",
   "PosthocCleanupPart1.NormalizeVcf.mem_gb": 31,
   "PosthocCleanupPart1.output_prefix": "dfci-g2c.v1.\$CONTIG",
   "PosthocCleanupPart1.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
