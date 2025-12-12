@@ -8,6 +8,33 @@
 
 version 1.0
 
+# Write an array of strings to a text file
+task ArrayToTxt {
+  input {
+    Array[String] strings
+    String outfile
+    String linux_docker = "ubuntu:plucky-20251001"
+  }
+
+  command <<<
+    set -e -o pipefail
+    cat ~{write_lines(strings)} > ~{outfile}
+  >>>
+
+  output {
+    File array_txt = outfile
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 1
+    maxRetries: 1
+  }  
+}
+
 
 # Compute a BEDGraph of feature density from one or more BED files
 task CalcBedDensity {

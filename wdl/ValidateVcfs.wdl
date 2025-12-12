@@ -79,15 +79,23 @@ workflow ValidateVcfs {
       }
     }
 
-    Array[File] valid_vcfs_inner = select_all(ValidateVcf.valid_vcf)
-    Array[File] valid_vcf_idxs_inner = select_all(ValidateVcf.valid_vcf_idx)
+    Array[String] valid_vcfs_inner = select_all(ValidateVcf.valid_vcf)
     Array[File] repaired_vcfs_inner = select_all(ValidateVcf.repaired_vcf)
     Array[File] repaired_vcf_idxs_inner = select_all(ValidateVcf.repaired_vcf_idx)
   }
 
+  # Concatenate list of valid VCFs, if any
+  Array[String] valid_vcfs_outer = select_all(flatten(valid_vcfs_inner))
+  if ( length(valid_vcfs_outer) > 0 ) {
+    call Utils.ArrayToTxt as WriteValidList {
+      input:
+        strings = valid_vcfs_outer,
+        outfile = output_prefix + ".valid_vcfs.list"
+    }
+  }
+
   output {
-    Array[File] valid_input_vcfs = select_all(flatten(valid_vcfs_inner))
-    Array[File] valid_input_vcf_idxs = select_all(flatten(valid_vcf_idxs_inner))
+    File? valid_vcf_list = WriteValidList.array_txt
     Array[File] repaired_vcfs = select_all(flatten(repaired_vcfs_inner))
     Array[File] repaired_vcf_idxs = select_all(flatten(repaired_vcf_idxs_inner))
   }
@@ -97,6 +105,8 @@ workflow ValidateVcfs {
 # Validate a VCF by indexing
 # If indexing fails, repairs & reindexes the VCF
 # Output depends on whether the input VCF was valid
+# A string of the VCF name will be returned if it was valid
+# A repaired VCF file and index will be returned if input was invalid
 task ValidateVcf {
   input {
     File vcf
@@ -105,9 +115,6 @@ task ValidateVcf {
   }
 
   String vcf_basename = basename(vcf)
-
-  String valid_vcf_path = "valid/" + vcf_basename
-  String valid_vcf_idx_path = "valid/" + vcf_basename + ".tbi"
   
   String repaired_vcf_path = "repaired/" + vcf_basename
   String repaired_vcf_idx_path = "repaired/" + vcf_basename + ".tbi"
@@ -118,9 +125,7 @@ task ValidateVcf {
     set -eu -o pipefail
     {
       tabix -p vcf ~{vcf}
-      mkdir valid
-      mv ~{vcf} valid/
-      mv ~{vcf_idx} valid/
+      echo "~{vcf_basename}" > valid.txt
     } || {
       mkdir repaired/
       /opt/pancan_germline_wgs/scripts/utilities/fix_truncated_vcf.py -i ~{vcf} \
@@ -131,8 +136,7 @@ task ValidateVcf {
   >>>
 
   output {
-    File? valid_vcf = valid_vcf_path
-    File? valid_vcf_idx = valid_vcf_idx_path
+    String? valid_vcf = read_string("valid.txt")
     File? repaired_vcf = repaired_vcf_path
     File? repaired_vcf_idx = repaired_vcf_idx_path
   }
