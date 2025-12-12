@@ -45,7 +45,7 @@ workflow RefineSvGenotypesWithSnvs {
 
     # Imputation parameters
     Int max_snps_per_flank = 10          # Max number of SNPs to include per flank
-    Float min_ld_r2 = 0.2                # Minimum LD between SNV & SV to permit for imputation
+    Float min_ld_r2 = 0.1                # Minimum LD between SNV & SV to permit for imputation
     String ref_build = "hg38"            # Plink-styled reference indicator
 
     # Parallelization options
@@ -191,8 +191,7 @@ workflow RefineSvGenotypesWithSnvs {
           min_ac = floor(min_sv_ac / snv_freq_scalar),
           min_an = min_an,
           max_ncr = 1 - min_snv_call_rate,
-          output_prefix = shard_prefix + ".chunk_" + i,
-          g2c_analysis_docker = g2c_analysis_docker
+          output_prefix = shard_prefix + ".chunk_" + i
       }
     }
     call Utils.ConcatVcfs as ConcatSnvs {
@@ -363,7 +362,7 @@ task ImputeSvs {
     Int n_preemptible = 1
   }
 
-  Int disk_gb = ceil(2 * size([sv_vcf, snv_vcf])) + 10
+  Int disk_gb = ceil(2 * size([sv_vcf, snv_vcf], "GB")) + 10
 
   Int bcftools_threads = (2 * n_cpu) - 1
 
@@ -409,8 +408,9 @@ task ImputeSvs {
           --regions-file $svid/$flank.window.bed \
           --min-af $min_snv_af \
           --max-af $max_snv_af \
-          -Oz -o $svid/$flank.snvs.vcf.gz \
-          ~{snv_vcf}
+          ~{snv_vcf} \
+        | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
+          --vcf-out $svid/$flank.snvs.vcf.gz
         tabix -p vcf -f $svid/$flank.snvs.vcf.gz
       done
       bcftools view \
@@ -425,7 +425,7 @@ task ImputeSvs {
         $svid/left.snvs.vcf.gz \
         $svid/sv.vcf.gz \
         $svid/right.snvs.vcf.gz \
-      | bcftools annotate -x ^FORMAT/GT \
+      | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
         -Oz -o $svid/sandwich.vcf.gz
       tabix -p vcf -f $svid/sandwich.vcf.gz
 
@@ -457,8 +457,8 @@ task ImputeSvs {
 
       # Extract allele dosage for the SV and each flanking SNP
       cat \
-        svid/left.keep_vids.list \
-        svid/right.keep_vids.list \
+        $svid/left.keep_vids.list \
+        $svid/right.keep_vids.list \
         <( echo -e "$svid" ) \
       | sort -V | uniq \
       > $svid/all.keep_vids.list
@@ -577,7 +577,7 @@ task QuerySnvs {
     Float mem_gb = 7.5
     Int n_cpu = 2
     Int n_preemptible = 1
-    String g2c_analysis_docker
+    String gatk_docker = "broadinstitute/gatk:4.6.2.0"
   }
 
   String out_vcf = output_prefix + ".snvs.vcf.gz"
@@ -601,73 +601,35 @@ task QuerySnvs {
       echo -e "\nQuerying $( basename $vcf_uri )..."
     
       gsutil cp "$tbi_uri" ./
-
-      # Fault-tolerance loop for dropped htslib remote streams
-      attempt=1
-      success=0
-      while [[ $attempt -le ~{max_stream_attempts} ]]; do
-
-        echo "Attempt $attempt for $( basename $vcf_uri )..."
-
-        # Clear previous unsuccessful attempts
-        rm -f "local_vcfs/$idx.vcf.gz" "local_vcfs/$idx.vcf.gz.tbi" || true
       
-        # Refresh token
-        export GCS_OAUTH_TOKEN=$(gcloud auth application-default print-access-token)
-        export GCS_TOKEN=$(gcloud auth application-default print-refresh-token 2>/dev/null || echo "")
-
-        # temp file to hold stderr for this attempt
-        errfile=$(mktemp)
-        
-        # Subshell this extraction command so the task isn't killed by global set -e
-        {
-          (
-            set -e -o pipefail
-            bcftools view \
-              --regions-file snv_query_intervals.bed \
-              --types snps \
-              --apply-filters PASS,. \
-              --min-alleles 2 \
-              --max-alleles 2 \
-              --min-ac ~{min_ac} \
-              --include 'INFO/AN >= ~{min_an}' \
-              --samples-file ~{samples_list} \
-              --force-samples \
-              $vcf_uri \
-            | bcftools +fill-tags -- -t AC,AN,AF,F_MISSING \
-            | bcftools view \
-              --min-ac ~{min_ac} \
-              --min-af $global_min_af \
-              --max-af $global_max_af \
-              --include 'INFO/AN >= ~{min_an} & INFO/F_MISSING <= ~{max_ncr}' \
-            | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
-            | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
-              -Oz -o local_vcfs/$idx.vcf.gz
-          )
-        } 2>>"$errfile"
-        pipe_status=$?
-
-        # Failure detection
-        if [[ $pipe_status -ne 0 ]] \
-           || grep -qiE "(Failed to open|Invalid argument|hts_open_format|stream|Broken pipe|Traceback|Exception)" "$errfile"; then
-          echo "Remote streaming failed / stderr flagged"
-        else
-          # Output validation
-          if [[ -s "local_vcfs/$idx.vcf.gz" ]]; then
-            if tabix -p vcf -f "local_vcfs/$idx.vcf.gz"; then
-              echo "Success"
-              success=1
-              break
-            fi
-          fi
-        fi
-        attempt=$(( attempt + 1 ))
-        sleep 5
-      done
-      if [[ $success -eq 0 ]]; then
-        echo "Failed after ~{max_stream_attempts} attempts. Killing task."
-        exit 1
-      fi
+      # Refresh token
+      export GCS_OAUTH_TOKEN=$(gcloud auth application-default print-access-token)
+      export GCS_TOKEN=$(gcloud auth application-default print-refresh-token 2>/dev/null || echo "")
+      
+      # Slice and filter qualifying SNPs
+      gatk SelectVariants \
+        -L snv_query_intervals.bed \
+        --select-type-to-include SNP \
+        --restrict-alleles-to BIALLELIC \
+        --create-output-variant-index false \
+        --create-output-variant-md5 false \
+        -V $vcf_uri \
+        --output /dev/stdout \
+      | bcftools view \
+        --apply-filters PASS,. \
+        --min-ac ~{min_ac} \
+        --include 'INFO/AN >= ~{min_an}' \
+        --samples-file ~{samples_list} \
+        --force-samples \
+      | bcftools +fill-tags -- -t AC,AN,AF,F_MISSING \
+      | bcftools view \
+        --min-ac ~{min_ac} \
+        --min-af $global_min_af \
+        --max-af $global_max_af \
+        --include 'INFO/AN >= ~{min_an} & INFO/F_MISSING <= ~{max_ncr}' \
+      | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
+        -Oz -o local_vcfs/$idx.vcf.gz
+      tabix -p vcf local_vcfs/$idx.vcf.gz
 
       # Delete VCF & index if no variants are found
       if [ $( bcftools query -f '%CHROM\n' local_vcfs/$idx.vcf.gz | wc -l ) -eq 0 ]; then
@@ -682,13 +644,16 @@ task QuerySnvs {
     # Check to ensure some VCFs overlapped query intervals; otherwise, make dummy VCF and exit
     if [ $( cat local_vcfs.list | wc -l ) -eq 0 ]; then
 
-      gsutil cat \
-        $( cut -f1 ~{snv_info_tsv} | sed -n '1p' ) \
-      | bcftools view --header-only \
-        --samples-file ~{samples_list} \
-        --force-samples \
-        -Oz -o ~{out_vcf}
-      tabix ~{out_vcf}
+      # Refresh token
+      export GCS_OAUTH_TOKEN=$(gcloud auth application-default print-access-token)
+      export GCS_TOKEN=$(gcloud auth application-default print-refresh-token 2>/dev/null || echo "")
+
+      # Stream header from first VCF in list
+      # We know tabix index must have been localized per the `while read` loop above
+      gatk SelectVariants \
+        -V $( cut -f1 ~{snv_info_tsv} | sed -n '1p' ) \
+        --select "false" \
+        --output ~{out_vcf}
     
     else
 
@@ -750,7 +715,7 @@ task QuerySnvs {
   }
 
   runtime {
-    docker: g2c_analysis_docker
+    docker: gatk_docker
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb +" HDD"

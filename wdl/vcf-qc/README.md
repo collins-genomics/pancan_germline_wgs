@@ -113,20 +113,8 @@ java -jar cromwell.jar run PlotVcfQcMetrics.wdl \
 ```
 
 ### Running on Terra
-1. Upload both WDLs to your Terra workspace (`vcf-qc/` directory).  
-2. Create separate configurations for:
-   - `CollectVcfQcMetrics` (scattered per chromosome)
-   - `PlotVcfQcMetrics` (single run aggregating outputs)  
-3. Point the second workflow’s inputs to the outputs of the first.
-
----
-
-## Output Interpretation
-
-- **Variant size & AF plots:** Assess representation of small vs. large variants and rare vs. common alleles.  
-- **Sample-level metrics:** Highlight samples with low call rate, excess heterozygosity, or outlier genotype distributions.  
-- **LD summary:** Optional check for population structure or sample mix-ups.  
-- **Reference comparison plots:** Verify that variant spectra align with expected distributions from known datasets.
+We have registered both workflows on Dockstore, where they are synchronized with the latest version of the code on GitHub: 
+TODO: add URLs here
 
 ---
 
@@ -135,4 +123,3 @@ java -jar cromwell.jar run PlotVcfQcMetrics.wdl \
 - Run `CollectVcfQcMetrics` separately per chromosome to parallelize efficiently.  
 - Aggregate outputs into `PlotVcfQcMetrics` **only once** all chromosomes are complete.  
 - Use the same `out_prefix` naming convention across runs for clarity.  
-- Store intermediate TSVs to facilitate iterative re-plotting without recomputation.

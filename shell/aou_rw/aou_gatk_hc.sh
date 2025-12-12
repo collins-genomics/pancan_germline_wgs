@@ -1087,10 +1087,10 @@ code/scripts/manage_chromshards.py \
 # Relocate successful final patches to main staging bucket
 # This depends on the status of each submission above
 while read contig; do
-  if [ $( gsutil ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/**vcf.gz | wc -l ) -gt 0 ]; then
+  if [ $( gsutil ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/$contig/**vcf.gz | wc -l ) -gt 0 ]; then
     gsutil -m cp \
-      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/**vcf.gz \
-      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/**vcf.gz.tbi \
+      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/$contig/**vcf.gz \
+      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotypingPatch3/$contig/**vcf.gz.tbi \
       $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/
   else
     # First determine the full list of all VCFs generated for this contig
@@ -1205,12 +1205,13 @@ code/scripts/manage_chromshards.py \
   --input-json-template $staging_dir/PosthocCleanupPart1.inputs.template.json \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/ \
-  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
+  --contig-list <( fgrep -xv "chr1" contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
   --status-tsv cromshell/progress/dfci-g2c.v1.PosthocCleanupPart1.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 45 \
   --submission-gate 45 \
   --vm-gate 400 \
+  --contig-gate 1 \
   --max-attempts 3
 
 
@@ -1278,6 +1279,13 @@ zcat dfci-g2c.sample_meta.posthoc_outliers.ceph_update.tsv.gz \
 > $staging_dir/dfci-g2c.v1.gatkhc.posthoc_outliers.outliers.samples.list2
 mv $staging_dir/dfci-g2c.v1.gatkhc.posthoc_outliers.outliers.samples.list2 \
   $staging_dir/dfci-g2c.v1.gatkhc.posthoc_outliers.outliers.samples.list
+
+# Add four HMF samples with withdrawn consents
+# TODO: implement this
+# HMF000191
+# HMF000472
+# HMF002810
+# HMF006509
 
 # Update sample metadata with posthoc outlier failure labels
 code/scripts/append_qc_fail_metadata.R \

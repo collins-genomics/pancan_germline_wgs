@@ -602,14 +602,14 @@ def main():
 
                     # Check to ensure that a permissible number of contigs are in flight
                     n_active_contigs = sum([s in running_status for s in run_status.values()])
-                    if n_active_contigs > args.contig_gate:
+                    if n_active_contigs >= args.contig_gate:
                         if not args.quiet:
                             with print_lock:
                                 msg1 = '[{}] Status of contig {}: {}'
                                 print(msg1.format(clean_date(), contig, status))
                                 msg2 = '[{}] Skipped submission of {} due to the ' + \
-                                       'number of active contigs ({:,}) being greater ' + \
-                                       'than the value of --contig-gate ({:,})'
+                                       'number of active contigs ({:,}) being at ' + \
+                                       'or above the value of --contig-gate ({:,})'
                                 print(msg2.format(clean_date(), contig, 
                                                   n_active_contigs,
                                                   args.contig_gate))
