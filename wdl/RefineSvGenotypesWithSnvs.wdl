@@ -47,6 +47,8 @@ workflow RefineSvGenotypesWithSnvs {
     Int max_snps_per_flank = 10          # Max number of SNPs to include per flank
     Float min_ld_r2 = 0.1                # Minimum LD between SNV & SV to permit for imputation
     String ref_build = "hg38"            # Plink-styled reference indicator
+    File? sample_group_labels            # Optional two-column .tsv mapping sample IDs to major group labels (e.g., continental ancestry). No header.
+    File? sample_covariates              # Optional .tsv of sample IDs + any technical covariates for SV imputation. Has header.
 
     # Parallelization options
     Int svs_per_shard = 200
@@ -215,6 +217,8 @@ workflow RefineSvGenotypesWithSnvs {
         snv_vcf = ConcatSnvs.merged_vcf,
         snv_vcf_idx = ConcatSnvs.merged_vcf_idx,
         training_samples_list = FindSharedSamples.intersection_file,
+        sample_group_labels = sample_group_labels,
+        sample_covariates = sample_covariates,
         breakpoint_buffer_bp = breakpoint_buffer_bp,
         breakpoint_window_bp = breakpoint_window_bp,
         snv_freq_scalar = snv_freq_scalar,
@@ -354,6 +358,8 @@ task ImputeSvs {
     File snv_vcf_idx
     
     File training_samples_list
+    File? sample_group_labels
+    File? sample_covariates
     Int breakpoint_buffer_bp
     Int breakpoint_window_bp
     Float snv_freq_scalar

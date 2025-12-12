@@ -97,9 +97,15 @@ gsutil -m cp \
 
 # Prepare sample covariates for refining imputation
 gsutil -m cp \
-  
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-inputs/intake_qc/dfci-g2c.intake_qc.all.tsv.gz \
+  $staging_dir/
 code/scripts/prep_covariates_for_sv_regenotyping.R \
-
+  --qc-tsv $staging_dir/dfci-g2c.intake_qc.all.tsv.gz \
+  --out-tsv $staging_dir/dfci-g2c.v1.sv_imputation_covariates.tsv
+gzip -f $staging_dir/dfci-g2c.v1.sv_imputation_covariates.tsv
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.sv_imputation_covariates.tsv.gz \
+  $MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/
 
 # Make lists of all SNV VCFs and indexes for each contig
 while read contig; do
@@ -126,6 +132,8 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.min_sv_af": 0.001,
   "RefineSvGenotypesWithSnvs.min_an": 2000,
   "RefineSvGenotypesWithSnvs.output_prefix": "dfci-g2c.v1.\$CONTIG",
+  "RefineSvGenotypesWithSnvs.sample_covariates": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
+  "RefineSvGenotypesWithSnvs.sample_group_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_ancestry.tsv",
   "RefineSvGenotypesWithSnvs.snv_exclusion_bed": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_mask.bed.gz",
   "RefineSvGenotypesWithSnvs.snv_freq_scalar": 5,
   "RefineSvGenotypesWithSnvs.snv_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
