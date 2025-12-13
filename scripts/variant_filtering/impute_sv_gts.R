@@ -146,9 +146,9 @@ impute.sv.gts <- function(sv.fit, snp.ad, train.sv.ad, min.n.per.gt=10, seed=202
 
   # Assign GT PL to each sample according to GATK formulation
   # See: https://gatk.broadinstitute.org/hc/en-us/articles/360035890451-Calculation-of-PL-and-GQ-by-HaplotypeCaller-and-GenotypeGVCFs
-  gt.pl <- data.frame("ref" = -10*log(gt.pval(pred.ad, ref.g)),
-                      "het" = -10*log(gt.pval(pred.ad, het.g)),
-                      "hom" = -10*log(gt.pval(pred.ad, hom.g)))
+  gt.pl <- data.frame("ref" = -10*log10(gt.pval(pred.ad, ref.g)),
+                      "het" = -10*log10(gt.pval(pred.ad, het.g)),
+                      "hom" = -10*log10(gt.pval(pred.ad, hom.g)))
 
   # Normalize PL per sample
   gt.pl.norm <- t(apply(gt.pl, 1, function(v){

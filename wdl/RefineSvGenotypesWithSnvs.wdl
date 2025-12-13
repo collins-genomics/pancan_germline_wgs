@@ -229,7 +229,7 @@ workflow RefineSvGenotypesWithSnvs {
         g2c_analysis_docker = tmp_dev_docker
     }
 
-    # Update SV GTs
+    # Update SV GTs with imputed results
     # TODO: implement this
     # NOTE: must apply to vcf_info.left, *not* quality-filtered VCF
     # - If SNV-predicted GQ > GATK-SV GQ, return (sample, SV ID, GT, GQ) to be updated in SV VCF

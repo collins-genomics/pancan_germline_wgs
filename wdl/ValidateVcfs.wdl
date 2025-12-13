@@ -131,7 +131,7 @@ task ValidateVcf {
       | bgzip -c \
       > ~{repaired_vcf_path}
       tabix -p vcf ~{repaired_vcf_path}
-    fi
+    fi || true
   >>>
 
   output {
