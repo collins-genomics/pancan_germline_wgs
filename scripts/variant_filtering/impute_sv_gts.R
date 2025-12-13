@@ -14,6 +14,7 @@
 # Load necessary libraries and constants
 options(scipen=1000, stringsAsFactors=F)
 require(argparse, quietly=TRUE)
+require(caret, quietly=TRUE)
 require(G2CR, quietly=TRUE)
 
 
@@ -49,20 +50,124 @@ find.best.train.group <- function(sv.ad, groups.tsv){
   as.character(g.df[which(g.df[, 2] == best.g), 1])
 }
 
+# Create cross-validation folds balanced by non-ref GT count
+make.cv.folds <- function(ad.v, k=5, seed=2025){
+  set.seed(seed)
+  ref.folds <- createFolds(which(ad.v == 0), k)
+  alt.folds <- createFolds(which(ad.v > 0), k)
+  lapply(1:k, function(i){
+    sort(unique(c(ref.folds[[i]], alt.folds[[i]])))
+  })
+}
+
 # Train an SV genotype imputation model
-train.imputation <- function(sv.ad, snp.ad, train.sids, covars=NULL){
+train.imputation <- function(sv.ad, snp.ad, train.sids, covars=NULL,
+                             cov.train.sids=train.sids, k=5, seed=2025){
   # Subset input data to training sids
   train.sv.ad <- sv.ad[intersect(train.sids, names(sv.ad))]
   train.snp.ad <- snp.ad[intersect(train.sids, rownames(snp.ad)), ]
 
+  # Split samples into cross-validation folds balanced by number of non-ref GTs
+  fold.indexes <- make.cv.folds(train.sv.ad, k=k, seed=seed)
+
   # Adjust training SV ADs for technical factors, if optioned
   if(!is.null(covars)){
-    train.covars <- covars[intersect(train.sids, rownames(covars)), ]
-    # TODO: implement this
+    train.covars <- covars[cov.train.sids, ]
+    cov.train.sv.ad <- train.sv.ad[cov.train.sids]
+    cov.train.fold.indexes <- make.cv.folds(cov.train.sv.ad, k=k, seed=seed)
+    cov.fit <- train.elastic.net.cv(train.covars, cov.train.sv.ad,
+                                    fold.indexes=cov.train.fold.indexes,
+                                    seed=seed, tune.length=10)
+    cov.fit.e <- mean(coef(cov.fit$finalModel)["(Intercept)", ])
+    train.sv.ad <- train.sv.ad - (predict(cov.fit, covars) - cov.fit.e)
   }
 
   # Fit imputation model
-  # TODO: implement this
+  train.elastic.net.cv(train.snp.ad, train.sv.ad, fold.indexes=fold.indexes, seed=seed)
+}
+
+# Compute P-values for estimated allele dosages versus a parameterized Gaussian
+gt.pval <- function(ads, gt.d){
+  g.mean <- gt.d[1]
+  g.sd <- gt.d[2]
+  z <- (ads - g.mean) / g.sd
+  (2 * pnorm(abs(z), lower.tail=F))
+}
+
+# Impute SV genotypes from a trained allele dosage regression model
+impute.sv.gts <- function(sv.fit, snp.ad, train.sv.ad, min.n.per.gt=10, seed=2025){
+  # Apply model to get raw SV ADs
+  pred.ad <- predict(sv.fit, snp.ad)
+
+  # Get centroid initialization for AC=0,1,2
+  obs.acs <- intersect(0:2, unique(train.sv.ad))
+  k.start <- sapply(obs.acs, function(ac){
+    median(pred.ad[names(which(train.sv.ad == ac))])
+    })
+
+  # Cluster all samples in untransformed AD space to identify high-confidence samples
+  set.seed(seed)
+  pred.ac <- kmeans(pred.ad, centers=k.start)$cluster - 1
+  k.sids <- sapply(obs.acs, function(ac){
+    intersect(names(which(pred.ac == ac)),
+              names(which(train.sv.ad == ac)))
+    })
+
+  # Scale predicted ADs
+  if(0 %in% obs.acs){
+    pred.ad <- pred.ad - median(pred.ad[k.sids[[1]]])
+  }
+  if(2 %in% obs.acs){
+    pred.ad <- pred.ad * (2 / median(pred.ad[k.sids[[3]]]))
+  }else{
+    pred.ad <- pred.ad * (2 / median(2*pred.ad[k.sids[[2]]]))
+  }
+
+  # Parameterize Gaussians for assigning genotype
+  het.g <- c(mean(pred.ad[k.sids[[2]]]), sd(pred.ad[k.sids[[2]]]))
+  ref.g <- NULL
+  if(0 %in% obs.acs){
+    if(length(k.sids[[1]] > min.n.per.gt)){
+      ref.g <- c(mean(pred.ad[k.sids[[1]]]), sd(pred.ad[k.sids[[1]]]))
+    }
+  }
+  if(is.null(ref.g)){
+    ref.g <- c(0, het.g[2])
+  }
+  hom.g <- NULL
+  if(2 %in% obs.acs){
+    if(length(k.sids[[3]]) > min.n.per.gt){
+      hom.g <- c(mean(pred.ad[k.sids[[3]]]), sd(pred.ad[k.sids[[3]]]))
+    }
+  }
+  if(is.null(hom.g)){
+    hom.g <- c(2, 1) * het.g
+  }
+
+  # Assign GT PL to each sample according to GATK formulation
+  # See: https://gatk.broadinstitute.org/hc/en-us/articles/360035890451-Calculation-of-PL-and-GQ-by-HaplotypeCaller-and-GenotypeGVCFs
+  gt.pl <- data.frame("ref" = -10*log(gt.pval(pred.ad, ref.g)),
+                      "het" = -10*log(gt.pval(pred.ad, het.g)),
+                      "hom" = -10*log(gt.pval(pred.ad, hom.g)))
+
+  # Normalize PL per sample
+  gt.pl.norm <- t(apply(gt.pl, 1, function(v){
+    v - min(v, na.rm=T)
+  }))
+
+  # Compute GT and GQ per sample
+  gt.gq <- t(apply(gt.pl.norm, 1, function(pls){
+    best.idx <- which(pls == min(pls))
+    gt <- c("0/0", "0/1", "1/1")[best.idx]
+    gq <- round(min(c(abs(min(pls[-best.idx]) - pls[best.idx]), 99)), 0)
+    c(gt, gq)
+  }))
+
+  # Summarize imputation results
+  res <- as.data.frame(merge(gt.gq, as.data.frame(pred.ad), by="row.names"))
+  colnames(res) <- c("sample", "GT", "GQ", "AD")
+  res$AD <- round(res$AD, 2)
+  return(res)
 }
 
 
@@ -81,13 +186,16 @@ parser$add_argument("--sample-group-labels", metavar=".tsv", type="character",
                     help=paste("Two-column .tsv mapping sample IDs to major",
                                "group labels, like ancestry. Will only be used ",
                                "for covariate adjustment during model training."))
+parser$add_argument("--out-tsv", metavar="path", type="character", required=TRUE,
+                    help="Path to output .tsv")
 args <- parser$parse_args()
 
-# DEV:
-args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680.ad.tsv.gz",
-             "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680",
-             "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
-             "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv")
+# # DEV:
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680",
+#              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
+#              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
+#              "out_tsv" = "~/scratch/sv_imp.test.tsv")
 
 # Load allele dosage matrix and split SV from SNPs
 ad <- read.table(args$ad, header=T, sep="\t", comment.char="", check.names=F)
@@ -104,38 +212,20 @@ sv.samples <- names(sv.ad)[which(!is.na(sv.ad))]
 covars <- load.covars(args$sample_covariates, keep.samples=sv.samples)
 
 # Define training samples
-train.sids <-if(!is.null(covars)){rownames(covars)}else{sv.samples}
-train.sids <- intersect(train.sids,
-                        find.best.train.group(sv.ad[train.sids], args$sample_group_labels))
+train.sids <- if(!is.null(covars)){rownames(covars)}else{sv.samples}
+cov.train.sids <- if(!is.null(covars)){
+  intersect(train.sids,
+            find.best.train.group(sv.ad[train.sids], args$sample_group_labels))
+}else{
+  train.sids
+}
 
 # Train imputation model
-sv.fit <- train.imputation(sv.ad, snp.ad, train.sids, covars)
+sv.fit <- train.imputation(sv.ad, snp.ad, train.sids, covars, cov.train.sids)
 
-# Apply trained model
-# TODO: implement this
+# Apply trained model and predict genotypes for all samples
+imp.res <- impute.sv.gts(sv.fit, snp.ad, sv.ad[train.sids])
+imp.res$`#sv_id` <- args$sv_id
+write.table(imp.res[, c("#sv_id", setdiff(colnames(imp.res), "#sv_id"))],
+            args$out_tsv, col.names=T, row.names=F, sep="\t", quote=F)
 
-# SV imputation dev code
-
-require(vioplot)
-sv.pred <- predict(lm(`dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680` ~ ., data=ad), newdata=ad)
-sv.pred <- sv.pred * (2 / max(sv.pred, na.rm=T))
-par(mfrow=c(1, 3))
-vioplot(ad$chr19_2686315_G_A ~ ad$`dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680`, main="Raw SV GTs", ylim=c(0, 2))
-vioplot(sv.pred ~ ad$`dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680`, main="Imputed SV GTs", ylim=c(0, 2))
-vioplot(sv.pred ~ ad$`dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680`, main="Raw vs. Imputed SV GTs", ylim=c(0, 2))
-
-
-m <- merge(ad, covars, by="row.names", all=F, sort=F)
-rownames(m) <- m$Row.names
-m$Row.names <- NULL
-m <- m[, grep("^chr19_", colnames(m), invert=T)]
-adj.fit <- lm(`dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680` ~ ., data=m)
-adj <- predict(adj.fit, newdata=m)-summary(adj.fit)$coefficients["(Intercept)", "Estimate"]
-sv.ad <- m$`dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680` - adj
-
-adj.sv.pred <- predict(lm(sv.ad ~ ., data=ad[names(sv.ad), setdiff(colnames(ad), "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680")]), newdata=ad)
-adj.sv.pred <- adj.sv.pred * (2 / max(adj.sv.pred, na.rm=T))
-
-par(mfrow=c(1, 2))
-hist(sv.pred, breaks=100)
-hist(adj.sv.pred, breaks=100)

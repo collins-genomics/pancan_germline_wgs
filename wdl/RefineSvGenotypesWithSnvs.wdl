@@ -163,7 +163,7 @@ workflow RefineSvGenotypesWithSnvs {
           max_ac = max_sv_ac,
           min_an = min_an,
           output_prefix = output_prefix + ".sl_masked",
-          g2c_analysis_docker = tmp_dev_docker
+          g2c_analysis_docker = g2c_analysis_docker
       }
     }
     File sv_training_vcf = select_first([MaskSvGts.filtered_vcf, vcf_info.left])
@@ -380,6 +380,8 @@ task ImputeSvs {
   String groups_cmd if defined(sample_group_labels) then "--sample-group-labels " + basename(sample_group_labels) else ""
   String covars_cmd if defined(sample_covariates) then "--sample-covariates " + basename(sample_covariates) else ""
 
+  String outfile = output_prefix + ".imputation_results.tsv.gz"
+
   Int disk_gb = ceil(2 * size([sv_vcf, snv_vcf], "GB")) + 10
 
   Int bcftools_threads = (2 * n_cpu) - 1
@@ -402,6 +404,9 @@ task ImputeSvs {
     if ~{defined(sample_covariates)}; then
       mv ~{sample_covariates} ./
     fi
+
+    # Make central directory for holding all final imputation results
+    mkdir imp_res
 
     # Process each SV in serial
     while read chrom start end svid svaf; do
@@ -493,31 +498,31 @@ task ImputeSvs {
         -v $svid/all.keep_vids.list \
         -o $svid/$svid.ad.tsv.gz
 
-      # Temporary task to deloc files for development
-      cp $svid/$svid.ad.tsv.gz ./
-
       # Impute SV GTs
+      echo -e "Now imputing $svid...\n"
       /opt/pancan_germline_wgs/scripts/variant_filtering/impute_sv_gts.R \
         --ad $svid/$svid.ad.tsv.gz \
         --sv-id "$svid" \
         ~{covars_cmd} \
-        ~{groups_cmd}
-
-      # TODO: finish implementing this
-      # - Load tag SNP AD and SV GTs into R
-      # - Fit linear regression of SV AC ~ tag SNP ADs using 10-fold CV
-      #   - Need to think about how to handle/prespecify train/test split (by cohort etc)
-      # - Predict SV AC from tag SNPs using best-fit regression model
-      # - Compute SNV-based GQ by ratio of linear distances between integer AC states (or maybe multivariate gaussian)
+        ~{groups_cmd} \
+        --out-tsv imp_res/$svid.imputation_results.tsv
 
       # Clean up
       rm -rf $svid
 
     done < svs.bed
+
+    # Concatenate imputation results
+    sed -n '1p' $( find imp_res -name "*.tsv" | sed -n '1p' ) > out.header
+    cat imp_res/*.tsv \
+    | grep -ve '^#' \
+    | cat out.header - \
+    | gzip -c \
+    > ~{outfile}
   >>>
 
   output {
-    Array[File?] ads_tmp = glob("*.ad.tsv.gz")
+    File imputation_results = outfile
   }
 
   runtime {
