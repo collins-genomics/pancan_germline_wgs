@@ -223,6 +223,7 @@ workflow RefineSvGenotypesWithSnvs {
         breakpoint_window_bp = breakpoint_window_bp,
         snv_freq_scalar = snv_freq_scalar,
         min_ld_r2 = min_ld_r2,
+        min_sv_ac = min_sv_ac,
         ref_build = ref_build,
         max_snps_per_flank = max_snps_per_flank,
         output_prefix = shard_prefix,
@@ -365,6 +366,7 @@ task ImputeSvs {
     Float snv_freq_scalar
 
     Float min_ld_r2
+    Int min_sv_ac
     String ref_build
     Int max_snps_per_flank
     
@@ -505,6 +507,7 @@ task ImputeSvs {
         --sv-id "$svid" \
         ~{covars_cmd} \
         ~{groups_cmd} \
+        --min-ac ~{min_sv_ac} \
         --out-tsv imp_res/$svid.imputation_results.tsv
 
       # Clean up

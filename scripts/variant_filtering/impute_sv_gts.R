@@ -38,16 +38,48 @@ load.covars <- function(tsv.in, keep.samples=NULL){
   impute.missing.values(covars)
 }
 
-# Determine the group of sample IDs that has the best balance of ref and nonref SV GTs
-find.best.train.group <- function(sv.ad, groups.tsv){
-  g.df <- read.table(groups.tsv, header=F, sep="\t")
-  groups <- unique(g.df[, 2])
-  g.k <- sapply(groups, function(gid){
-    g.mems <- as.character(g.df[which(g.df[, 2] == gid), 1])
-    min(table(sv.ad[intersect(names(sv.ad), g.mems)] > 0))
+# Load group information and filter for group-specific imputation eligibility
+load.groups <- function(groups.tsv, target.sids, sv.ad, min.ac){
+  # Load group info
+  if(!is.null(groups.tsv)){
+    g.df <- read.table(groups.tsv, header=F, sep="\t")
+    g.df <- g.df[which(g.df[, 1] %in% target.sids), ]
+    groups <- unique(g.df[, 2])
+  }else{
+    g.df <- data.frame(target.sids, "ALL")
+    groups <- "ALL"
+  }
+  g.mems <- sapply(groups, function(gid){
+    as.character(g.df[which(g.df[, 2] == gid), 1])
   })
-  best.g <- head(names(g.k == max(g.k, na.rm=T)), 1)
-  as.character(g.df[which(g.df[, 2] == best.g), 1])
+
+  # Count number of ref & alt alleles per group
+  g.k <- as.data.frame(do.call("rbind", lapply(groups, function(gid){
+    table(sv.ad[intersect(names(sv.ad), g.mems[[gid]])] > 0)
+  })))
+  colnames(g.k) <- c("ref", "alt")
+  rownames(g.k) <- groups
+  g.k <- g.k[order(-apply(g.k, 1, min)), ]
+
+  # Iteratively collapse groups until all groups are >= min.ac
+  if(any(apply(g.k, 1, min) < min.ac)){
+    g.k["remainder", ] <- c(0, 0)
+    other.g <- c()
+    while(any(apply(g.k, 1, min) < min.ac)){
+      next.g <- tail(setdiff(rownames(g.k), "remainder"), 1)
+      other.g <- c(other.g, next.g)
+      g.k["remainder", ] <- g.k["remainder", ] + g.k[next.g, ]
+      g.k <- g.k[setdiff(rownames(g.k), next.g), ]
+      g.k <- g.k[order(-apply(g.k, 1, min)), ]
+    }
+    groups <- rownames(g.k)
+    g.mems[["remainder"]] <- unique(unlist(g.mems[other.g]))
+    g.mems <- g.mems[groups]
+  }
+
+  # Return named list of group memberships
+  names(g.mems) <- groups
+  return(g.mems)
 }
 
 # Create cross-validation folds balanced by non-ref GT count
@@ -60,30 +92,101 @@ make.cv.folds <- function(ad.v, k=5, seed=2025){
   })
 }
 
+# Adjust SV allele dosages for covariates
+adjust.sv.ad <- function(sv.ad, covars, train.sids, groups, sv.id, k=5, seed=2025){
+  # If covariates aren't supplied, do nothing
+  if(is.null(covars)){
+    return(sv.ad)
+  }
+
+  # Otherwise, train covariate adjustment model on best-powered group
+  # We assume technical factors that influence genotype distributions are
+  # not causally related to genetic ancestry/group membership
+  best.group <- names(groups)[1]
+  cov.train.sids <- intersect(train.sids, groups[[1]])
+  cat(paste(" - Adjusting raw allele dosages for", sv.id,
+            "based on supplied covariates for",
+            prettyNum(length(cov.train.sids), big.mark=","),
+            best.group, "samples...\n"))
+  train.covars <- covars[cov.train.sids, ]
+  cov.train.sv.ad <- sv.ad[cov.train.sids]
+  cov.train.fold.indexes <- make.cv.folds(cov.train.sv.ad, k=k, seed=seed)
+  cov.fit <- train.elastic.net.cv(train.covars, cov.train.sv.ad,
+                                  fold.indexes=cov.train.fold.indexes,
+                                  seed=seed, tune.length=10)
+
+  # Adjust and return all SV ADs
+  cov.fit.e <- mean(coef(cov.fit$finalModel)["(Intercept)", ])
+  pred.ad <- predict(cov.fit, covars)
+
+  # Report variance explained
+  raw.ad <- sv.ad[intersect(rownames(covars), names(sv.ad))]
+  rmse <- round(sqrt(mean((raw.ad - pred.ad)^2)), 3)
+  r2 <- cor(raw.ad, pred.ad)^2
+  pct.var <- paste(round(100 * r2, 1), "%", sep="")
+  cat(paste( " - Covariate adjustment explained ",  pct.var,
+             " variance in raw SV ADs (RMSE = ", rmse,
+             ")\n", sep=""))
+
+  # Return adjusted SV ADs
+  adj.ad <- sv.ad[intersect(rownames(covars), names(sv.ad))] - (pred.ad - cov.fit.e)
+  return(adj.ad)
+}
+
 # Train an SV genotype imputation model
-train.imputation <- function(sv.ad, snp.ad, train.sids, covars=NULL,
-                             cov.train.sids=train.sids, k=5, seed=2025){
+train.imputation <- function(sv.ad, snp.ad, train.sids, k=5, seed=2025){
   # Subset input data to training sids
   train.sv.ad <- sv.ad[intersect(train.sids, names(sv.ad))]
   train.snp.ad <- snp.ad[intersect(train.sids, rownames(snp.ad)), ]
 
   # Split samples into cross-validation folds balanced by number of non-ref GTs
-  fold.indexes <- make.cv.folds(train.sv.ad, k=k, seed=seed)
-
-  # Adjust training SV ADs for technical factors, if optioned
-  if(!is.null(covars)){
-    train.covars <- covars[cov.train.sids, ]
-    cov.train.sv.ad <- train.sv.ad[cov.train.sids]
-    cov.train.fold.indexes <- make.cv.folds(cov.train.sv.ad, k=k, seed=seed)
-    cov.fit <- train.elastic.net.cv(train.covars, cov.train.sv.ad,
-                                    fold.indexes=cov.train.fold.indexes,
-                                    seed=seed, tune.length=10)
-    cov.fit.e <- mean(coef(cov.fit$finalModel)["(Intercept)", ])
-    train.sv.ad <- train.sv.ad - (predict(cov.fit, covars) - cov.fit.e)
-  }
+  fold.indexes <- make.cv.folds(round(train.sv.ad), k=k, seed=seed)
 
   # Fit imputation model
   train.elastic.net.cv(train.snp.ad, train.sv.ad, fold.indexes=fold.indexes, seed=seed)
+}
+
+# Impute & scale SV allele dosages from a trained allele dosage regression model
+impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, seed=2025){
+  # Apply model to get raw SV ADs
+  pred.ad <- predict(sv.fit, snp.ad)
+
+  # Get centroid initialization for AC=0,1,2
+  train.sv.ac <- sapply(0:2, function(k){length(which(train.sv.ad == k))})
+  ref.start <- if(train.sv.ac[1] > 0){median(pred.ad[names(which(train.sv.ad == 0))])}else{0}
+  het.start <- if(train.sv.ac[2] > 0){
+    median(pred.ad[names(which(train.sv.ad == 1))])
+  }else{
+    sum(range(pred.ad, na.rm=T))/2
+  }
+  hom.start <- if(train.sv.ac[3] > 0){
+    median(pred.ad[names(which(train.sv.ad == 2))])
+  }else{
+    max(pred.ad, na.rm=T)
+  }
+  k.start <- c(ref.start, het.start, hom.start)
+
+  # Cluster all samples in untransformed AD space to identify high-confidence samples
+  set.seed(seed)
+  pred.ac <- kmeans(pred.ad, centers=k.start)$cluster - 1
+  obs.acs <- intersect(0:2, unique(train.sv.ad))
+  k.sids <- sapply(obs.acs, function(ac){
+    intersect(names(which(pred.ac == ac)),
+              names(which(train.sv.ad == ac)))
+    })
+
+  # Scale & return predicted ADs
+  if(0 %in% obs.acs){
+    pred.ad <- pred.ad - median(pred.ad[k.sids[[1]]])
+  }
+  if(2 %in% obs.acs){
+    scalar <- 2 / median(pred.ad[k.sids[[3]]])
+  }else if(1 %in% obs.acs){
+      scalar <- 2 / median(2*pred.ad[k.sids[[2]]])
+  }else{
+      scalar <- 2
+    }
+  pred.ad * scalar
 }
 
 # Compute P-values for estimated allele dosages versus a parameterized Gaussian
@@ -94,54 +197,48 @@ gt.pval <- function(ads, gt.d){
   (2 * pnorm(abs(z), lower.tail=F))
 }
 
-# Impute SV genotypes from a trained allele dosage regression model
-impute.sv.gts <- function(sv.fit, snp.ad, train.sv.ad, min.n.per.gt=10, seed=2025){
-  # Apply model to get raw SV ADs
-  pred.ad <- predict(sv.fit, snp.ad)
-
-  # Get centroid initialization for AC=0,1,2
-  obs.acs <- intersect(0:2, unique(train.sv.ad))
-  k.start <- sapply(obs.acs, function(ac){
-    median(pred.ad[names(which(train.sv.ad == ac))])
-    })
-
-  # Cluster all samples in untransformed AD space to identify high-confidence samples
-  set.seed(seed)
-  pred.ac <- kmeans(pred.ad, centers=k.start)$cluster - 1
-  k.sids <- sapply(obs.acs, function(ac){
-    intersect(names(which(pred.ac == ac)),
-              names(which(train.sv.ad == ac)))
-    })
-
-  # Scale predicted ADs
-  if(0 %in% obs.acs){
-    pred.ad <- pred.ad - median(pred.ad[k.sids[[1]]])
-  }
-  if(2 %in% obs.acs){
-    pred.ad <- pred.ad * (2 / median(pred.ad[k.sids[[3]]]))
-  }else{
-    pred.ad <- pred.ad * (2 / median(2*pred.ad[k.sids[[2]]]))
-  }
+impute.gts <- function(pred.ad, train.sv.ad, min.n.per.ac=5, default.sd=0.2){
+  # Define set of samples with concordant imputed and genotyped SV AC
+  true.gts <- train.sv.ad[which(train.sv.ad == round(pred.ad[names(train.sv.ad)]))]
+  k.sids <- sapply(0:2, function(ac){names(which(true.gts == ac))})
 
   # Parameterize Gaussians for assigning genotype
-  het.g <- c(mean(pred.ad[k.sids[[2]]]), sd(pred.ad[k.sids[[2]]]))
-  ref.g <- NULL
-  if(0 %in% obs.acs){
-    if(length(k.sids[[1]] > min.n.per.gt)){
-      ref.g <- c(mean(pred.ad[k.sids[[1]]]), sd(pred.ad[k.sids[[1]]]))
-    }
+  ref.g <- het.g <- hom.g <- NULL
+  if(length(k.sids[[1]]) > min.n.per.ac){
+    ref.g <- c(mean(pred.ad[k.sids[[1]]]), sd(pred.ad[k.sids[[1]]]))
+  }
+  if(length(k.sids[[2]]) > min.n.per.ac){
+    het.g <- c(mean(pred.ad[k.sids[[2]]]), sd(pred.ad[k.sids[[2]]]))
+  }
+  if(length(k.sids[[3]]) > min.n.per.ac){
+    hom.g <- c(mean(pred.ad[k.sids[[3]]]), sd(pred.ad[k.sids[[3]]]))
   }
   if(is.null(ref.g)){
-    ref.g <- c(0, het.g[2])
+    if(!is.null(het.g)){
+      ref.g <- c(0, het.g[2])
+    }else if(!is.null(hom.g)){
+      ref.g <- c(0, hom.g[2])
+    }else{
+      ref.g <- c(0, default.sd)
+    }
   }
-  hom.g <- NULL
-  if(2 %in% obs.acs){
-    if(length(k.sids[[3]]) > min.n.per.gt){
-      hom.g <- c(mean(pred.ad[k.sids[[3]]]), sd(pred.ad[k.sids[[3]]]))
+  if(is.null(het.g)){
+    if(!is.null(hom.g)){
+      het.g <- c(hom.g[1]/2, hom.g[2])
+    }else if(!is.null(ref.g)){
+      het.g <- c(1, ref.g[2])
+    }else{
+      het.g <- c(1, default.sd)
     }
   }
   if(is.null(hom.g)){
-    hom.g <- c(2, 1) * het.g
+    if(!is.null(het.g)){
+      hom.g <- c(2*het.g[1], het.g[2])
+    }else if(!is.null(ref.g)){
+      hom.g <- c(2, ref.g[2])
+    }else{
+      hom.g <- c(2, default.sd)
+    }
   }
 
   # Assign GT PL to each sample according to GATK formulation
@@ -184,8 +281,13 @@ parser$add_argument("--sample-covariates", metavar=".tsv", type="character",
                     help="Optional .tsv of sample covariates for training")
 parser$add_argument("--sample-group-labels", metavar=".tsv", type="character",
                     help=paste("Two-column .tsv mapping sample IDs to major",
-                               "group labels, like ancestry. Will only be used ",
-                               "for covariate adjustment during model training."))
+                               "group labels, like ancestry. If supplied, will",
+                               "attempt imputation within each group that meets",
+                               "--min-ac requirement"))
+parser$add_argument("--min-ac", metavar="int", type="numeric", default=20,
+                    help=paste("Minimum number of AC and ref alleles per group",
+                               "in --sample-group-labels to permit",
+                               "group-specific training."))
 parser$add_argument("--out-tsv", metavar="path", type="character", required=TRUE,
                     help="Path to output .tsv")
 args <- parser$parse_args()
@@ -195,9 +297,14 @@ args <- parser$parse_args()
 #              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680",
 #              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
+#              "min_ac" = 50,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
 
+# Initialize reporting
+cat(paste("\n\nNow starting GT imputation for ", args$sv_id, "...\n", sep=""))
+
 # Load allele dosage matrix and split SV from SNPs
+cat(paste(" - Loading data for ", args$sv_id, "...\n", sep=""))
 ad <- read.table(args$ad, header=T, sep="\t", comment.char="", check.names=F)
 rownames(ad) <- ad$sample
 ad$sample <- NULL
@@ -206,6 +313,7 @@ names(sv.ad) <- rownames(ad)
 snp.ad <- as.data.frame(ad[, setdiff(colnames(ad), args$sv_id)])
 rownames(snp.ad) <- rownames(ad)
 snp.ad <- impute.missing.values(snp.ad)
+target.sids <- rownames(snp.ad)
 
 # If provided, load sample covariates
 sv.samples <- names(sv.ad)[which(!is.na(sv.ad))]
@@ -213,18 +321,35 @@ covars <- load.covars(args$sample_covariates, keep.samples=sv.samples)
 
 # Define training samples
 train.sids <- if(!is.null(covars)){rownames(covars)}else{sv.samples}
-cov.train.sids <- if(!is.null(covars)){
-  intersect(train.sids,
-            find.best.train.group(sv.ad[train.sids], args$sample_group_labels))
-}else{
-  train.sids
+
+# If provided, load groups and evaluate group-specific strata
+groups <- load.groups(args$sample_group_labels, target.sids, sv.ad, args$min_ac)
+
+# Adjust SV ADs if covariates were provided
+sv.ad.adj <- adjust.sv.ad(sv.ad, covars, train.sids, groups, args$sv_id)
+
+# Train & apply imputation model for each group
+pred.ad <- c()
+for(group in names(groups)){
+  n.samples <- length(groups[[group]])
+  cat(paste(" - Imputing SV allele dosages for",
+            prettyNum(n.samples, big.mark=","),
+            group, "samples...\n"))
+  g.train.ids <- intersect(train.sids, groups[[group]])
+  group.fit <- train.imputation(sv.ad.adj, snp.ad, g.train.ids)
+  g.pred.ad <- impute.sv.ads(group.fit,
+                             snp.ad[intersect(rownames(snp.ad), groups[[group]]), ],
+                             sv.ad[g.train.ids])
+  pred.ad <- c(pred.ad, g.pred.ad)
 }
 
-# Train imputation model
-sv.fit <- train.imputation(sv.ad, snp.ad, train.sids, covars, cov.train.sids)
+# Probabilistic genotype assignment
+cat(paste(" - Predicting SV genotypes for",
+          prettyNum(length(target.sids), big.mark=","),
+          "samples...\n"))
+imp.res <- impute.gts(pred.ad, sv.ad[train.sids])
 
-# Apply trained model and predict genotypes for all samples
-imp.res <- impute.sv.gts(sv.fit, snp.ad, sv.ad[train.sids])
+# Write imputed genotype information to --out-tsv
 imp.res$`#sv_id` <- args$sv_id
 write.table(imp.res[, c("#sv_id", setdiff(colnames(imp.res), "#sv_id"))],
             args$out_tsv, col.names=T, row.names=F, sep="\t", quote=F)
