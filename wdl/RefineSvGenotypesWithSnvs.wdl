@@ -383,6 +383,7 @@ task ImputeSvs {
   String covars_cmd if defined(sample_covariates) then "--sample-covariates " + basename(sample_covariates) else ""
 
   String outfile = output_prefix + ".imputation_results.tsv.gz"
+  String out_log  = output_prefix + ".sv_imputation.log"
 
   Int disk_gb = ceil(2 * size([sv_vcf, snv_vcf], "GB")) + 10
 
@@ -508,7 +509,8 @@ task ImputeSvs {
         ~{covars_cmd} \
         ~{groups_cmd} \
         --min-ac ~{min_sv_ac} \
-        --out-tsv imp_res/$svid.imputation_results.tsv
+        --out-tsv imp_res/$svid.imputation_results.tsv \
+      >> ~{out_log}
 
       # Clean up
       rm -rf $svid
@@ -526,6 +528,7 @@ task ImputeSvs {
 
   output {
     File imputation_results = outfile
+    File imputation_log = out_log
   }
 
   runtime {
