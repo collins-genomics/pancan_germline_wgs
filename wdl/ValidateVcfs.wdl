@@ -74,28 +74,30 @@ workflow ValidateVcfs {
       call ValidateVcf {
         input:
           vcf = input_vcf,
-          vcf_idx = input_vcf_idx,
           docker = g2c_analysis_docker
       }
     }
 
-    Array[String] valid_vcfs_inner = select_all(ValidateVcf.valid_vcf)
-    Array[File] repaired_vcfs_inner = select_all(ValidateVcf.repaired_vcf)
-    Array[File] repaired_vcf_idxs_inner = select_all(ValidateVcf.repaired_vcf_idx)
+    # Concatenate inner lists of valid VCFs
+    call Utils.ConcatTextFiles as ConcatInnerValid {
+      input:
+        shards = ValidateVcf.valid_vcf_txt,
+        output_filename = output_prefix + "." + i + ".valid_vcfs.list"
+    }
+
+    Array[File] repaired_vcfs_inner = select_all(flatten(ValidateVcf.repaired_vcfs))
+    Array[File] repaired_vcf_idxs_inner = select_all(flatten(ValidateVcf.repaired_vcf_idxs))
   }
 
-  # Concatenate list of valid VCFs, if any
-  Array[String] valid_vcfs_outer = select_all(flatten(valid_vcfs_inner))
-  if ( length(valid_vcfs_outer) > 0 ) {
-    call Utils.ArrayToTxt as WriteValidList {
-      input:
-        strings = valid_vcfs_outer,
-        outfile = output_prefix + ".valid_vcfs.list"
-    }
+  # Concatenate outer list of valid VCFs
+  call Utils.ConcatTextFiles as ConcatOuterValid {
+    input:
+      shards = ConcatInnerValid.merged_file,
+      output_filename = output_prefix + ".valid_vcfs.list"
   }
 
   output {
-    File? valid_vcf_list = WriteValidList.array_txt
+    File valid_vcfs_list = ConcatOuterValid.merged_file
     Array[File] repaired_vcfs = select_all(flatten(repaired_vcfs_inner))
     Array[File] repaired_vcf_idxs = select_all(flatten(repaired_vcf_idxs_inner))
   }
@@ -110,7 +112,6 @@ workflow ValidateVcfs {
 task ValidateVcf {
   input {
     File vcf
-    File vcf_idx
     String docker
   }
 
@@ -126,6 +127,7 @@ task ValidateVcf {
     if tabix -p vcf -f ~{vcf}; then
       echo "~{vcf_basename}" > valid.txt
     else
+      touch valid.txt
       mkdir repaired/
       /opt/pancan_germline_wgs/scripts/utilities/fix_truncated_vcf.py -i ~{vcf} \
       | bgzip -c \
@@ -135,9 +137,9 @@ task ValidateVcf {
   >>>
 
   output {
-    String? valid_vcf = read_string("valid.txt")
-    File? repaired_vcf = repaired_vcf_path
-    File? repaired_vcf_idx = repaired_vcf_idx_path
+    File valid_vcf_txt = "valid.txt"
+    Array[File] repaired_vcfs = glob("repaired/*.vcf.gz")
+    Array[File] repaired_vcf_idxs = glob("repaired/*.vcf.gz.tbi")
   }
 
   runtime {
