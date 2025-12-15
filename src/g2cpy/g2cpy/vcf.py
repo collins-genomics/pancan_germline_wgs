@@ -12,6 +12,7 @@ VCF parsing & manipulation functions
 
 
 import numpy as np
+import re
 from collections.abc import Iterable
 from statistics import multimode
 from .genomics import classify_variant, name_variant
@@ -62,6 +63,32 @@ def compute_allele_freq_stats(record, keys=['AC', 'AN', 'AF']):
             res.pop(ak)
 
     return res
+
+
+def convert_gt(gt):
+    """
+    Converts a VCF GT string into pysam-style tuple representation, or vice versa
+    """
+
+    if isinstance(gt, tuple):
+        res = []
+        for a in gt:
+            if a is None:
+                res.append('.')
+            else:
+                res.append(str(a))
+        conv = '/'.join(res)
+
+    elif isinstance(gt, str):
+        res = []
+        for a in re.split('[/|\|]', gt):
+            if a == '.':
+                res.append(None)
+            else:
+                res.append(int(a))
+        conv = tuple(sorted(res, key=lambda x: (x, x is None)))
+
+    return conv
 
 
 def parse_gt(gt):

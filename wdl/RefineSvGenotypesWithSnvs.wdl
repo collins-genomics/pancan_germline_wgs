@@ -45,8 +45,9 @@ workflow RefineSvGenotypesWithSnvs {
 
     # Imputation parameters
     Int max_snps_per_flank = 10          # Max number of SNPs to include per flank
-    Float min_ld_r2 = 0.1                # Minimum LD between SNV & SV to permit for imputation
+    Float min_ld_r2 = 0.2                # Minimum LD between SNV & SV to permit for imputation
     String ref_build = "hg38"            # Plink-styled reference indicator
+    Float min_carrier_accuracy = 0.7     # Minimum (carrier|ref) accuracy to accept an SV imputation model as well-fit
     File? sample_group_labels            # Optional two-column .tsv mapping sample IDs to major group labels (e.g., continental ancestry). No header.
     File? sample_covariates              # Optional .tsv of sample IDs + any technical covariates for SV imputation. Has header.
 
@@ -173,75 +174,105 @@ workflow RefineSvGenotypesWithSnvs {
     Int n_sv_in_shard = select_first([MaskSvGts.n_eligible_svs, snv_vcfs_per_shard])
     if ( n_sv_in_shard > 0 ) {
       # Define SNV query intervals for this shard
-    call DefineQueryIntervals {
-      input:
-        sv_vcf = sv_training_vcf,
-        sv_vcf_idx = sv_training_vcf_idx,
-        genome_file = genome_file,
-        breakpoint_buffer_bp = breakpoint_buffer_bp,
-        breakpoint_window_bp = breakpoint_window_bp,
-        snv_freq_scalar = snv_freq_scalar,
-        snv_exclusion_bed = snv_exclusion_bed,
-        output_prefix = shard_prefix,
-        bcftools_docker = g2c_analysis_docker
-    }
-
-    # Scatter over SNV VCF chunks and filter SNVs
-    scatter ( i in range(length(vcf_info_chunks)) ) {
-      call QuerySnvs {
+      call DefineQueryIntervals {
         input:
-          snv_info_tsv = vcf_info_chunks[i],
-          query_intervals = DefineQueryIntervals.query_intervals,
-          samples_list = FindSharedSamples.intersection_file,
-          min_ac = floor(min_sv_ac / snv_freq_scalar),
-          min_an = min_an,
-          max_ncr = 1 - min_snv_call_rate,
-          output_prefix = shard_prefix + ".chunk_" + i
+          sv_vcf = sv_training_vcf,
+          sv_vcf_idx = sv_training_vcf_idx,
+          genome_file = genome_file,
+          breakpoint_buffer_bp = breakpoint_buffer_bp,
+          breakpoint_window_bp = breakpoint_window_bp,
+          snv_freq_scalar = snv_freq_scalar,
+          snv_exclusion_bed = snv_exclusion_bed,
+          output_prefix = shard_prefix,
+          bcftools_docker = g2c_analysis_docker
+      }
+
+      # Scatter over SNV VCF chunks and filter SNVs
+      scatter ( i in range(length(vcf_info_chunks)) ) {
+        call QuerySnvs {
+          input:
+            snv_info_tsv = vcf_info_chunks[i],
+            query_intervals = DefineQueryIntervals.query_intervals,
+            samples_list = FindSharedSamples.intersection_file,
+            min_ac = floor(min_sv_ac / snv_freq_scalar),
+            min_an = min_an,
+            max_ncr = 1 - min_snv_call_rate,
+            output_prefix = shard_prefix + ".chunk_" + i
+        }
+      }
+      call Utils.ConcatVcfs as ConcatSnvs {
+        input:
+          vcfs = QuerySnvs.snv_vcf,
+          vcf_idxs = QuerySnvs.snv_vcf_idx,
+          out_prefix = shard_prefix + ".eligible_snvs",
+          bcftools_concat_options = "--allow-overlaps --remove-duplicates",
+          bcftools_docker = g2c_analysis_docker
+      }
+
+      # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
+      # TODO: need to update this to train on filtered SV VCF but apply to full cohort of SNV GTs
+      call ImputeSvs {
+        input:
+          sv_vcf = sv_training_vcf,
+          sv_vcf_idx = sv_training_vcf_idx,
+          snv_vcf = ConcatSnvs.merged_vcf,
+          snv_vcf_idx = ConcatSnvs.merged_vcf_idx,
+          training_samples_list = FindSharedSamples.intersection_file,
+          sample_group_labels = sample_group_labels,
+          sample_covariates = sample_covariates,
+          breakpoint_buffer_bp = breakpoint_buffer_bp,
+          breakpoint_window_bp = breakpoint_window_bp,
+          snv_freq_scalar = snv_freq_scalar,
+          min_ld_r2 = min_ld_r2,
+          min_accuracy = min_carrier_accuracy,
+          min_sv_ac = min_sv_ac,
+          ref_build = ref_build,
+          max_snps_per_flank = max_snps_per_flank,
+          mask_training_sv_gts = mask_training_sv_gts,
+          sv_mask_field = sv_training_mask_field,
+          output_prefix = shard_prefix,
+          g2c_analysis_docker = tmp_dev_docker
+      }
+
+      # Update SV GTs with imputed results
+      call UpdateGts {
+        input:
+          vcf = vcf_info.left,
+          vcf_idx = vcf_info.right,
+          updates_tsv = ImputeSvs.imputation_results,
+          g2c_analysis_docker = tmp_dev_docker
       }
     }
-    call Utils.ConcatVcfs as ConcatSnvs {
-      input:
-        vcfs = QuerySnvs.snv_vcf,
-        vcf_idxs = QuerySnvs.snv_vcf_idx,
-        out_prefix = shard_prefix + ".eligible_snvs",
-        bcftools_concat_options = "--allow-overlaps --remove-duplicates",
-        bcftools_docker = g2c_analysis_docker
-    }
 
-    # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
-    # TODO: need to update this to train on filtered SV VCF but apply to full cohort of SNV GTs
-    call ImputeSvs {
-      input:
-        sv_vcf = sv_training_vcf,
-        sv_vcf_idx = sv_training_vcf_idx,
-        snv_vcf = ConcatSnvs.merged_vcf,
-        snv_vcf_idx = ConcatSnvs.merged_vcf_idx,
-        training_samples_list = FindSharedSamples.intersection_file,
-        sample_group_labels = sample_group_labels,
-        sample_covariates = sample_covariates,
-        breakpoint_buffer_bp = breakpoint_buffer_bp,
-        breakpoint_window_bp = breakpoint_window_bp,
-        snv_freq_scalar = snv_freq_scalar,
-        min_ld_r2 = min_ld_r2,
-        min_sv_ac = min_sv_ac,
-        ref_build = ref_build,
-        max_snps_per_flank = max_snps_per_flank,
-        output_prefix = shard_prefix,
-        g2c_analysis_docker = tmp_dev_docker
-    }
+    File imputed_vcf = select_first([UpdateGts.updated_vcf, vcf_info.left])
+    File imputed_vcf_idx = select_first([UpdateGts.updated_vcf_idx, vcf_info.right])
 
-    # Update SV GTs with imputed results
-    # TODO: implement this
-    # NOTE: must apply to vcf_info.left, *not* quality-filtered VCF
-    # - If SNV-predicted GQ > GATK-SV GQ, return (sample, SV ID, GT, GQ) to be updated in SV VCF
-    }
-    # TODO: add select_first() statement here to retain updated SV VCF (if generated), or initial SV VCF (if not)
   }
 
   # Concatenate all updated SV VCFs with the passthrough VCF
-  # TODO: implement this
+  call Utils.ConcatVcfs {
+    input:
+      vcfs = flatten([imputed_vcf, [SplitSvs.passthrough_sv_vcf]]),
+      vcf_idxs = flatten([imputed_vcf_idx, [SplitSvs.passthrough_sv_vcf_idx]]),
+      out_prefix = output_prefix + ".imputed",
+      bcftools_concat_options = "-a -D",
+      bcftools_docker = g2c_analysis_docker
+  }
 
-  output {}
+  # Concatenate & compress all logs for archival
+  call Utils.ConcatTextFiles as ConcatLogs {
+    input:
+      shards = select_all(ImputeSvs.imputation_log),
+      compression_command = "gzip -c",
+      output_filename = output_prefix + ".imputation_logs.tsv.gz",
+      docker = linux_docker
+  }
+
+  output {
+    File refined_vcf = ConcatVcfs.merged_vcf
+    File refined_vcf_idx = ConcatVcfs.merged_vcf_idx
+    File imputation_logs = ConcatLogs.merged_file
+  }
 }
 
 
@@ -367,8 +398,13 @@ task ImputeSvs {
 
     Float min_ld_r2
     Int min_sv_ac
+    Float min_accuracy
     String ref_build
     Int max_snps_per_flank
+
+    Boolean mask_training_sv_gts
+    String sv_mask_field
+    Int sv_mask_retries = 2
     
     String output_prefix
 
@@ -379,8 +415,10 @@ task ImputeSvs {
     Int n_preemptible = 1
   }
 
-  String groups_cmd if defined(sample_group_labels) then "--sample-group-labels " + basename(sample_group_labels) else ""
-  String covars_cmd if defined(sample_covariates) then "--sample-covariates " + basename(sample_covariates) else ""
+  String groups_cmd = if defined(sample_group_labels) then "--sample-group-labels " + basename(select_first([sample_group_labels, ""])) else ""
+  String covars_cmd = if defined(sample_covariates) then "--sample-covariates " + basename(select_first([sample_covariates, ""])) else ""
+
+  Array[Int] retry_counter = if mask_training_sv_gts then range(sv_mask_retries + 1) else [0]
 
   String outfile = output_prefix + ".imputation_results.tsv.gz"
   String out_log  = output_prefix + ".sv_imputation.log"
@@ -410,6 +448,7 @@ task ImputeSvs {
 
     # Make central directory for holding all final imputation results
     mkdir imp_res
+    echo -e "#sv_id\tsample\tGT\tGQ\tAD" > imp_res_header.tsv
 
     # Process each SV in serial
     while read chrom start end svid svaf; do
@@ -434,7 +473,7 @@ task ImputeSvs {
       min_snv_af=$( echo $svaf | awk -v scalar=5 '{ af=($1 / scalar); if (af<0) af=0; print af }' )
       max_snv_af=$( echo $svaf | awk -v scalar=5 '{ af=($1 * scalar); if (af>1) af=1; print af }' )
 
-      # Make VCF sandwich of (left flanking SNVs) + SV + (right flanking SNVs)
+      # Extract SNPs and SV record
       for flank in left right; do
         bcftools view \
           --samples-file ~{training_samples_list} \
@@ -454,63 +493,108 @@ task ImputeSvs {
         -Oz -o $svid/sv.vcf.gz \
         ~{sv_vcf}
       tabix -p vcf -f $svid/sv.vcf.gz
-      bcftools concat \
-        --threads ~{bcftools_threads} \
-        $svid/left.snvs.vcf.gz \
-        $svid/sv.vcf.gz \
-        $svid/right.snvs.vcf.gz \
-      | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
-        -Oz -o $svid/sandwich.vcf.gz
-      tabix -p vcf -f $svid/sandwich.vcf.gz
 
-      # Compute all LD vs. target SV with plink
-      svlen=$(( end - start ))
-      if [ $svlen -lt 1 ]; then svlen=1; fi
-      plink2 \
-        --r2-unphased 'yes-really' 'ref-based' \
-        --ld-window-kb $(( ~{breakpoint_buffer_bp} + ~{breakpoint_window_bp} + $svlen + 1 )) \
-        --ld-window-r2 ~{min_ld_r2} \
-        --split-par "~{ref_build}" \
-        --polyploid-mode missing \
-        --fam samples.fam \
-        --ld-snp "$svid" \
-        --vcf $svid/sandwich.vcf.gz \
-        --out $svid/ld
-      cut -f6,7 $svid/ld.vcor | sed '1d' | sort -nrk2,2 -k1,1V > $svid/ld.vcor.slim
+      # Enter retry loop for increasingly strict SV GT filtering
+      for retry_k in ~{sep=" " retry_counter}; do
 
-      # Rank-order SNVs by LD R2 per flank and take up to N best tag SNVs from each flank
-      for flank in left right; do
-        bcftools query -f '%ID\n' $svid/$flank.snvs.vcf.gz > $svid/$flank.vids.list
-        fgrep \
-          -wf $svid/$flank.vids.list \
-          $svid/ld.vcor.slim \
-         | head -n ~{max_snps_per_flank} \
-         | cut -f1 \
-         > $svid/$flank.keep_vids.list || true
+        # Apply SV GT filter if not the first try
+        masked_ac=$( bcftools query -f '%INFO/AC\n' $svid/sv.vcf.gz )
+        if [ $retry_k -gt 0 ]; then
+          echo -e "\nRetry number $retry_k of stricter SV GT masking..."
+          /opt/pancan_germline_wgs/scripts/variant_filtering/mask_sv_gts_for_regenotyping.py \
+            --input-vcf $svid/sv.vcf.gz \
+            --quality-field "~{sv_mask_field}" \
+          | bcftools annotate -x INFO/AC,INFO/AN,INFO/AC \
+          | bcftools +fill-tags \
+            -Oz -o $svid/sv.masked.vcf.gz \
+            -- -t AC,AN,AF
+          masked_ac=$( bcftools query -f '%INFO/AC\n' $svid/sv.masked.vcf.gz )
+          echo -e "Stricter SV GT masking retained $masked_ac non-reference alleles..."
+          if [ $masked_ac -ge ~{min_sv_ac} ]; then
+            mv $svid/sv.masked.vcf.gz $svid/sv.vcf.gz
+            tabix -p vcf -f $svid/sv.vcf.gz
+          fi
+        fi
+        if [ $masked_ac -lt ~{min_sv_ac} ]; then
+          touch $svid/ld.vcor.slim
+          break
+        fi
+
+        # Make VCF sandwich of (left flanking SNVs) + SV + (right flanking SNVs)
+        bcftools concat \
+          --threads ~{bcftools_threads} \
+          $svid/left.snvs.vcf.gz \
+          $svid/sv.vcf.gz \
+          $svid/right.snvs.vcf.gz \
+        | bcftools annotate -x ^FORMAT/GT,FORMAT/AD,FORMAT/DP \
+          -Oz -o $svid/sandwich.vcf.gz
+        tabix -p vcf -f $svid/sandwich.vcf.gz
+
+        # Compute all LD vs. target SV with plink
+        svlen=$(( end - start ))
+        if [ $svlen -lt 1 ]; then svlen=1; fi
+        plink2 \
+          --r2-unphased 'yes-really' 'ref-based' \
+          --ld-window-kb $(( 2 * ( ~{breakpoint_buffer_bp} + ~{breakpoint_window_bp} + $svlen + 1 ) / 1000 )) \
+          --ld-window-r2 ~{min_ld_r2} \
+          --split-par "~{ref_build}" \
+          --polyploid-mode missing \
+          --fam samples.fam \
+          --ld-snp "$svid" \
+          --vcf $svid/sandwich.vcf.gz \
+          --out $svid/ld
+        cut -f6,7 $svid/ld.vcor | sed '1d' | sort -nrk2,2 -k1,1V > $svid/ld.vcor.slim
+
+        if [ $( cat $svid/ld.vcor.slim | wc -l ) -gt 0 ]; then
+          break
+        fi
+
       done
 
-      # Extract allele dosage for the SV and each flanking SNP
-      cat \
-        $svid/left.keep_vids.list \
-        $svid/right.keep_vids.list \
-        <( echo -e "$svid" ) \
-      | sort -V | uniq \
-      > $svid/all.keep_vids.list
-      /opt/pancan_germline_wgs/scripts/variant_filtering/extract_ad_matrix.py \
-        -i $svid/sandwich.vcf.gz \
-        -v $svid/all.keep_vids.list \
-        -o $svid/$svid.ad.tsv.gz
+      # If no tag SNPs are found, do nothing more
+      if [ $( cat $svid/ld.vcor.slim | wc -l ) -eq 0 ]; then
+        cp imp_res_header.tsv imp_res/$svid.imputation_results.tsv
+        echo -e "Found no tag SNPs for $svid; skipping...\n"
 
-      # Impute SV GTs
-      echo -e "Now imputing $svid...\n"
-      /opt/pancan_germline_wgs/scripts/variant_filtering/impute_sv_gts.R \
-        --ad $svid/$svid.ad.tsv.gz \
-        --sv-id "$svid" \
-        ~{covars_cmd} \
-        ~{groups_cmd} \
-        --min-ac ~{min_sv_ac} \
-        --out-tsv imp_res/$svid.imputation_results.tsv \
-      >> ~{out_log}
+      # Otherwise, continue with imputation
+      else
+
+        # Rank-order SNVs by LD R2 per flank and take up to N best tag SNVs from each flank
+        for flank in left right; do
+          bcftools query -f '%ID\n' $svid/$flank.snvs.vcf.gz > $svid/$flank.vids.list
+          fgrep \
+            -wf $svid/$flank.vids.list \
+            $svid/ld.vcor.slim \
+           | head -n ~{max_snps_per_flank} \
+           | cut -f1 \
+           > $svid/$flank.keep_vids.list || true
+        done
+
+        # Extract allele dosage for the SV and each flanking SNP
+        cat \
+          $svid/left.keep_vids.list \
+          $svid/right.keep_vids.list \
+          <( echo -e "$svid" ) \
+        | sort -V | uniq \
+        > $svid/all.keep_vids.list
+        /opt/pancan_germline_wgs/scripts/variant_filtering/extract_ad_matrix.py \
+          -i $svid/sandwich.vcf.gz \
+          -v $svid/all.keep_vids.list \
+          -o $svid/$svid.ad.tsv.gz
+
+        # Impute SV GTs
+        echo -e "Now imputing $svid..."
+        /opt/pancan_germline_wgs/scripts/variant_filtering/impute_sv_gts.R \
+          --ad $svid/$svid.ad.tsv.gz \
+          --sv-id "$svid" \
+          ~{covars_cmd} \
+          ~{groups_cmd} \
+          --min-ac ~{min_sv_ac} \
+          --min-accuracy ~{min_accuracy} \
+          --out-tsv imp_res/$svid.imputation_results.tsv \
+        >> ~{out_log}
+
+      fi
 
       # Clean up
       rm -rf $svid
@@ -518,12 +602,11 @@ task ImputeSvs {
     done < svs.bed
 
     # Concatenate imputation results
-    sed -n '1p' $( find imp_res -name "*.tsv" | sed -n '1p' ) > out.header
     cat imp_res/*.tsv \
     | grep -ve '^#' \
-    | cat out.header - \
+    | cat imp_res_header.tsv - \
     | gzip -c \
-    > ~{outfile}
+    > ~{outfile} || true
   >>>
 
   output {
@@ -607,7 +690,7 @@ task QuerySnvs {
   input {
     File snv_info_tsv
     File query_intervals
-    File samples_list
+    File? samples_list
     
     Int min_ac
     Int min_an
@@ -627,11 +710,18 @@ task QuerySnvs {
   String out_vcf = output_prefix + ".snvs.vcf.gz"
   String out_tbi = out_vcf + ".tbi"
 
+  String samples_cmd = if defined(samples_list) then "--force-samples --samples-file " + basename(select_first([samples_list, ""])) else ""
+
   Int concat_threads = 2 * n_cpu
   Int sort_mem_mb = floor(1000 * (mem_gb / 3))
 
   command <<<
     set -eu -o pipefail
+
+    # Relocate sample list, if provided
+    if ~{defined(samples_list)}; then
+      cp ~{default=" " samples_list} ./
+    fi
 
     # Get absolute minimum & maximum frequencies to permit in any interval
     global_min_af=$( cut -f5 ~{query_intervals} | sort -nk1,1 | sed -n '1p' )
@@ -663,8 +753,7 @@ task QuerySnvs {
         --apply-filters PASS,. \
         --min-ac ~{min_ac} \
         --include 'INFO/AN >= ~{min_an}' \
-        --samples-file ~{samples_list} \
-        --force-samples \
+        ~{samples_cmd} \
       | bcftools +fill-tags -- -t AC,AN,AF,F_MISSING \
       | bcftools view \
         --min-ac ~{min_ac} \
@@ -809,6 +898,71 @@ task SplitSvs {
     File target_sv_vcf_idx = "~{elig_outfile}.tbi"
     File passthrough_sv_vcf = "~{pt_outfile}"
     File passthrough_sv_vcf_idx = "~{pt_outfile}.tbi"
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: "3.75 GB"
+    cpu: 2
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
+
+
+# Injects imputed GTs into an SV VCF
+task UpdateGts {
+  input {
+    File vcf
+    File vcf_idx
+    File updates_tsv
+
+    Int gq_offset = 9
+
+    String g2c_analysis_docker
+  }
+
+  String outfile = basename(vcf, ".vcf.gz") + ".imputed.vcf.gz"
+
+  Int disk_gb = ceil(3 * size(vcf, "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    # Gather original GT information for all samples for qualifying records
+    zcat ~{updates_tsv} | cut -f1 | grep -ve '^#' | sort -V | uniq > svids.list
+    echo -e "#sv_id\tsample\tGT\tGQ" > current.header
+    bcftools query \
+      -i 'ID=@svids.list' \
+      -f '[%ID\t%SAMPLE\t%GT\t%GQ\n]' \
+      ~{vcf} \
+    | sort -Vk1,1 -k2,2V \
+    | cat current.header - \
+    | gzip -c \
+    > current_gts.tsv.gz
+
+    # Array-based comparison of old & imputed GTs to prioritize GTs to update
+    # (Vastly faster than doing this serially in pysam)
+    /opt/pancan_germline_wgs/scripts/variant_filtering/filter_imputed_gts.R \
+      --old-gts current_gts.tsv.gz \
+      --imputed-gts ~{updates_tsv} \
+      --gq-offset ~{gq_offset} \
+      --out-tsv filtered.updates.tsv
+    gzip -f filtered.updates.tsv
+
+    # Only update the GTs passing the above filter
+    /opt/pancan_germline_wgs/scripts/variant_filtering/inject_imputed_sv_gts.py \
+      -i ~{vcf} \
+      -u filtered.updates.tsv.gz \
+      --no-compare \
+      -o ~{outfile}
+    tabix -p vcf -f ~{outfile}
+  >>>
+
+  output {
+    File updated_vcf = outfile
+    File updated_vcf_idx = outfile + ".tbi"
   }
 
   runtime {
