@@ -34,7 +34,6 @@ find code/ -name "*.R" | xargs -I {} chmod a+x {}
 . code/refs/dotfiles/aou.rw.bashrc
 . code/refs/general_bash_utils.sh
 
-
 # Format local copy of Cromwell options .json to reference this workspace's storage bucket
 ~/code/scripts/envsubst.py \
   -i code/refs/json/aou.cromwell_options.default.json \
@@ -906,7 +905,11 @@ code/scripts/manage_chromshards.py \
   --max-attempts 5
 
 # Once complete, relocate all "repaired_vcf" outputs + indexes to overwrite their original staged versions
-# TODO: implement this
+while read contig; do
+  gsutil -m cp \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/VcfValidationBeforeFinalJGPatch/$contig/**vcf.gz* \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/JointGenotyping/$contig/
+done < $staging_dir/vcf_repair.contigs.list
 
 
 ##############################################

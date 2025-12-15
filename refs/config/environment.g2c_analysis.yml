@@ -1,4 +1,4 @@
-name: g2c
+name: base
 channels:
   - bioconda
   - conda-forge
@@ -72,14 +72,14 @@ dependencies:
   - libev=4.33=hd590300_2
   - libexpat=2.6.4=h5888daf_0
   - libffi=3.4.6=h2dba641_0
-  - libgcc=14.2.0=h767d61c_2
+  - libgcc=15.2.0=he0feb66_16
   - libgcc-devel_linux-64=14.2.0=h9c4974d_102
-  - libgcc-ng=14.2.0=h69a702a_2
-  - libgfortran=14.2.0=h69a702a_2
-  - libgfortran-ng=14.2.0=h69a702a_2
-  - libgfortran5=14.2.0=hf1ad2bd_2
+  - libgcc-ng=15.2.0=h69a702a_16
+  - libgfortran=15.2.0=h69a702a_16
+  - libgfortran-ng=15.2.0=h69a702a_16
+  - libgfortran5=15.2.0=h68bc16d_16
   - libglib=2.82.2=h2ff4ddf_1
-  - libgomp=14.2.0=h767d61c_2
+  - libgomp=15.2.0=he0feb66_16
   - libiconv=1.18=h4ce23a2_1
   - libjpeg-turbo=3.0.0=hd590300_1
   - liblapack=3.9.0=31_h7ac8fdf_openblas
@@ -95,9 +95,9 @@ dependencies:
   - libsolv=0.7.30=h3509ff9_0
   - libsqlite=3.49.1=hee588c1_1
   - libssh2=1.11.1=hf672d98_0
-  - libstdcxx=14.2.0=h8f9b012_2
+  - libstdcxx=15.2.0=h934c35e_16
   - libstdcxx-devel_linux-64=14.2.0=h9c4974d_102
-  - libstdcxx-ng=14.2.0=h4852527_2
+  - libstdcxx-ng=15.2.0=hdf11a46_16
   - libtiff=4.7.0=hc4654cb_2
   - libuuid=2.38.1=h0b41bf4_0
   - libwebp-base=1.5.0=h851e524_0
@@ -186,6 +186,7 @@ dependencies:
   - r-getopt=1.20.4=r43ha770c72_1
   - r-ggplot2=3.5.1=r43hc72bb7e_1
   - r-gld=2.6.7=r43h2b5f3a1_0
+  - r-glmnet=4.1_10=r43ha36cffa_0
   - r-globals=0.16.3=r43hc72bb7e_1
   - r-glue=1.8.0=r43h2b5f3a1_0
   - r-gower=1.0.1=r43hb1dbf0f_2
@@ -243,6 +244,7 @@ dependencies:
   - r-r6=2.6.1=r43hc72bb7e_0
   - r-rcolorbrewer=1.1_3=r43h785f33e_3
   - r-rcpp=1.0.14=r43h93ab643_0
+  - r-rcppeigen=0.3.4.0.2=r43hb79369c_0
   - r-readr=2.1.5=r43h0d4f4ea_1
   - r-readxl=1.4.4=r43h328fee5_0
   - r-recipes=1.1.1=r43hc72bb7e_0

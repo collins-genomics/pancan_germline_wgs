@@ -43,6 +43,7 @@ RUN conda config --env --set subdir linux-64 && \
 #               conda-forge::r-readxl conda-forge::r-survival conda-forge::r-vioplot \
 #               conda-forge::r-viridis conda-forge::r-optparse
 # mamba install conda-forge::google-cloud-sdk
+# mamba install conda-forge::r-glmnet
 
 # Use conda-pack to create a standalone enviornment
 RUN mamba install conda-pack && \

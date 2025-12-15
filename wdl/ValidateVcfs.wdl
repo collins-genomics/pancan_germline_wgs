@@ -82,7 +82,8 @@ workflow ValidateVcfs {
     call Utils.ConcatTextFiles as ConcatInnerValid {
       input:
         shards = ValidateVcf.valid_vcf_txt,
-        output_filename = output_prefix + "." + i + ".valid_vcfs.list"
+        output_filename = output_prefix + "." + i + ".valid_vcfs.list",
+        docker = linux_docker
     }
 
     Array[File] repaired_vcfs_inner = select_all(flatten(ValidateVcf.repaired_vcfs))
@@ -93,7 +94,8 @@ workflow ValidateVcfs {
   call Utils.ConcatTextFiles as ConcatOuterValid {
     input:
       shards = ConcatInnerValid.merged_file,
-      output_filename = output_prefix + ".valid_vcfs.list"
+      output_filename = output_prefix + ".valid_vcfs.list",
+      docker = linux_docker
   }
 
   output {
