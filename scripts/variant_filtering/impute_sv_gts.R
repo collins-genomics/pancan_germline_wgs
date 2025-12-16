@@ -112,9 +112,9 @@ adjust.sv.ad <- function(sv.ad, covars, train.sids, groups, sv.id, k=5, seed=202
   train.covars <- covars[cov.train.sids, ]
   cov.train.sv.ad <- sv.ad[cov.train.sids]
   cov.train.fold.indexes <- make.cv.folds(cov.train.sv.ad, k=k, seed=seed)
-  cov.fit <- train.elastic.net.cv(train.covars, cov.train.sv.ad,
-                                  fold.indexes=cov.train.fold.indexes,
-                                  seed=seed, tune.length=10)
+  cov.fit <- suppressWarnings(train.elastic.net.cv(train.covars, cov.train.sv.ad,
+                                                   fold.indexes=cov.train.fold.indexes,
+                                                   seed=seed, tune.length=10))
 
   # Adjust and return all SV ADs
   cov.fit.e <- mean(coef(cov.fit$finalModel)["(Intercept)", ])
@@ -144,7 +144,8 @@ train.imputation <- function(sv.ad, snp.ad, train.sids, k=5, seed=2025){
   fold.indexes <- make.cv.folds(round(train.sv.ad), k=k, seed=seed)
 
   # Fit imputation model
-  train.elastic.net.cv(train.snp.ad, train.sv.ad, fold.indexes=fold.indexes, seed=seed)
+  suppressWarnings(train.elastic.net.cv(train.snp.ad, train.sv.ad,
+                                        fold.indexes=fold.indexes, seed=seed))
 }
 
 # Impute & scale SV allele dosages from a trained allele dosage regression model
@@ -156,17 +157,19 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, seed=2025){
   # Note that this is only used for scaling, so doesn't need to be perfect
   # We exclude any het/hom samples with predicted ADs in the bottom 5%,
   # as these are most likely misgenotyped ref samples
-  elig.nonref <- names(which(pred.ad > 0.05*diff(range(pred.ad))))
-  elig.train.ids <- which(train.sv.ad == 0 | names(train.sv.ad) %in% elig.nonref)
+  elig.nonref <- names(which(pred.ad > min(pred.ad) + (0.05*diff(range(pred.ad)))))
+  elig.train.ids <- names(which(train.sv.ad == 0 | names(train.sv.ad) %in% elig.nonref))
   obs.acs <- intersect(0:2, unique(train.sv.ad[elig.train.ids]))
-  train.sv.ac <- sapply(obs.acs, function(k){length(which(train.sv.ad[elig.train.ids] == k))})
+  train.sv.ac <- sapply(obs.acs, function(k){
+    length(which(train.sv.ad[elig.train.ids] == k))
+    })
   ref.start <- if(0 %in% obs.acs & train.sv.ac[1] > 0){
     median(pred.ad[names(which(train.sv.ad == 0))])
   }else{0}
   het.start <- hom.start <- NULL
   het.start <- if(1 %in% obs.acs){
     if(train.sv.ac[which(obs.acs == 1)] > 0){
-      median(pred.ad[intersect(names(which(train.sv.ad == 1)), elig.nonref)])
+      median(pred.ad[intersect(names(which(train.sv.ad == 1)), elig.train.ids)])
     }
   }
   if(is.null(het.start)){
@@ -230,7 +233,8 @@ gt.pval <- function(ads, gt.d){
   (2 * pnorm(abs(z), lower.tail=F))
 }
 
-impute.gts <- function(pred.ad, train.sv.ad, min.n.per.ac=10, default.sd=0.2){
+impute.gts <- function(pred.ad, train.sv.ad, min.n.per.ac=10,
+                       min.sd=0.1, default.sd=0.2){
   # Define set of samples with concordant imputed and genotyped SV AC
   true.gts <- train.sv.ad[which(train.sv.ad == round(pred.ad[names(train.sv.ad)]))]
   k.sids <- sapply(0:2, function(ac){names(which(true.gts == ac))})
@@ -238,13 +242,16 @@ impute.gts <- function(pred.ad, train.sv.ad, min.n.per.ac=10, default.sd=0.2){
   # Parameterize Gaussians for assigning genotype
   ref.g <- het.g <- hom.g <- NULL
   if(length(k.sids[[1]]) > min.n.per.ac){
-    ref.g <- c(mean(pred.ad[k.sids[[1]]]), sd(pred.ad[k.sids[[1]]]))
+    ref.g <- c(mean(pred.ad[k.sids[[1]]]),
+               max(sd(pred.ad[k.sids[[1]]]), min.sd, na.rm=T))
   }
   if(length(k.sids[[2]]) > min.n.per.ac){
-    het.g <- c(mean(pred.ad[k.sids[[2]]]), sd(pred.ad[k.sids[[2]]]))
+    het.g <- c(mean(pred.ad[k.sids[[2]]]),
+               max(sd(pred.ad[k.sids[[2]]]), min.sd, na.rm=T))
   }
   if(length(k.sids[[3]]) > min.n.per.ac){
-    hom.g <- c(mean(pred.ad[k.sids[[3]]]), sd(pred.ad[k.sids[[3]]]))
+    hom.g <- c(mean(pred.ad[k.sids[[3]]]),
+               max(sd(pred.ad[k.sids[[3]]]), min.sd, na.rm=T))
   }
   if(is.null(ref.g)){
     if(!is.null(het.g)){
@@ -351,8 +358,8 @@ args <- parser$parse_args()
 #              "min_accuracy" = 0.7,
 #              "min_r2" = 0.3,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_INS_chr19_29.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_INS_chr19_29",
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_12846.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_12846",
 #              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "min_ac" = 50,
@@ -370,7 +377,7 @@ rownames(ad) <- ad$sample
 ad$sample <- NULL
 sv.ad <- ad[, args$sv_id]
 names(sv.ad) <- rownames(ad)
-snp.ad <- as.data.frame(ad[, setdiff(colnames(ad), args$sv_id)])
+snp.ad <- ad[, setdiff(colnames(ad), args$sv_id), drop=F]
 rownames(snp.ad) <- rownames(ad)
 snp.ad <- impute.missing.values(snp.ad)
 target.sids <- rownames(snp.ad)
@@ -442,7 +449,8 @@ if(carrier.acc >= args$min_accuracy & final.r2 >= args$min_r2){
             "; AD R2 = ", round(final.r2, 2),
             ")\n", sep=""))
 }else{
-  cat(paste(" - Imputation model below acceptable performance; rejecting imputed genotypes.\n",
+  cat(paste(" - Imputation model below acceptable performance; ",
+            "rejecting imputed genotypes.\n",
             "   (Carrier accuracy = ", round(carrier.acc, 2),
             "; GT accuracy = ", round(gt.acc, 2),
             "; AD R2 = ", round(final.r2, 2),

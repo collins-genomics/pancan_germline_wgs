@@ -1244,7 +1244,7 @@ for k in $( seq 1 22 ) X Y; do
   contig="chr$k"
   gsutil cat \
     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/$contig/PosthocCleanupPart1.$contig.outputs.json \
-  | jq .counts_per_sample | tr -d '"'
+  | jq '.["PosthocCleanupPart1.counts_per_sample"]' | tr -d '"'
 done | gsutil -m cp -I $staging_dir/
 code/scripts/sum_svcounts.py \
   --outfile $staging_dir/dfci-g2c.v1.gatkhc.PosthocCleanupPart1.counts.tsv \
