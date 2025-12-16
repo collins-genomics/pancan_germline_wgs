@@ -1062,7 +1062,7 @@ echo " }" >> $staging_dir/contig_variable_overrides.patch3.json
 # Write template .json for input
 cat << EOF > $staging_dir/GnarlyJointGenotypingPart1.patch3.inputs.template.json
 {
-  "GnarlyJointGenotypingPart1.callset_name": "dfci-g2c.v1.\$CONTIG.patch3",
+  "GnarlyJointGenotypingPart1.callset_name": "dfci-g2c.v1.\$CONTIG.patch3.v2",
   "GnarlyJointGenotypingPart1.custom_unpadded_intervals": \$CUSTOM_INTERVALS,
   "GnarlyJointGenotypingPart1.dbsnp_vcf": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.dbsnp138.vcf",
   "GnarlyJointGenotypingPart1.GnarlyGenotyperFT.machine_mem_mb": 16000,

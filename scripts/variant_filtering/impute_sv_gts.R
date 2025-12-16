@@ -53,7 +53,7 @@ load.groups <- function(groups.tsv, target.sids, sv.ad, min.ac){
     as.character(g.df[which(g.df[, 2] == gid), 1])
   })
 
-  # Count number of ref & alt alleles per group
+  # Count number of ref & alt SV alleles per group
   g.k <- as.data.frame(do.call("rbind", lapply(groups, function(gid){
     c(sum(sv.ad[intersect(names(sv.ad), g.mems[[gid]])] == 0, na.rm=T),
       sum(sv.ad[intersect(names(sv.ad), g.mems[[gid]])] > 0, na.rm=T))
@@ -154,14 +154,15 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, seed=2025){
 
   # Get centroid initialization for AC=0,1,2 (if observed)
   # Note that this is only used for scaling, so doesn't need to be perfect
-  obs.acs <- intersect(0:2, unique(train.sv.ad))
-  train.sv.ac <- sapply(obs.acs, function(k){length(which(train.sv.ad == k))})
-  ref.start <- if(0 %in% obs.acs & train.sv.ac[1] > 0){
-    median(pred.ad[names(which(train.sv.ad == 0))])
-  }else{0}
   # We exclude any het/hom samples with predicted ADs in the bottom 5%,
   # as these are most likely misgenotyped ref samples
   elig.nonref <- names(which(pred.ad > 0.05*diff(range(pred.ad))))
+  elig.train.ids <- which(train.sv.ad == 0 | names(train.sv.ad) %in% elig.nonref)
+  obs.acs <- intersect(0:2, unique(train.sv.ad[elig.train.ids]))
+  train.sv.ac <- sapply(obs.acs, function(k){length(which(train.sv.ad[elig.train.ids] == k))})
+  ref.start <- if(0 %in% obs.acs & train.sv.ac[1] > 0){
+    median(pred.ad[names(which(train.sv.ad == 0))])
+  }else{0}
   het.start <- hom.start <- NULL
   het.start <- if(1 %in% obs.acs){
     if(train.sv.ac[which(obs.acs == 1)] > 0){
@@ -186,8 +187,8 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, seed=2025){
     hom.start <- NULL
     obs.acs <- setdiff(obs.acs, 2)
   }else{
-    # Otherwise, ensure hom.start is at least 50% greater than het start
-    hom.start <- max(hom.start, het.start + (0.5*(het.start-ref.start)))
+    # Otherwise, ensure hom.start is at least 80% greater than het start
+    hom.start <- max(hom.start, het.start + (0.8*(het.start-ref.start)))
   }
   k.start <- c(ref.start, het.start, hom.start)[obs.acs+1]
 
@@ -343,8 +344,8 @@ args <- parser$parse_args()
 #              "min_ac" = 50,
 #              "min_accuracy" = 0.7,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_INS_chr19_544.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_INS_chr19_544",
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_31.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_31",
 #              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "min_ac" = 50,
