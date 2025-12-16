@@ -124,7 +124,7 @@ gsutil -m cp \
 cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 0,
-  "RefineSvGenotypesWithSnvs.tmp_dev_docker": "vanallenlab/g2c_analysis:75ed8ca",
+  "RefineSvGenotypesWithSnvs.tmp_dev_docker": "vanallenlab/g2c_analysis:c00aaf2",
   "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:dd6cccc",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
@@ -166,7 +166,7 @@ cromshell --no_turtle -t 120 -mc submit \
   --no-validation code/wdl/pancan_germline_wgs/RefineSvGenotypesWithSnvs.wdl \
   /home/jupyter/cromshell/inputs/RefineSvGenotypesWithSnvs.inputs.chr19.json \
 | jq .id | tr -d '"' > scratch/dev.wid && \
-monitor_workflow $( cat scratch/dev.wid ) 1
+monitor_workflow $( cat scratch/dev.wid ) 2
 
 # (Dev) debug
 cromshell -t 180 metadata $( cat scratch/dev.wid ) | fgrep -A30 -B30 ailed | head -n500

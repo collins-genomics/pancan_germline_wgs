@@ -138,7 +138,7 @@ adjust.sv.ad <- function(sv.ad, covars, train.sids, groups, sv.id, k=5, seed=202
 train.imputation <- function(sv.ad, snp.ad, train.sids, k=5, seed=2025){
   # Subset input data to training sids
   train.sv.ad <- sv.ad[intersect(train.sids, names(sv.ad))]
-  train.snp.ad <- snp.ad[intersect(train.sids, rownames(snp.ad)), ]
+  train.snp.ad <- snp.ad[intersect(train.sids, rownames(snp.ad)), , drop=FALSE]
 
   # Split samples into cross-validation folds balanced by number of non-ref GTs
   fold.indexes <- make.cv.folds(round(train.sv.ad), k=k, seed=seed)
@@ -332,24 +332,32 @@ parser$add_argument("--min-accuracy", metavar="float", type="numeric", default=0
                                "imputation model as trustworthy. Models with",
                                "carrier accuracy below this threshold will only",
                                "write a header to --out-tsv."))
+parser$add_argument("--min-r2", metavar="float", type="numeric", default=0.3,
+                    help=paste("Minimum coefficient of determination (R2) for ",
+                               "adjusted/original and imputed SV allele dosages",
+                               "to accept the imputation model as trustworthy.",
+                               "Models with R2 below this threshold will only",
+                               "write a header to --out-tsv."))
 parser$add_argument("--out-tsv", metavar="path", type="character", required=TRUE,
                     help="Path to output .tsv")
 args <- parser$parse_args()
 
-# DEV:
+# # DEV:
 # args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680.ad.tsv.gz",
 #              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_4680",
 #              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "min_ac" = 50,
 #              "min_accuracy" = 0.7,
+#              "min_r2" = 0.3,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_31.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_31",
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_INS_chr19_29.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_INS_chr19_29",
 #              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "min_ac" = 50,
 #              "min_accuracy" = 0.7,
+#              "min_r2" = 0.3,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
 
 # Initialize reporting
@@ -366,6 +374,11 @@ snp.ad <- as.data.frame(ad[, setdiff(colnames(ad), args$sv_id)])
 rownames(snp.ad) <- rownames(ad)
 snp.ad <- impute.missing.values(snp.ad)
 target.sids <- rownames(snp.ad)
+# For glmnet compatability, the snp.ad matrix must have at least two columns
+# If only one tag SNP is identified, we add a dummy second SNP with all AD=0
+if(ncol(snp.ad) == 1){
+  snp.ad$dummy <- 0
+}
 
 # If provided, load sample covariates
 sv.samples <- names(sv.ad)[which(!is.na(sv.ad))]
@@ -386,7 +399,8 @@ for(group in names(groups)){
   n.samples <- length(groups[[group]])
   cat(paste(" - Imputing SV allele dosages for",
             prettyNum(n.samples, big.mark=","), group, "samples from",
-            prettyNum(ncol(snp.ad), big.mark=","), "tag SNPs...\n"))
+            prettyNum(length(setdiff(colnames(snp.ad), "dummy")), big.mark=","),
+            "tag SNPs...\n"))
   g.train.ids <- intersect(train.sids, groups[[group]])
   group.fit <- train.imputation(sv.ad.adj, snp.ad, g.train.ids)
   g.pred.ad <- impute.sv.ads(group.fit,
@@ -421,14 +435,14 @@ cat(paste("   ", capture.output(table(cm.df)), "\n", sep=""))
 # Write imputed genotype information to --out-tsv
 # Only write genotypes if final carrier accuracy is >= --min-accuracy
 imp.res$`#sv_id` <- args$sv_id
-if(carrier.acc >= args$min_accuracy){
+if(carrier.acc >= args$min_accuracy & final.r2 >= args$min_r2){
   cat(paste(" - Imputation model well-fit; accepting imputed genotypes.\n",
             "   (Carrier accuracy = ", round(carrier.acc, 2),
             "; GT accuracy = ", round(gt.acc, 2),
             "; AD R2 = ", round(final.r2, 2),
             ")\n", sep=""))
 }else{
-  cat(paste(" - Imputation model below acceptable accuracy; rejecting imputed genotypes.\n",
+  cat(paste(" - Imputation model below acceptable performance; rejecting imputed genotypes.\n",
             "   (Carrier accuracy = ", round(carrier.acc, 2),
             "; GT accuracy = ", round(gt.acc, 2),
             "; AD R2 = ", round(final.r2, 2),

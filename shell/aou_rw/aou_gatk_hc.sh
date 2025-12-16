@@ -1219,7 +1219,7 @@ code/scripts/manage_chromshards.py \
   --input-json-template $staging_dir/PosthocCleanupPart1.inputs.template.json \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/ \
-  --contig-list <( fgrep -xv "chr1" contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
+  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
   --status-tsv cromshell/progress/dfci-g2c.v1.PosthocCleanupPart1.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 45 \

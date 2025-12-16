@@ -48,6 +48,7 @@ workflow RefineSvGenotypesWithSnvs {
     Float min_ld_r2 = 0.2                # Minimum LD between SNV & SV to permit for imputation
     String ref_build = "hg38"            # Plink-styled reference indicator
     Float min_carrier_accuracy = 0.7     # Minimum (carrier|ref) accuracy to accept an SV imputation model as well-fit
+    Float min_imputation_r2 = 0.3        # Minimum R2 between raw & imputed SV allele dosages to accept model as well-fit
     File? sample_group_labels            # Optional two-column .tsv mapping sample IDs to major group labels (e.g., continental ancestry). No header.
     File? sample_covariates              # Optional .tsv of sample IDs + any technical covariates for SV imputation. Has header.
 
@@ -225,6 +226,7 @@ workflow RefineSvGenotypesWithSnvs {
           snv_freq_scalar = snv_freq_scalar,
           min_ld_r2 = min_ld_r2,
           min_accuracy = min_carrier_accuracy,
+          min_imputation_r2 = min_imputation_r2,
           min_sv_ac = min_sv_ac,
           ref_build = ref_build,
           max_snps_per_flank = max_snps_per_flank,
@@ -399,6 +401,7 @@ task ImputeSvs {
     Float min_ld_r2
     Int min_sv_ac
     Float min_accuracy
+    Float min_imputation_r2
     String ref_build
     Int max_snps_per_flank
 
@@ -591,6 +594,7 @@ task ImputeSvs {
           ~{groups_cmd} \
           --min-ac ~{min_sv_ac} \
           --min-accuracy ~{min_accuracy} \
+          --min-r2 ~{min_imputation_r2} \
           --out-tsv imp_res/$svid.imputation_results.tsv \
         >> ~{out_log}
 
