@@ -1240,7 +1240,7 @@ staging_dir=staging/PosthocCleanup
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
 # Sum variant counts for all contigs
-for k in $( seq 1 22 ) X Y; do
+for k in $( seq 1 22 ); do
   contig="chr$k"
   gsutil cat \
     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/$contig/PosthocCleanupPart1.$contig.outputs.json \
@@ -1272,6 +1272,7 @@ code/scripts/define_variant_count_outlier_samples.R \
   --counts-tsv $staging_dir/dfci-g2c.v1.gatkhc.PosthocCleanupPart1.counts.tsv \
   --sample-labels-tsv $staging_dir/dfci-g2c.intake_pop_labels.aou_split.tsv \
   --n-iqr 4 \
+  --no-lower-filter \
   --plot \
   --plot-title-prefix "GATK" \
   --out-prefix $staging_dir/dfci-g2c.v1.gatkhc.posthoc_outliers
@@ -1283,23 +1284,29 @@ gsutil cat \
 > $staging_dir/dfci-g2c.v1.gatkhc.samples.list
 
 # Add non-technical samples to exclude due to age data becoming available
+# Also remove four HMF samples who withdrew research consent since our project began
+cat << EOF > $staging_dir/hmf.dropped.samples.list
+HMF000191
+HMF000472
+HMF002810
+HMF006509
+EOF
+zcat dfci-g2c.sample_meta.posthoc_outliers.ceph_update.tsv.gz \
+| fgrep -wf $staging_dir/hmf.dropped.samples.list \
+| cut -f1 \
+> $staging_dir/hmf.dropped.g2c_ids.samples.list
 age_cidx=$( zcat dfci-g2c.sample_meta.posthoc_outliers.ceph_update.tsv.gz \
             | head -n1 | sed 's/\t/\n/g' | awk '{ if ($1=="age") print NR }'  )
 zcat dfci-g2c.sample_meta.posthoc_outliers.ceph_update.tsv.gz \
 | awk -v FS="\t" -v cidx=$age_cidx '{ if ($cidx < 18) print $1 }' \
 | fgrep -wf $staging_dir/dfci-g2c.v1.gatkhc.samples.list \
-| cat - $staging_dir/dfci-g2c.v1.gatkhc.posthoc_outliers.outliers.samples.list \
+| cat - \
+  $staging_dir/dfci-g2c.v1.gatkhc.posthoc_outliers.outliers.samples.list \
+  $staging_dir/hmf.dropped.g2c_ids.samples.list \
 | sort -V | uniq \
 > $staging_dir/dfci-g2c.v1.gatkhc.posthoc_outliers.outliers.samples.list2
 mv $staging_dir/dfci-g2c.v1.gatkhc.posthoc_outliers.outliers.samples.list2 \
   $staging_dir/dfci-g2c.v1.gatkhc.posthoc_outliers.outliers.samples.list
-
-# Add four HMF samples with withdrawn consents
-# TODO: implement this
-# HMF000191
-# HMF000472
-# HMF002810
-# HMF006509
 
 # Update sample metadata with posthoc outlier failure labels
 code/scripts/append_qc_fail_metadata.R \
@@ -1351,11 +1358,14 @@ staging_dir=staging/PosthocCleanup
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
 # Build chromosome-specific override json of VCFs and VCF indexes
+if [ -e $staging_dir/PosthocCleanupPart2.contig_variable_overrides.json ]; then
+  rm $staging_dir/PosthocCleanupPart2.contig_variable_overrides.json
+fi
 add_contig_vcfs_to_chromshard_overrides_json \
   $staging_dir/PosthocCleanupPart2.contig_variable_overrides.json \
   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1 \
-  normalized_vcfs \
-  normalized_vcf_idxs
+  PosthocCleanupPart1.normalized_vcfs \
+  PosthocCleanupPart1.normalized_vcf_idxs
 
 # Write template input .json for outlier exclusion task
 cat << EOF > $staging_dir/PosthocCleanupPart2.inputs.template.json
@@ -1380,7 +1390,10 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.PosthocCleanupPart2.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
-  --max-attempts 2
+  --max-attempts 2 \
+  --submission-gate 30 \
+  --vm-gate 500 \
+  --hard-reset
 
 
 ###########################################

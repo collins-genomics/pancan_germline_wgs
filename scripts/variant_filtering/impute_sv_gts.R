@@ -123,7 +123,9 @@ adjust.sv.ad <- function(sv.ad, covars, train.sids, groups, sv.id, k=5, seed=202
   # Report variance explained
   raw.ad <- sv.ad[intersect(rownames(covars), names(sv.ad))]
   rmse <- round(sqrt(mean((raw.ad - pred.ad)^2)), 3)
-  r2 <- cor(raw.ad, pred.ad)^2
+  r2 <- tryCatch(cor(raw.ad, pred.ad)^2,
+                 warning=function(w){0},
+                 error=function(e){0})
   pct.var <- paste(round(100 * r2, 1), "%", sep="")
   cat(paste( " - Covariates explained ",  pct.var,
              " variance in raw SV ADs (RMSE = ", rmse,
@@ -196,8 +198,12 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, seed=2025){
   k.start <- c(ref.start, het.start, hom.start)[obs.acs+1]
 
   # Cluster all samples in untransformed AD space to identify high-confidence samples
-  set.seed(seed)
-  pred.ac <- obs.acs[kmeans(pred.ad, centers=k.start)$cluster]
+  if(length(k.start) > 1){
+    set.seed(seed)
+    pred.ac <- obs.acs[kmeans(pred.ad, centers=k.start)$cluster]
+  }else{
+    pred.ac <- rep(obs.acs, times=length(pred.ad))
+  }
   names(pred.ac) <- names(pred.ad)
   k.sids <- sapply(obs.acs, function(ac){
     intersect(names(which(pred.ac == ac)),
@@ -358,8 +364,8 @@ args <- parser$parse_args()
 #              "min_accuracy" = 0.7,
 #              "min_r2" = 0.3,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_12846.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_12846",
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_12882.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_12882",
 #              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "min_ac" = 50,
