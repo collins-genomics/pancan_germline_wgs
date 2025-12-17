@@ -124,7 +124,7 @@ gsutil -m cp \
 cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 0,
-  "RefineSvGenotypesWithSnvs.tmp_dev_docker": "vanallenlab/g2c_analysis:ee6f02a",
+  "RefineSvGenotypesWithSnvs.tmp_dev_docker": "vanallenlab/g2c_analysis:f114314",
   "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:dd6cccc",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
