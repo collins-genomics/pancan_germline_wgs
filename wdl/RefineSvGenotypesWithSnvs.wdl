@@ -237,12 +237,14 @@ workflow RefineSvGenotypesWithSnvs {
       }
 
       # Update SV GTs with imputed results
-      call UpdateGts {
-        input:
-          vcf = vcf_info.left,
-          vcf_idx = vcf_info.right,
-          updates_tsv = ImputeSvs.imputation_results,
-          g2c_analysis_docker = tmp_dev_docker
+      if ( ImputeSvs.n_imputed_svs > 0 ) {
+        call UpdateGts {
+          input:
+            vcf = vcf_info.left,
+            vcf_idx = vcf_info.right,
+            updates_tsv = ImputeSvs.imputation_results,
+            g2c_analysis_docker = tmp_dev_docker
+        }
       }
     }
 
@@ -262,18 +264,21 @@ workflow RefineSvGenotypesWithSnvs {
   }
 
   # Concatenate & compress all logs for archival
-  call Utils.ConcatTextFiles as ConcatLogs {
-    input:
-      shards = select_all(ImputeSvs.imputation_log),
-      compression_command = "gzip -c",
-      output_filename = output_prefix + ".imputation_logs.tsv.gz",
-      docker = linux_docker
+  Array[File] all_logs = select_all(ImputeSvs.imputation_log)
+  if ( length(all_logs) > 0 ){
+    call Utils.ConcatTextFiles as ConcatLogs {
+      input:
+        shards = all_logs,
+        compression_command = "gzip -c",
+        output_filename = output_prefix + ".imputation_logs.tsv.gz",
+        docker = linux_docker
+    }
   }
 
   output {
     File refined_vcf = ConcatVcfs.merged_vcf
     File refined_vcf_idx = ConcatVcfs.merged_vcf_idx
-    File imputation_logs = ConcatLogs.merged_file
+    File? imputation_logs = ConcatLogs.merged_file
   }
 }
 
@@ -413,8 +418,8 @@ task ImputeSvs {
 
     String g2c_analysis_docker
 
-    Float mem_gb = 15.5
-    Int n_cpu = 8
+    Float mem_gb = 7.5
+    Int n_cpu = 4
     Int n_preemptible = 1
   }
 
@@ -606,16 +611,22 @@ task ImputeSvs {
     done < svs.bed
 
     # Concatenate imputation results
-    cat imp_res/*.tsv \
-    | grep -ve '^#' \
-    | cat imp_res_header.tsv - \
-    | gzip -c \
-    > ~{outfile} || true
+    if [ $( find imp_res/ -name "*.tsv" | wc -l ) -gt 0 ]; then
+      cat imp_res/*.tsv \
+      | grep -ve '^#'  || true \
+      | cat imp_res_header.tsv - \
+      | gzip -c > ~{outfile}
+      zcat ~{outfile} | grep -ve '^#' | cut -f1 | sort | uniq | wc -l > imputed_svs.count.txt
+    else
+      cat imp_res_header.tsv | gzip -c > ~{outfile}
+      echo "0" > imputed_svs.count.txt
+    fi
   >>>
 
   output {
     File imputation_results = outfile
-    File imputation_log = out_log
+    Int n_imputed_svs = read_int("imputed_svs.count.txt")
+    File? imputation_log = out_log
   }
 
   runtime {

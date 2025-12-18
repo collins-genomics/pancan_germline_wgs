@@ -1357,25 +1357,27 @@ gsutil -m cp \
 staging_dir=staging/PosthocCleanup
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
-# Build chromosome-specific override json of VCFs and VCF indexes
-if [ -e $staging_dir/PosthocCleanupPart2.contig_variable_overrides.json ]; then
-  rm $staging_dir/PosthocCleanupPart2.contig_variable_overrides.json
-fi
-add_contig_vcfs_to_chromshard_overrides_json \
-  $staging_dir/PosthocCleanupPart2.contig_variable_overrides.json \
-  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1 \
-  PosthocCleanupPart1.normalized_vcfs \
-  PosthocCleanupPart1.normalized_vcf_idxs
+# Make .tsv of VCF info for each contig
+while read contig; do
+  gsutil -m ls $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart1/$contig/**vcf.gz \
+  | sort -V \
+  | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
+  > $staging_dir/PosthocCleanupPart2.vcf_info.$contig.tsv
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+gsutil -m cp \
+  $staging_dir/PosthocCleanupPart2.vcf_info.*.tsv \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2/input_vcf_lists/
 
 # Write template input .json for outlier exclusion task
 cat << EOF > $staging_dir/PosthocCleanupPart2.inputs.template.json
 {
   "PosthocCleanupPart2.CleanupPart2.mem_gb": 7.5,
   "PosthocCleanupPart2.CleanupPart2.n_cpu": 4,
-  "PosthocCleanupPart2.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
   "PosthocCleanupPart2.exclude_samples_list": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/qc-filtering/dfci-g2c.v1.gatkhc.posthoc_outliers.outliers.samples.list",
-  "PosthocCleanupPart2.vcfs": \$CONTIG_VCFS,
-  "PosthocCleanupPart2.vcf_idxs": \$CONTIG_VCF_IDXS
+  "PosthocCleanupPart2.g2c_analysis_docker": "vanallenlab/g2c_analysis:f114314",
+  "PosthocCleanupPart2.linux_docker": "ubuntu:plucky-20251001",
+  "PosthocCleanupPart2.vcfs_per_shard": 50,
+  "PosthocCleanupPart2.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2/input_vcf_lists/PosthocCleanupPart2.vcf_info.\$CONTIG.tsv"
 }
 EOF
 
@@ -1384,7 +1386,7 @@ EOF
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/gatk-hc/PosthocCleanupPart2.wdl \
   --input-json-template $staging_dir/PosthocCleanupPart2.inputs.template.json \
-  --contig-variable-overrides $staging_dir/PosthocCleanupPart2.contig_variable_overrides.json \
+  --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2/ \
   --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
   --status-tsv cromshell/progress/dfci-g2c.v1.PosthocCleanupPart2.progress.tsv \
@@ -1392,9 +1394,8 @@ code/scripts/manage_chromshards.py \
   --outer-gate 30 \
   --max-attempts 2 \
   --submission-gate 30 \
-  --vm-gate 500 \
-  --hard-reset
-
+  --vm-gate 500
+  
 
 ###########################################
 # Exclude outliers also from GATK-SV VCFs #
@@ -1426,5 +1427,5 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.ExcludeSnvOutliersFromSvCallset.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
-  --max-attempts 2 
+  --max-attempts 2
 

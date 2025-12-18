@@ -109,10 +109,9 @@ gsutil -m cp \
 
 # Make lists of all SNV VCFs and indexes for each contig
 while read contig; do
-  gsutil -m cat \
-    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2/$contig/PosthocCleanupPart2.$contig.outputs.json \
-  | jq ".filtered_vcfs" \
-  | tr -d "[]" | sed 's/,/\n/g' | fgrep "vcf.gz" | tr -d '"' | sort -V \
+  gsutil -m ls \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2/$contig/**vcf.gz \
+  | sort -V \
   | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
   > $staging_dir/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.$contig.tsv
 done < contig_lists/dfci-g2c.v1.contigs.$WN.list
@@ -125,9 +124,10 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 0,
   "RefineSvGenotypesWithSnvs.tmp_dev_docker": "vanallenlab/g2c_analysis:f114314",
-  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:dd6cccc",
+  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:f114314",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
+  "RefineSvGenotypesWithSnvs.min_imputation_r2": 0.2,
   "RefineSvGenotypesWithSnvs.min_ld_r2": 0.1,
   "RefineSvGenotypesWithSnvs.min_sv_ac": 50,
   "RefineSvGenotypesWithSnvs.min_sv_af": 0.001,
@@ -150,13 +150,13 @@ code/scripts/manage_chromshards.py \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup \
   --name RefineSvGenotypesWithSnvs \
-  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
+  --contig-list <( fgrep -w chr22 contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
   --status-tsv cromshell/progress/dfci-g2c.v1.RefineSvGenotypesWithSnvs.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
   --max-attempts 3
 
-# (Dev) chr19 submission
+# (Dev) chr22 submission
 gsutil -m cp \
   $MAIN_WORKSPACE_BUCKET/code/wdl/pancan_germline_wgs/RefineSvGenotypesWithSnvs.wdl \
   code/wdl/pancan_germline_wgs/ && \
@@ -164,7 +164,7 @@ cromshell --no_turtle -t 120 -mc submit \
   --options-json code/refs/json/aou.cromwell_options.default.json \
   --dependencies-zip g2c.dependencies.zip \
   --no-validation code/wdl/pancan_germline_wgs/RefineSvGenotypesWithSnvs.wdl \
-  /home/jupyter/cromshell/inputs/RefineSvGenotypesWithSnvs.inputs.chr19.json \
+  /home/jupyter/cromshell/inputs/RefineSvGenotypesWithSnvs.inputs.chr22.json \
 | jq .id | tr -d '"' > scratch/dev.wid && \
 monitor_workflow $( cat scratch/dev.wid ) 2
 
