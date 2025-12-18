@@ -159,7 +159,7 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, seed=2025){
   # Note that this is only used for scaling, so doesn't need to be perfect
   # We exclude any het/hom samples with predicted ADs in the bottom 5%,
   # as these are most likely misgenotyped ref samples
-  elig.nonref <- names(which(pred.ad > min(pred.ad) + (0.05*diff(range(pred.ad)))))
+  elig.nonref <- names(which(pred.ad > max(c(0, min(pred.ad))) + (0.05*diff(range(pred.ad)))))
   elig.train.ids <- names(which(train.sv.ad == 0 | names(train.sv.ad) %in% elig.nonref))
   obs.acs <- intersect(0:2, unique(train.sv.ad[elig.train.ids]))
   train.sv.ac <- sapply(obs.acs, function(k){
@@ -364,8 +364,8 @@ args <- parser$parse_args()
 #              "min_accuracy" = 0.7,
 #              "min_r2" = 0.3,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_12882.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_12882",
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_23282.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_23282",
 #              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "min_ac" = 50,
