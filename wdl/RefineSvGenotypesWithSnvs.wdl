@@ -426,6 +426,9 @@ task ImputeSvs {
   String groups_cmd = if defined(sample_group_labels) then "--sample-group-labels " + basename(select_first([sample_group_labels, ""])) else ""
   String covars_cmd = if defined(sample_covariates) then "--sample-covariates " + basename(select_first([sample_covariates, ""])) else ""
 
+  Int min_snv_ac_nofloor = floor(min_sv_ac / snv_freq_scalar)
+  Int min_snv_ac = if min_snv_ac_nofloor < 1 then 1 else min_snv_ac_nofloor
+
   Array[Int] retry_counter = if mask_training_sv_gts then range(sv_mask_retries + 1) else [0]
 
   String outfile = output_prefix + ".imputation_results.tsv.gz"
@@ -553,57 +556,59 @@ task ImputeSvs {
           --out $svid/ld
         cut -f6,7 $svid/ld.vcor | sed '1d' | sort -nrk2,2 -k1,1V > $svid/ld.vcor.slim
 
-        if [ $( cat $svid/ld.vcor.slim | wc -l ) -gt 0 ]; then
+        # If no tag SNPs are found, do nothing more
+        if [ $( cat $svid/ld.vcor.slim | wc -l ) -eq 0 ]; then
+          cp imp_res_header.tsv imp_res/$svid.imputation_results.tsv
+          echo -e "Found no tag SNPs for $svid; continuing...\n"
+
+        # Otherwise, continue with imputation
+        else
+
+          # Rank-order SNVs by LD R2 per flank and take up to N best tag SNVs from each flank
+          for flank in left right; do
+            bcftools query -f '%ID\n' $svid/$flank.snvs.vcf.gz > $svid/$flank.vids.list
+            fgrep \
+              -wf $svid/$flank.vids.list \
+              $svid/ld.vcor.slim \
+             | head -n ~{max_snps_per_flank} \
+             | cut -f1 \
+             > $svid/$flank.keep_vids.list || true
+          done
+
+          # Extract allele dosage for the SV and each flanking SNP
+          cat \
+            $svid/left.keep_vids.list \
+            $svid/right.keep_vids.list \
+            <( echo -e "$svid" ) \
+          | sort -V | uniq \
+          > $svid/all.keep_vids.list
+          /opt/pancan_germline_wgs/scripts/variant_filtering/extract_ad_matrix.py \
+            -i $svid/sandwich.vcf.gz \
+            -v $svid/all.keep_vids.list \
+            -o $svid/$svid.ad.tsv.gz
+
+          # Impute SV GTs
+          echo -e "Now imputing $svid..."
+          /opt/pancan_germline_wgs/scripts/variant_filtering/impute_sv_gts.R \
+            --ad $svid/$svid.ad.tsv.gz \
+            --sv-id "$svid" \
+            ~{covars_cmd} \
+            ~{groups_cmd} \
+            --min-ac ~{min_sv_ac} \
+            --min-snv-ac ~{min_snv_ac} \
+            --min-accuracy ~{min_accuracy} \
+            --min-r2 ~{min_imputation_r2} \
+            --out-tsv imp_res/$svid.imputation_results.tsv \
+          >> ~{out_log}
+
+        fi
+
+        if [ -s imp_res/$svid.imputation_results.tsv ] && \
+           [ $( cat imp_res/$svid.imputation_results.tsv | wc -l ) -gt 1 ]; then
           break
         fi
 
       done
-
-      # If no tag SNPs are found, do nothing more
-      if [ $( cat $svid/ld.vcor.slim | wc -l ) -eq 0 ]; then
-        cp imp_res_header.tsv imp_res/$svid.imputation_results.tsv
-        echo -e "Found no tag SNPs for $svid; skipping...\n"
-
-      # Otherwise, continue with imputation
-      else
-
-        # Rank-order SNVs by LD R2 per flank and take up to N best tag SNVs from each flank
-        for flank in left right; do
-          bcftools query -f '%ID\n' $svid/$flank.snvs.vcf.gz > $svid/$flank.vids.list
-          fgrep \
-            -wf $svid/$flank.vids.list \
-            $svid/ld.vcor.slim \
-           | head -n ~{max_snps_per_flank} \
-           | cut -f1 \
-           > $svid/$flank.keep_vids.list || true
-        done
-
-        # Extract allele dosage for the SV and each flanking SNP
-        cat \
-          $svid/left.keep_vids.list \
-          $svid/right.keep_vids.list \
-          <( echo -e "$svid" ) \
-        | sort -V | uniq \
-        > $svid/all.keep_vids.list
-        /opt/pancan_germline_wgs/scripts/variant_filtering/extract_ad_matrix.py \
-          -i $svid/sandwich.vcf.gz \
-          -v $svid/all.keep_vids.list \
-          -o $svid/$svid.ad.tsv.gz
-
-        # Impute SV GTs
-        echo -e "Now imputing $svid..."
-        /opt/pancan_germline_wgs/scripts/variant_filtering/impute_sv_gts.R \
-          --ad $svid/$svid.ad.tsv.gz \
-          --sv-id "$svid" \
-          ~{covars_cmd} \
-          ~{groups_cmd} \
-          --min-ac ~{min_sv_ac} \
-          --min-accuracy ~{min_accuracy} \
-          --min-r2 ~{min_imputation_r2} \
-          --out-tsv imp_res/$svid.imputation_results.tsv \
-        >> ~{out_log}
-
-      fi
 
       # Clean up
       rm -rf $svid
@@ -611,16 +616,13 @@ task ImputeSvs {
     done < svs.bed
 
     # Concatenate imputation results
-    if [ $( find imp_res/ -name "*.tsv" | wc -l ) -gt 0 ]; then
-      cat imp_res/*.tsv \
-      | grep -ve '^#'  || true \
-      | cat imp_res_header.tsv - \
-      | gzip -c > ~{outfile}
-      zcat ~{outfile} | grep -ve '^#' | cut -f1 | sort | uniq | wc -l > imputed_svs.count.txt
-    else
-      cat imp_res_header.tsv | gzip -c > ~{outfile}
-      echo "0" > imputed_svs.count.txt
-    fi
+    cat imp_res/*.tsv \
+    | grep -ve '^#' || true \
+    | cat imp_res_header.tsv - \
+    | gzip -c > ~{outfile}
+    n_imputed=$( zcat ~{outfile} | grep -ve '^#' | cut -f1 \
+                 | sort | uniq | wc -l || true )
+    echo "$n_imputed" > imputed_svs.count.txt
   >>>
 
   output {
