@@ -28,6 +28,7 @@ load.constants("all")
 ##################
 # Load a site metrics BED file and subset to minimal required columns
 read.bed <- function(bed.in, common_af=0, autosomes.only=T){
+  # Read and clean data
   df <- read.table(bed.in, header=T, sep="\t", comment.char="",
                    check.names=F, quote="")
   if(autosomes.only){
@@ -37,8 +38,23 @@ read.bed <- function(bed.in, common_af=0, autosomes.only=T){
   df[, keep.cols] <- as.data.frame(apply(df[, keep.cols], 2, as.numeric))
   df <- df[which(df$af >= common_af), c("vid", keep.cols)]
   df <- df[complete.cases(df), ]
+
+  # Compute HWE ternary coordinates
   df[, c("hwe.x", "hwe.y")] <- t(apply(df[, c("freq_het", "freq_hom")], 1,
                                        function(freqs){calc.hwe.xy(freqs[1], freqs[2])}))
+
+  # Compute Euclidean distance from HWE expectations
+  df$freq_ref <- 1 - apply(df[, c("freq_het", "freq_hom")], 1, sum, na.rm=T)
+  df$exp_hom <- df$af^2
+  df$exp_het <- 2 * df$af * (1-df$af)
+  df$exp_ref <- (1-df$af)^2
+  df$hwe_dist <- apply(df, 1, function(rv){
+    obs <- as.numeric(rv[c("freq_ref", "freq_het", "freq_hom")])
+    exp <- as.numeric(rv[c("exp_ref", "exp_het", "exp_hom")])
+    sqrt(sum((obs - exp)^2))
+  })
+
+  # Clean and return data
   rownames(df) <- df$vid; df$vid <- NULL
   return(as.data.frame(df))
 }
@@ -296,6 +312,12 @@ pointwise.plots <- function(df, ld, n.sites, out.prefix, fname.suffix="all",
   m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""), true.n.sites=n.sites)
   dev.off()
   ss.df[1, ] <- c(paste(ss.prefix, "common_hwe", sep="."), "pct_pass", m.tmp)
+
+  # Also compute AF-weighted mean HWE accuracy
+  hwe.weights <- 2 * (0.5 - abs(0.5 - df$af))
+  mean.hwe.acc <- 1 - weighted.mean(df$hwe_dist, w=hwe.weights)
+  ss.df[nrow(ss.df), ] <- c(paste(ss.prefix, "common_hwe", sep="."),
+                            "weighted_accuracy", mean.hwe.acc, length(df$hwe_dist))
 
   # HWE topo heatmap as .pdf
   pdf(paste(out.prefix, fname.suffix, "hwe.topo.pdf", sep="."), height=2.25, width=2.25)

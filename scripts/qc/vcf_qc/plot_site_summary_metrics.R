@@ -94,7 +94,7 @@ get.af.ss <- function(af.d, common.af=0.01){
 # Summary plot of variant counts by class & subclass
 plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
                                ref.size.d=NULL, ref.title=NULL,
-                               bar.sep=0.1, ref.pt.cex=2/3,
+                               bar.sep=0.1, vc.sep=0.35, ref.pt.cex=2/3,
                                parmar=c(0.1, 7.5, 2, 2)){
 
   # Get summary statistics for output .tsv
@@ -161,7 +161,8 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
   }else{
     xlims <- c(0, max(c(ceiling(k))))
   }
-  ylims <- c(if(add.ref){-1}else{0}, length(k)+bar.sep)
+  n.vc <- sum(has.short.variants, all(has.short.variants, has.svs))
+  ylims <- c(if(add.ref){-1}else{0}, length(k)+bar.sep+(vc.sep*n.vc))
   bar.cols <- var.class.colors[df$class]
   bar.labs <- sapply(10^k, function(lk){
     if(lk < 10000){
@@ -170,21 +171,31 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
       clean.numeric.labels(lk, acceptable.decimals=1, min.label.length=3)
     }
   })
+  bar.at <- c(1)
+  for(i in 2:length(k)){
+    vsc.flanks <- names(k)[c(i-1, i)]
+    next.at <- bar.at[length(bar.at)] + 1
+    if(!any(sapply(vc.to.vsc.map, function(vscs){all(vsc.flanks %in% vscs)}))){
+      next.at <- next.at + vc.sep
+    }
+    bar.at <- c(bar.at, next.at)
+  }
+  names(bar.at) <- names(k)
 
   # Prep plot area
   prep.plot.area(xlims, ylims, parmar)
 
   # Add bars
   rect(xleft=rep(0, length(k)), xright=k,
-       ybottom=(1:length(k)) - 1 + bar.sep, ytop=(1:length(k)) - bar.sep,
+       ybottom=bar.at - 1 + bar.sep, ytop=bar.at - bar.sep,
        col=bar.cols, xpd=T)
 
   # Add reference markers, if optioned
   if(add.ref){
     ref.pw.col <- remap(as.character(ref.k <= k),
                         c("TRUE"="white", "FALSE"=var.ref.color))
-    segments(y0=(1:length(ref.k)) - 1 + (2.5*bar.sep),
-             y1=(1:length(ref.k)) - (2.5*bar.sep),
+    segments(y0=bar.at[names(ref.k)] - 1 + (2.5*bar.sep),
+             y1=bar.at[names(ref.k)] - (2.5*bar.sep),
              x0=ref.k, x1=ref.k, col=ref.pw.col, lend="round")
     ref.legend.buffer <- 0.03
     if(!is.null(ref.title)){
@@ -198,7 +209,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
   }
 
   # Add count labels to right Y axis
-  axis(4, at=(1:length(k))-0.5, tick=F, line=-0.9,
+  axis(4, at=bar.at-0.5, tick=F, line=-0.9,
        cex.axis=4.5/6, labels=bar.labs, las=2)
 
   # Add top Y axis
@@ -213,21 +224,21 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
              infinite.positive=TRUE)
 
   # Add left margin labels
-  axis(2, at=(1:length(k))-0.5, las=2, line=-0.9, tick=F,
+  axis(2, at=bar.at-0.5, las=2, line=-0.9, tick=F,
        labels=var.subclass.names.short[df$subclass], cex.axis=5/6)
   vc.x <- -0.9 * diff(par("usr")[1:2])
   bracket.lab.buf <- -0.075 * vc.x
   if(has.short.variants){
-    snv.bracket.y <- c(min(which(df$class == "snv")) - 1 + bar.sep,
-                       max(which(df$class == "snv")) - bar.sep)
+    snv.bracket.y <- c(min(bar.at[vc.to.vsc.map[["snv"]]], na.rm=T) - 1 + bar.sep,
+                       max(bar.at[vc.to.vsc.map[["snv"]]], na.rm=T) - bar.sep)
     staple.bracket(x0=vc.x, x1=vc.x, y0=snv.bracket.y[1], y1=snv.bracket.y[2],
                    staple.len=0.35, accent.len=0.2,
                    staple.accent.color=var.class.colors["snv"])
     text(x=vc.x+bracket.lab.buf, y=mean(snv.bracket.y)-0.1, labels="SNVs",
          cex=5/6, pos=2, xpd=T)
 
-    indel.bracket.y <- c(min(which(df$class == "indel")) - 1 + bar.sep,
-                         max(which(df$class == "indel")) - bar.sep)
+    indel.bracket.y <- c(min(bar.at[vc.to.vsc.map[["indel"]]], na.rm=T) - 1 + bar.sep,
+                         max(bar.at[vc.to.vsc.map[["indel"]]], na.rm=T) - bar.sep)
     staple.bracket(x0=vc.x, x1=vc.x, y0=indel.bracket.y[1], y1=indel.bracket.y[2],
                    staple.len=0.35, accent.len=0.2,
                    staple.accent.color=var.class.colors["indel"])
@@ -235,8 +246,8 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
          cex=5/6, pos=2, xpd=T)
   }
   if(has.svs){
-    sv.bracket.y <- c(min(which(df$class == "sv")) - 1 + bar.sep,
-                      max(which(df$class == "sv")) - bar.sep)
+    sv.bracket.y <- c(min(bar.at[vc.to.vsc.map[["sv"]]], na.rm=T) - 1 + bar.sep,
+                      max(bar.at[vc.to.vsc.map[["sv"]]], na.rm=T) - bar.sep)
     staple.bracket(x0=vc.x, x1=vc.x, y0=sv.bracket.y[1], y1=sv.bracket.y[2],
                    staple.len=0.35, accent.len=0.2,
                    staple.accent.color=var.class.colors["sv"])

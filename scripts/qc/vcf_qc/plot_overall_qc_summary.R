@@ -20,8 +20,8 @@ load.constants("all")
 
 # Declare global constants
 # List of metrics to transform to percentages when plotting
-pct.metrics <- c("hwe", "ld", "site_ratio", "site_sens", "site_ppv",
-                 "trio_inh_rate", "rep_match_rate", "heterozygosity")
+pct.metrics <- c("hwe_pass", "hwe_acc", "ld", "site_ratio", "site_sens",
+                 "site_ppv", "trio_inh_rate", "rep_match_rate", "heterozygosity")
 # List of metrics with undefined default targets
 no.target.default <- c("site_count", "site_count.rare", "site_count.singletons",
                        "variants_per_genome")
@@ -32,6 +32,7 @@ target.map <- c("site_ratios.all:NA" = NA,
 for(vc in c("all", names(var.class.abbrevs))){
   # Set VC-uniform
   target.map[paste(vc, "common_hwe:pct_pass", sep=".")] <- 0.99
+  target.map[paste(vc, "common_hwe:weighted_accuracy", sep=".")] <- 0.99
   target.map[paste("heterozygosity.", vc, ":median", sep="")] <- 1.55 / 2.55
   target.map[paste("heterozygosity.", vc, ":reciprocal_dynamic_range", sep="")] <- 0.8
   target.map[paste("variants_per_genome.", vc, ":reciprocal_dynamic_range", sep="")] <- 0.85
@@ -94,7 +95,10 @@ get.counts <- function(ss, vc){
 get.sb <- function(ss, vc, ref.prefix=NULL){
   # Collect data
   sb.df <- as.data.frame(rbind(
-    ss[which(ss$analysis == paste(vc, "common_hwe", sep=".")), ],
+    ss[which(ss$analysis == paste(vc, "common_hwe", sep=".")
+             & ss$measure == "pct_pass"), ],
+    ss[which(ss$analysis == paste(vc, "common_hwe", sep=".")
+             & ss$measure == "weighted_accuracy"), ],
     ss[which(ss$analysis == paste(vc, "common_ld.any", sep=".")
              & ss$measure == "tag_rate"), ],
     if(vc == "all"){
@@ -116,7 +120,9 @@ get.sb <- function(ss, vc, ref.prefix=NULL){
     unlist(sapply(apply(sb.df[, c("analysis", "measure")], 1, paste, collapse="."),
                   function(qstr){
                     if(qstr == paste(paste(vc, "common_hwe.pct_pass", sep="."))){
-                      "hwe"
+                      "hwe_pass"
+                    }else if(qstr == paste(paste(vc, "common_hwe.weighted_accuracy", sep="."))){
+                      "hwe_acc"
                     }else if(qstr == paste(paste(vc, "common_ld.any.tag_rate", sep="."))){
                       "ld"
                     }else if(startsWith(qstr, "site_ratios")){
@@ -443,7 +449,8 @@ plot.left.labels <- function(ss, ref.title=NULL, sb_prefixes=NULL, sb_titles=NUL
                  "count_rare" = "Rare variants",
                  "count_singleton" = "Singletons",
                  "count_per_genome" = "Variants per genome",
-                 "hwe" = "Common Hardy-Weinberg pass rate",
+                 "hwe_pass" = "Common Hardy-Weinberg pass rate",
+                 "hwe_acc" = "AF-weighted HWE accuracy",
                  "ld" = "Common LD tag rate",
                  "site_ratio" = "Class balance",
                  "site_af_cor" = paste("AF correlation vs.", ref.title),

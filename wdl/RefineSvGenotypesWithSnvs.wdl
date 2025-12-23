@@ -61,7 +61,6 @@ workflow RefineSvGenotypesWithSnvs {
     String output_prefix
 
     String g2c_analysis_docker
-    String tmp_dev_docker
     String linux_docker
   }
 
@@ -233,7 +232,7 @@ workflow RefineSvGenotypesWithSnvs {
           mask_training_sv_gts = mask_training_sv_gts,
           sv_mask_field = sv_training_mask_field,
           output_prefix = shard_prefix,
-          g2c_analysis_docker = tmp_dev_docker
+          g2c_analysis_docker = g2c_analysis_docker
       }
 
       # Update SV GTs with imputed results
@@ -243,7 +242,7 @@ workflow RefineSvGenotypesWithSnvs {
             vcf = vcf_info.left,
             vcf_idx = vcf_info.right,
             updates_tsv = ImputeSvs.imputation_results,
-            g2c_analysis_docker = tmp_dev_docker
+            g2c_analysis_docker = g2c_analysis_docker
         }
       }
     }
@@ -617,7 +616,7 @@ task ImputeSvs {
 
     # Concatenate imputation results
     cat imp_res/*.tsv \
-    | grep -ve '^#' || true \
+    | { grep -ve '^#' || true; } \
     | cat imp_res_header.tsv - \
     | gzip -c > ~{outfile}
     n_imputed=$( zcat ~{outfile} | grep -ve '^#' | cut -f1 \

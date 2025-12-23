@@ -25,7 +25,7 @@ start = datetime.now()
 vds_srwgs_path = 'gs://fc-aou-datasets-controlled/v8/wgs/short_read/snpindel/vds/hail.vds'
 flagged_samples_path = 'gs://fc-aou-datasets-controlled/v8/wgs/short_read/snpindel/aux/qc/flagged_samples.tsv'
 keep_samples_path = main_bucket + '/refs/aou/AoU.G2C_samples_with_srWGS_sv.aou_ids.list'
-example_header_url = 'gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/snv_indel/1KGP.srWGS.snv_indel.cleaned.chr1.vcf.gz.vcf.gz'
+example_header_url = 'gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/snv_indel/1KGP.srWGS.snv_indel.cleaned.chr1.vcf.gz'
 
 # Read contig as only command-line positional argument
 contig = argv[1]

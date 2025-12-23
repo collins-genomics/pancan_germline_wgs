@@ -143,7 +143,7 @@ gather.count.sumstats <- function(gt.counts, samples, pop=NULL, pheno=NULL){
                                     "value"=c(med.v, phi.v), "n"=length(samples))
           if(is.na(zyg)){
             med.hzg <- calc.gt.ss(freq.df, samples=samples, summary.fx=median,
-                                calc.heterozygosity=TRUE)
+                                  calc.heterozygosity=TRUE)
             phi.hzg <- calc.gt.ss(freq.df, samples=samples,
                                   summary.fx=RLCtools::dynamic.range,
                                   calc.heterozygosity=TRUE)
@@ -288,8 +288,13 @@ plot.count.waterfall <- function(gt.counts, vc, pop=NULL, pheno=NULL,
              + (pop.spacer * length(pop.breaks.x))
              + (pheno.spacer * length(pheno.breaks.x)))
   ylims <- c(0, max(total.per.sample))
-  hom.col <- adjust.color.hsb(var.class.colors[vc], s=0.01, b=-0.03)
-  het.col <- adjust.color.hsb(var.class.colors[vc], s=-0.01, b=0.06)
+  if(vc %in% names(var.class.colors)){
+    base.color <- var.class.colors[vc]
+  }else{
+    base.color <- hex2grey(var.class.colors["indel"])
+  }
+  hom.col <- adjust.color.hsb(base.color, s=0.01, b=-0.03)
+  het.col <- adjust.color.hsb(base.color, s=-0.01, b=0.06)
 
   # Determine x position for each sample
   prev.x <- 0
@@ -347,10 +352,14 @@ plot.count.waterfall <- function(gt.counts, vc, pop=NULL, pheno=NULL,
   })
 
   # Add left Y axis
-  clean.axis(2, title=paste(var.class.abbrevs[vc], "s", sep=""),
-             label.units="count", infinite.positive=T, min.ticks=3, max.ticks=4,
-             title.line=parmar[2]-2.1, cex.title=global.scaling.cex*7.5/6,
-             cex.axis=global.scaling.cex)
+  if(vc %in% names(var.class.abbrevs)){
+    left.title <- paste(var.class.abbrevs[vc], "s", sep="")
+  }else{
+    left.title <- "Variants"
+  }
+  clean.axis(2, title=left.title, label.units="count", infinite.positive=T,
+             min.ticks=3, max.ticks=4, title.line=parmar[2]-2.1,
+             cex.title=global.scaling.cex*7.5/6, cex.axis=global.scaling.cex)
 
   # Add right Y axis-legend hybrid
   legend.y.at <- apply(sapply(tail(ceiling(0.01*n.samples):n.samples, 25), function(si){
@@ -470,7 +479,7 @@ add.waterfall.markers <- function(order.df, pop.map, pheno.map,
     pheno.rect.df <- pheno.rect.df[order(-pheno.rect.df$len), ]
     sapply(unique(pheno.labs), function(pheno){
       pheno.lab.xs <- as.numeric(head(pheno.rect.df[which(pheno.rect.df$lab == pheno),
-                                                        c("start", "end")], 1))
+                                                    c("start", "end")], 1))
       text(x=mean(pheno.lab.xs), y=y.start+0.5,
            labels=shorten.text(pheno.names[pheno], abs(diff(pheno.lab.xs))),
            col=optimize.label.color(pheno.pal[pheno], cutoff=0.8),
@@ -490,6 +499,9 @@ main.waterfall <- function(gt.counts, out.prefix, pop=NULL, pheno=NULL,
                            pop.space.wex=0.025, pheno.space.wex=0.005){
   # Determine number of panels and figure sizing
   vcs <- intersect(names(var.class.names), unique(gt.counts$class))
+  if(length(vcs) == 0){
+    vcs <- unique(gt.counts$class)
+  }
   n.panels <- length(vcs)
   has.pop <- !is.null(pop)
   has.pheno <- !is.null(pheno)
@@ -696,7 +708,7 @@ plot.heterozygosity <- function(gt.counts, vc1, vc2, pop=NULL,
   xlims <- ylims <- range(h.df[, c(vc1, vc2)])
   r2 <- interclass.scatter(h.df, pop, title, label.units="percent",
                            axis.lab.suffix="het. rate", xlims=xlims,
-                           ylims=ylims, diag.lm=T)
+                           ylims=ylims, diag.lm=T, cor.lm=T)
 
   return(c(r2, nrow(h.df)))
 }
@@ -837,6 +849,16 @@ if(!is.null(pheno)){
 # Triple waterfall plot of counts per sample by class
 main.waterfall(gt.counts, args$out_prefix, pop, pheno)
 
+# Individual supplementary waterfalls per variant class (if multiple are present)
+obs.vcs <- intersect(names(var.class.names), unique(gt.counts$class))
+if(length(obs.vcs) > 1){
+  sapply(c("all", obs.vcs), function(vc){
+    main.waterfall(filter.gt.counts(gt.counts, vc=vc),
+                   paste(args$out_prefix, vc, sep="."),
+                   pop, pheno)
+  })
+}
+
 # Collect median counts per sample by class, subclass, frequency, zygosity, pop, and pheno
 count.ss <- gather.count.sumstats(gt.counts, samples, pop, pheno)
 
@@ -846,11 +868,11 @@ count.ss <- gather.count.sumstats(gt.counts, samples, pop, pheno)
 ic.ss <- lapply(list(c("all", "snv"), c("all", "indel"), c("all", "sv"),
                      c("snv", "indel"), c("snv", "sv"), c("indel", "sv")),
                 function(vcs){
-  vc1 <- vcs[1]; vc2 <- vcs[2]
-  if(all(vcs %in% gt.counts$class)){
-    plot.vc.comparisons(gt.counts, vc1, vc2, args$out_prefix, pop)
-  }
-})
+                  vc1 <- vcs[1]; vc2 <- vcs[2]
+                  if(all(vcs %in% gt.counts$class)){
+                    plot.vc.comparisons(gt.counts, vc1, vc2, args$out_prefix, pop)
+                  }
+                })
 if(length(ic.ss) > 0){
   ic.ss <- as.data.frame(do.call("rbind", ic.ss))
 }

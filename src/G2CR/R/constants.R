@@ -574,7 +574,11 @@ load.constants <- function(subset="all", envir=.GlobalEnv){
                            "proactive" = FALSE,
                            "stjude" = FALSE,
                            "ufc" = TRUE,
-                           "wcdt" = FALSE)
+                           "wcdt" = FALSE),
+    "vc.to.vsc.map" = list("snv" = c("ti", "tv"),
+                           "indel" = c("ins", "del"),
+                           "sv" = c("DEL", "DUP", "CNV", "INS", "INV",
+                                    "CPX", "CTX", "BND", "OTH"))
   )
 
   # Assign constants to global environment

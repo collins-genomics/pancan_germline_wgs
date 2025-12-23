@@ -414,8 +414,8 @@ args <- parser$parse_args()
 #              "min_accuracy" = 0.7,
 #              "min_r2" = 0.2,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_8216.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_8216",
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_16718.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_16718",
 #              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "min_ac" = 50,
@@ -486,6 +486,9 @@ c.dat <- merge(data.frame("sv.ad"=sv.ad[which(!is.na(sv.ad))]), imp.res,
                by.x="row.names", by.y="sample",
                all=F, sort=F)[, c("sv.ad", "AD", "GT")]
 final.r2 <- cor(c.dat$sv.ad, c.dat$AD, use="complete.obs")^2
+if(is.na(final.r2)){
+  final.r2 <- 0
+}
 c.dat$OGT <- remap(c.dat$sv.ad, c("0" = "0/0", "1" = "0/1", "2" = "1/1"))
 gt.acc <- sum(c.dat$OGT == c.dat$GT) / nrow(c.dat)
 carrier.acc <- sum(apply(c.dat[, c("GT", "OGT")], 1, function(v){

@@ -123,7 +123,6 @@ gsutil -m cp \
 cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 0,
-  "RefineSvGenotypesWithSnvs.tmp_dev_docker": "vanallenlab/g2c_analysis:13a19c7",
   "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:f114314",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
@@ -138,6 +137,8 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.snv_exclusion_bed": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_mask.bed.gz",
   "RefineSvGenotypesWithSnvs.snv_freq_scalar": 10,
   "RefineSvGenotypesWithSnvs.snv_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
+  "RefineSvGenotypesWithSnvs.snv_vcfs_per_shard": 125,
+  "RefineSvGenotypesWithSnvs.svs_per_shard": 125,
   "RefineSvGenotypesWithSnvs.sv_vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz",
   "RefineSvGenotypesWithSnvs.sv_vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz.tbi"
 }
@@ -150,7 +151,7 @@ code/scripts/manage_chromshards.py \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup \
   --name RefineSvGenotypesWithSnvs \
-  --contig-list <( fgrep -w chr22 contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
+  --contig-list <( echo "chr22" ) \
   --status-tsv cromshell/progress/dfci-g2c.v1.RefineSvGenotypesWithSnvs.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
