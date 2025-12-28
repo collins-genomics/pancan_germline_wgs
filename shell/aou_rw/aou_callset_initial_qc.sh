@@ -667,8 +667,8 @@ echo " }" >> $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.j
 add_contig_vcfs_to_chromshard_overrides_json \
   $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json \
   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2 \
-  filtered_vcfs \
-  filtered_vcf_idxs
+  PosthocCleanupPart2.filtered_vcfs \
+  PosthocCleanupPart2.filtered_vcf_idxs
 
 # Write template input .json for QC metric collection
 cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
@@ -683,7 +683,7 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.BenchmarkSites.snv_mem_scalar": 4.0,
   "CollectVcfQcMetrics.common_af_cutoff": 0.001,
   "CollectVcfQcMetrics.concat_vcfs_for_trio_analysis": true,
-  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:75e54bf",
+  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:1aac84d",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
   "CollectVcfQcMetrics.n_for_sample_level_analyses": 5000,
@@ -739,8 +739,9 @@ code/scripts/manage_chromshards.py \
   --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
   --status-tsv cromshell/progress/dfci-g2c.v1.CollectInitialVcfQcMetrics.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
-  --outer-gate 30 \
-  --submission-gate 5 \
+  --outer-gate 20 \
+  --vm-gate 500 \
+  --submission-gate 60 \
   --max-attempts 3
 
 
@@ -884,7 +885,7 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotInitialVcfQcMetrics.inpu
   "PlotVcfQcMetrics.common_indel_beds": $( collapse_txt $staging_dir/common_indels_bed.uris.list ),
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_targets.tsv",
-  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:a4751b7",
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:1aac84d",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.initial_qc",
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,

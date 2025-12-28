@@ -10,7 +10,7 @@ The pipeline consists of two primary WDL workflows:
 2. [`PlotVcfQcMetrics.wdl`](./PlotVcfQcMetrics.wdl) — merges, summarizes, and visualizes QC results across all shards from `CollectVcfQcMetrics`.
 
 These workflows are intended to be run sequentially:  
-**Collect QC metrics → Merge and plot results.**  
+**Collect QC metrics → merge and plot results.**  
 
 ---
 
@@ -24,9 +24,43 @@ This pipeline provides a standardized framework to assess key properties of a ge
 - Comparisons to reference datasets (optional)  
 - Aggregated plots and tables summarizing genome-wide and cohort-wide metrics
 
-Both workflows are WDL v1.0–compliant and compatible with [Cromwell](https://github.com/broadinstitute/cromwell), [Terra](https://terra.bio/), and other WDL runners.  
+Both workflows are written in WDL v1.0 and are intended to be deployed via [Cromwell](https://github.com/broadinstitute/cromwell), [Terra](https://terra.bio/), and other WDL runners.  
 
 In practice, we recommend collecting QC metrics in parallel for each chromosome. While `CollectVcfQcMetrics` can, in principle, handle an entire WGS-based joint-genotyped callset in a single workflow, the dimensions for certain sharding operations begin to scale beyond comfortable limits of Cromwell. We find parallelizing per chromosome has worked well even for WGS-based cohorts as large as 60k samples.
+
+---
+
+## Quickstart guide  
+
+Want to run this pipeline without worrying about all of the technical specifications? Simply read the following:  
+
+### Deployment  
+
+We currently support two options for QC pipeline deployment:  
+
+1. Both steps of this workflow can be deployed manually via Cromwell with [cromshell](https://github.com/broadinstitute/cromshell). This is how we have deployed this pipeline for the DFCI G2C project. When deploying directly via a stand-alone Cromwell server, you must include **all WDLs in this directory in a dependencies.zip** provided to Cromwell.  
+
+2. We have also registered this pipeline on [Dockstore](https://dockstore.org/). For Terra users, this is the easiest route for deploying this pipeline. Simply navigate to the Dockstore pages for [part 1 (metric collection)](https://dockstore.org/workflows/github.com/vanallenlab/pancan_germline_wgs/CollectVcfQcMetrics) and [part 2 (plotting)](https://dockstore.org/workflows/github.com/vanallenlab/pancan_germline_wgs/PlotVcfQcMetrics:posthoc_filtering), export both of them to your Terra workspace, and run them as you would any other workflow. All dependencies will be handled for you by Dockstore!  
+
+### Inputs  
+
+These are complex workflows with dozens of inputs and outputs. We document each input and output below, but we have also provided template input .json files in the [refs/json/vcf-qc](https://github.com/vanallenlab/pancan_germline_wgs/tree/posthoc_filtering/refs/json/vcf-qc) subdirectory of this repo for users with human hg38-based callsets hoping to get started quickly with default/recommended parameters.  
+
+When using these template inputs, note that you will still need to update many fields in the .json with information specific to your callset.  
+
+### Permissions  
+
+Some reference files consumable by this workflow (including those referenced in the example template .jsons) are currently staged in controlled-access Google buckets. 
+
+Although we intend for these files to eventually be made publicly available, in the short term: if you are an immediate collaborator of the Collins or Van Allen labs hoping to use these pre-computed files, contact Ryan directly to have your Terra/GCP service account added as a reader to this bucket.  
+
+### Scaling & cost  
+
+As above, we *strongly* recommend collecting QC metrics for each chromosome separately. This serves two purposes. First, it allows you to start with a single small chromosome (e.g., `chr22`) to ensure your configuration works properly before scaling up. Second, it avoids hairy scatter dimensions for certain heavy tasks that would scale beyond the comfortable limits of Cromwell under default settings if applied genome-wide in one shot.  
+
+Relatedly, we *do not* recommend launching metric collection for all 24 chromosomes at once. Instead, we recommend running batches of 4-12 chromosomes in parallel to ensure you remain below your Google Project Quotas.  
+
+Cost for this pipeline will vary based primarily on (i) cohort size and (ii) parallelization parameters. We do not yet have a hard-and-fast cost estimate, but we expect the full pipeline to cost ~$100 or more for large (N>5,000) Illumina WGS callsets.  
 
 ---
 
@@ -37,31 +71,124 @@ In practice, we recommend collecting QC metrics in parallel for each chromosome.
 `CollectVcfQcMetrics.wdl` runs QC analyses on one or more input VCFs (SNVs/indels and/or SVs).  
 It can scatter across multiple VCFs or intervals to parallelize processing, then aggregate outputs into per-shard metric tables.  
 
-### Inputs
+### Required inputs
 
-| Input | Type | Required | Description |
-|--------|------|-----------|-------------|
-| `vcfs` | `Array[File]` | ✅ | GATK joint-genotyped VCF(s) for analysis. Expected to be normalized with multiallelics split. |  
-| `vcf_idxs` | `Array[File]` | ✅ | Corresponding VCF index files (`.tbi`). |
-| `shard_vcf` | `Boolean` | ❌ (default: `true`) | Whether to split input VCF for parallelized QC collection. |
-| `scatter_intervals_list` | `File?` | ❌ | GATK-style intervals list for scattering; can be any tabix-compatible interval file. |
-| `n_records_per_shard` | `Int` | ❌ (default: `25000`) | Number of records per shard when scattering. |
-| `out_prefix` | `String` | ✅ | Prefix for all output files. |
-| `benchmark_sample_table` | `File?` | ❌ | Optional table of benchmark samples for sensitivity/precision evaluation. |
-| `benchmark_sites_vcf` | `File?` | ❌ | Optional benchmark site truth set (e.g., GIAB). |
-| `benchmark_trio_table` | `File?` | ❌ | Optional pedigree/trio metadata for inheritance consistency checks. |
-| `benchmark_twin_table` | `File?` | ❌ | Optional twin sample pairs for concordance evaluation. |
-| `docker_image` | `String` | ❌ | Docker image containing required QC tools (default provided in WDL). |
+| Input                 | Type          | Description                                                                        |
+| --------------------- | ------------- | ---------------------------------------------------------------------------------- |
+| `vcfs`                | `Array[File]` | One or more bgzipped, joint-genotyped VCFs to be evaluated.                        |
+| `vcf_idxs`            | `Array[File]` | Tabix index files (`.tbi`) corresponding to each VCF in `vcfs` (order must match). |
+| `output_prefix`       | `String`      | Prefix used for naming all output files.                                           |
+| `bcftools_docker`     | `String`      | Docker image containing `bcftools`.                                                |
+| `g2c_analysis_docker` | `String`      | Docker image containing G2C analysis scripts and dependencies.                     |
+| `linux_docker`        | `String`      | Lightweight Linux Docker image used for basic utilities.                           |
+
+### Optional inputs
+
+#### VCF sharding & preprocessing  
+
+| Input                              | Type      | Default | Description                                                                                   |
+| ---------------------------------- | --------- | ------- | --------------------------------------------------------------------------------------------- |
+| `shard_vcf`                        | `Boolean` | `true`  | Whether to shard input VCFs prior to QC computation.                                          |
+| `scatter_intervals_list`           | `File?`   | —       | GATK-style intervals list (or any tabix-compatible intervals) used to shard VCFs efficiently. |
+| `n_records_per_shard`              | `Int`     | `25000` | Fallback shard size (records per shard) if `scatter_intervals_list` is not provided.          |
+| `extra_vcf_preprocessing_commands` | `String`  | `""`    | Optional shell commands (prefixed with `|`) injected into the VCF preprocessing pipeline.     |
+
+#### Allele frequency & linkage parameters  
+
+| Input                   | Type      | Default   | Description                                                                   |
+| ----------------------- | --------- | --------- | ----------------------------------------------------------------------------- |
+| `common_af_cutoff`      | `Float`   | `0.01`    | Minimum allele frequency for defining “common” variants.                      |
+| `do_ld`                 | `Boolean` | `true`    | Whether to perform LD-based QC analyses.                                      |
+| `ld_window`             | `Int`     | `500000`  | Window size (bp) used for LD calculations.                                    |
+| `ld_scatter_chunk_size` | `Int`     | `5000000` | Chunk size (bp) for parallel LD computations (overlaps by `ld_window`).       |
+| `genome_file`           | `File?`   | —         | BEDTools-style `.genome` file. **Required for LD analysis and benchmarking.** |
+
+#### Sample metadata & subsetting  
+
+| Input                           | Type      | Default | Description                                                                                                                                            |
+| ------------------------------- | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `trios_fam_file`                | `File?`   | —       | PLINK `.fam` file defining trios for Mendelian analyses.                                                                                               |
+| `all_samples_fam_file`          | `File?`   | —       | PLINK-style `.fam` file with sex encodings for all samples; required for LD analysis involving sex chromosomes.                                        |
+| `twins_tsv`                     | `File?`   | —       | Two-column TSV listing sample IDs for pairs of technical replicates / identical twins.                                                                 |
+| `sample_priority_tsv`           | `File?`   | —       | TSV defining sample priority tiers (column 2, integer) and sampling weights (column 3, float) when downsampling callset for all sample-level analyses. |
+| `n_for_sample_level_analyses`   | `Int`     | `1000`  | Number of samples retained for all sample-level analyses (benchmarking, twins, trios).                                                                 |
+
+#### Site-level benchmarking
+
+Note that each array below must have one element per reference dataset (e.g., gnomAD)
+
+| Input                          | Type             | Description                                         |
+| ------------------------------ | ---------------- | --------------------------------------------------- |
+| `snv_site_benchmark_beds`      | `Array[File?]`   | BED files for SNV site benchmarking.                |
+| `indel_site_benchmark_beds`    | `Array[File?]`   | BED files for indel site benchmarking.              |
+| `sv_site_benchmark_beds`       | `Array[File?]`   | BED files for SV site benchmarking.                 |
+| `site_benchmark_dataset_names` | `Array[String?]` | Names corresponding to each site benchmark dataset. |
+
+#### Sample-level benchmarking
+
+Note that each outer array corresponds to one benchmarking dataset/cohort or technology
+
+| Input                            | Type                  | Description                                                                 |
+| -------------------------------- | --------------------- | --------------------------------------------------------------------------- |
+| `sample_benchmark_vcfs`          | `Array[Array[File?]]` | Benchmark VCFs used for sample-level genotype comparisons.                  |
+| `sample_benchmark_vcf_idxs`      | `Array[Array[File?]]` | Tabix indexes for `sample_benchmark_vcfs` (order must match).               |
+| `sample_benchmark_id_maps`       | `Array[Array[File?]]` | TSVs mapping sample IDs between main VCFs and benchmark VCFs (one per VCF). |
+| `sample_benchmark_dataset_names` | `Array[String?]`      | Names corresponding to each sample benchmark dataset.                       |
+
+#### Benchmarking parameters
+
+| Input                          | Type             | Default | Description                                                         |
+| ------------------------------ | ---------------- | ------- | ------------------------------------------------------------------- |
+| `benchmark_interval_beds`      | `Array[File]?`   | —       | BED files defining evaluation regions for benchmarking.             |
+| `benchmark_interval_bed_names` | `Array[String]?` | —       | Names for each evaluation interval set.                             |
+| `benchmarking_shards`          | `Int`            | `2500`  | Total parallel tasks allocated across site and sample benchmarking. |
+| `min_samples_per_bench_shard`  | `Int`            | `10`    | Minimum number of samples per shard for sample benchmarking.        |
 
 ### Outputs
 
-| Output | Type | Description |
-|--------|------|-------------|
-| `size_distribution_tsv` | `File` | Per-chromosome variant size distribution. |
-| `af_distribution_tsv` | `File` | Per-chromosome allele frequency distribution. |
-| `size_vs_af_distribution_tsv` | `File` | Joint distribution of variant size vs. allele frequency. |
-| `sample_genotype_distribution_tsv` | `File` | Summary of sample-level genotype counts and call rates. |
-| `peak_ld_stat_tsv` | `File?` | (Optional) Local LD summary statistics. |
+#### Core QC outputs
+
+| Output              | Type    | Description                                          |
+| ------------------- | ------- | ---------------------------------------------------- |
+| `all_snvs_bed`      | `File?` | BED of all SNV sites observed across the input VCFs. |
+| `all_indels_bed`    | `File?` | BED of all indel sites.                              |
+| `all_svs_bed`       | `File?` | BED of all SV sites.                                 |
+| `common_snvs_bed`   | `File?` | BED of common SNV sites (`AF ≥ common_af_cutoff`).   |
+| `common_indels_bed` | `File?` | BED of common indel sites.                           |
+| `common_svs_bed`    | `File?` | BED of common SV sites.                              |
+| `size_distrib`       | `File` | Aggregated variant size distribution.            |
+| `af_distrib`         | `File` | Aggregated allele frequency distribution.        |
+| `size_vs_af_distrib` | `File` | Joint size × allele frequency distribution.      |
+| `genotype_distrib`   | `File` | Aggregated genotype distribution across samples. |
+| `ld_stats` | `File?` | Peak LD (R²) statistics per variant across variant classes. Produced only if `do_ld = true` and `genome_file` is provided. |
+
+#### Site-level benchmarking outputs
+
+Each outer array corresponds to one benchmarking reference dataset. Each inner array corresponds to each `benchmark_interval_bed`.  
+
+| Output                                  | Type                  | Description                                 |
+| --------------------------------------- | --------------------- | ------------------------------------------- |
+| `site_benchmark_common_snv_ppv_beds`    | `Array[Array[File]]?` | PPV BEDs for common SNVs.                   |
+| `site_benchmark_common_snv_sens_beds`   | `Array[Array[File]]?` | Sensitivity BEDs for common SNVs.           |
+| `site_benchmark_common_indel_ppv_beds`  | `Array[Array[File]]?` | PPV BEDs for common indels.                 |
+| `site_benchmark_common_indel_sens_beds` | `Array[Array[File]]?` | Sensitivity BEDs for common indels.         |
+| `site_benchmark_common_sv_ppv_beds`     | `Array[Array[File]]?` | PPV BEDs for common SVs.                    |
+| `site_benchmark_common_sv_sens_beds`    | `Array[Array[File]]?` | Sensitivity BEDs for common SVs.            |
+| `site_benchmark_ppv_by_sizes`           | `Array[Array[File]]?` | PPV stratified by variant size.             |
+| `site_benchmark_sensitivity_by_sizes`   | `Array[Array[File]]?` | Sensitivity stratified by variant size.     |
+| `site_benchmark_ppv_by_freqs`           | `Array[Array[File]]?` | PPV stratified by allele frequency.         |
+| `site_benchmark_sensitivity_by_freqs`   | `Array[Array[File]]?` | Sensitivity stratified by allele frequency. |
+| `site_benchmark_false_positive_runs`    | `Array[Array[File]]?` | False positive runs.                        |
+| `site_benchmark_false_negative_runs`    | `Array[Array[File]]?` | False negative runs.                        |
+
+#### Sample-, family-, and twin-level benchmarking  
+
+| Output                                  | Type                  | Description                                                        |
+| --------------------------------------- | --------------------- | ------------------------------------------------------------------ |
+| `sample_benchmark_ppv_distribs`         | `Array[Array[File]]?` | Sample-level PPV distributions.                                    |
+| `sample_benchmark_sensitivity_distribs` | `Array[Array[File]]?` | Sample-level sensitivity distributions.                            |
+| `twin_genotype_benchmark_distribs`      | `Array[File]?`        | Genotype concordance distributions for twins/technical replicates. |
+| `trio_mendelian_violation_distribs`     | `Array[File]?`        | Mendelian violation distributions for trios.                       |
 
 ---
 
@@ -71,55 +198,106 @@ It can scatter across multiple VCFs or intervals to parallelize processing, then
 
 `PlotVcfQcMetrics.wdl` aggregates QC metrics generated in step 1 across any number of VCFs into unified cohort-level plots and tables.  
 
-### Inputs
+### Required inputs
 
-| Input | Type | Required | Description |
-|--------|------|-----------|-------------|
-| `size_distribution_tsvs` | `Array[File]` | ✅ | Output `.tsv` files from `CollectVcfQcMetrics` (variant size distributions). |
-| `af_distribution_tsvs` | `Array[File]` | ✅ | Output `.tsv` files (allele frequency distributions). |
-| `size_vs_af_distribution_tsvs` | `Array[File]` | ✅ | Joint size × AF distribution tables from all chromosomes. |
-| `sample_genotype_distribution_tsvs` | `Array[File]` | ✅ | Sample-level genotype distributions from all chromosomes. |
-| `peak_ld_stat_tsvs` | `Array[File]?` | ❌ | Optional LD summary statistics per chromosome. |
-| `ref_size_distribution_tsvs` | `Array[File]?` | ❌ | Reference dataset size distribution files (for comparison). |
-| `ref_af_distribution_tsvs` | `Array[File]?` | ❌ | Reference dataset AF distribution files (for comparison). |
-| `ref_cohort_prefix` | `String` | ❌ (default: `"ref_dataset"`) | Prefix used in reference file naming. |
-| `ref_cohort_plot_title` | `String` | ❌ (default: `"Ref. data"`) | Label for reference data in plots. |
-| `all_sv_beds` | `Array[File]?` | ❌ | Optional BEDs of all SV calls for overlap analysis. |
-| `common_snv_beds` | `Array[File]?` | ❌ | Optional BEDs of common SNV sites. |
-| `common_indel_beds` | `Array[File]?` | ❌ | Optional BEDs of common indel sites. |
-| `out_prefix` | `String` | ✅ | Prefix for output plots and summary tables. |
+Note that all `Array[File]` inputs in the table below will be automatically summed across shards if provided.
+
+| Input                               | Type          | Description                                                                   |
+| ----------------------------------- | ------------- | ----------------------------------------------------------------------------- |
+| `size_distribution_tsvs`            | `Array[File]` | One or more `size_distrib` outputs from `CollectVcfQcMetrics`                 |
+| `af_distribution_tsvs`              | `Array[File]` | One or more `af_distrib` outputs from `CollectVcfQcMetrics`                   |
+| `size_vs_af_distribution_tsvs`      | `Array[File]` | One or more `size_vs_af_distrib` outputs from `CollectVcfQcMetrics`           |
+| `sample_genotype_distribution_tsvs` | `Array[File]` | One or more `genotype_distrib` outputs from `CollectVcfQcMetrics`             |
+| `output_prefix`                     | `String`      | Prefix used for all output files.                                             |
+| `bcftools_docker`                   | `String`      | Docker image containing `bcftools`.                                           |
+| `g2c_analysis_docker`               | `String`      | Docker image containing R scripts and analysis tooling for G2C QC plotting.   |
+
+### Optional inputs
+
+#### Reference / comparison cohort  
+
+If provided, some plots will be annotated with benchmarks from this cohort (e.g., gnomAD). As above, `Array[File]` inputs will be summed across shards where necessary.
+
+| Input                        | Type           | Default         | Description                                                  |
+| ---------------------------- | -------------- | --------------- | ------------------------------------------------------------ |
+| `ref_size_distribution_tsvs` | `Array[File]?` | —               | Reference cohort size distribution TSV(s).                   |
+| `ref_af_distribution_tsvs`   | `Array[File]?` | —               | Reference cohort AF distribution TSV(s).                     |
+| `ref_cohort_prefix`          | `String`       | `"ref_dataset"` | Short identifier used in filenames for the reference cohort. |
+| `ref_cohort_plot_title`      | `String`       | `"Ref. data"`   | Human-readable label used in plots for the reference cohort. |
+
+#### Site-level metrics
+
+If provided, these inputs enable pointwise/variant-level QC plots and LD analysis. As above, `Array[File]` inputs will be summed across shards where necessary.
+
+| Input               | Type           | Default | Description                                                         |
+| ------------------- | -------------- | - | ------------------------------------------------------------------- |
+| `all_sv_beds`       | `Array[File]?` | — | One or more `all_svs_bed` outputs from `CollectVcfQcMetrics`.       |
+| `common_snv_beds`   | `Array[File]?` | — | One or more `common_snvs_bed` outputs from `CollectVcfQcMetrics`.   |
+| `common_indel_beds` | `Array[File]?` | — | One or more `common_indels_bed` outputs from `CollectVcfQcMetrics`. |
+| `common_sv_beds`    | `Array[File]?` | — | One or more `common_svs_bed` outputs from `CollectVcfQcMetrics`.    |
+| `peak_ld_stat_tsvs` | `Array[File]?` | — | One or more `ld_stats` outputs from `CollectVcfQcMetrics`.          |
+| `common_af_cutoff`                | `Float` | `0.01` | Allele frequency threshold defining “common” variants. This should be the same value as for `CollectVcfQcMetrics`. |
+| `pointwise_site_downsample_limit` | `Int` | `1000000` | Maximum number of sites used for pointwise plots; larger BEDs are downsampled. |
+
+#### Sample metadata
+
+| Input                     | Type    | Description                                                |
+| ------------------------- | ------- | ---------------------------------------------------------- |
+| `sample_ancestry_labels`  | `File?` | Mapping of samples to categorical ancestry labels.         |
+| `sample_phenotype_labels` | `File?` | Mapping of samples to phenotype labels.                    |
+| `sample_subset_list`      | `File?` | Optional list of samples to include in sample-level plots. |
+
+#### Site-level benchmarking metrics
+
+These nested `Array[]` inputs expect the following convention for their organization: `Array[benchmarking_dataset][interval_set][shards_per_interval_set]`  
+
+| Input                                       | Type                         | Default  | Description  |  
+| ------------------------------------------- | ---------------------------- | - | - |  
+| `benchmark_interval_names`                  | `Array[String?]`             | — | Names of evaluation interval sets (e.g., `easy`, `hard`). |  
+| `site_benchmark_common_snv_ppv_beds`        | `Array[Array[Array[File?]]]` | — | `site_benchmark_common_snv_ppv_beds` from `CollectVcfQcMetrics` |  
+| `site_benchmark_common_snv_sens_beds`       | `Array[Array[Array[File?]]]` | — | `site_benchmark_common_snv_sens_beds` from `CollectVcfQcMetrics` |  
+| `site_benchmark_common_indel_ppv_beds`      | `Array[Array[Array[File?]]]` | — | `site_benchmark_common_indel_ppv_beds` from `CollectVcfQcMetrics` |  
+| `site_benchmark_common_indel_sens_beds`     | `Array[Array[Array[File?]]]` | — | `site_benchmark_common_indel_sens_beds` from `CollectVcfQcMetrics` |  
+| `site_benchmark_common_sv_ppv_beds`         | `Array[Array[Array[File?]]]` | — | `site_benchmark_common_sv_ppv_beds` from `CollectVcfQcMetrics` |  
+| `site_benchmark_common_sv_sens_beds`        | `Array[Array[Array[File?]]]` | — | `site_benchmark_common_sv_sens_beds` from `CollectVcfQcMetrics` |  
+| `site_benchmark_ppv_by_freqs`               | `Array[Array[Array[File?]]]` | — | `site_benchmark_ppv_by_freqs` from `CollectVcfQcMetrics` |  
+| `site_benchmark_sensitivity_by_freqs`       | `Array[Array[Array[File?]]]` | — | `site_benchmark_sens_by_freqs` from `CollectVcfQcMetrics` |  
+| `site_benchmark_dataset_prefixes`           | `Array[String?]`             | — | Short identifiers for benchmarking datasets. Must match `CollectVcfQcMetrics`. |  
+| `site_benchmark_dataset_titles`             | `Array[String?]`             | — | Human-readable titles for benchmarking datasets. |  
+| `transpose_site_benchmarking_nested_arrays` | `Boolean` | `false` | If `true`, transposes middle/inner array dimensions to accommodate Terra-style inputs. |  
+
+
+#### Sample-level benchmarking metrics  
+
+As above, these nested `Array[]` inputs expect the following convention: `Array[benchmarking_dataset][interval_set][shards_per_interval_set]`  
+
+| Input                                         | Type                         | Default | Description | 
+| --------------------------------------------- | ---------------------------- | --------------------------------------------- |
+| `sample_benchmark_ppv_distribs`               | `Array[Array[Array[File?]]]` | — | `sample_benchmark_ppv_distribs` from `CollectVcfQcMetrics` |
+| `sample_benchmark_sensitivity_distribs`       | `Array[Array[Array[File?]]]` | — | `sample_benchmark_sensitivity_distribs` from `CollectVcfQcMetrics` |
+| `sample_benchmark_dataset_prefixes`           | `Array[String?]`             | — | Dataset identifiers for sample benchmarking. Must match `CollectVcfQcMetrics`.  |
+| `sample_benchmark_dataset_titles`             | `Array[String?]`             | — | Plot titles for sample benchmarking datasets. |
+| `transpose_sample_benchmarking_nested_arrays` | `Boolean`                    | `false` | Transpose middle/inner arrays if required for Terra compatability. |
+
+#### Twin- and family-based benchmarking metrics
+
+| Input                               | Type                  | Description                                                |
+| ----------------------------------- | --------------------- | ---------------------------------------------------------- |
+| `twin_genotype_benchmark_distribs`  | `Array[Array[File?]]` | One `twin_genotype_benchmark_distribs` output from `CollectVcfQcMetrics` per interval set. |
+| `trio_mendelian_violation_distribs` | `Array[Array[File?]]` | One `trio_mendelian_violation_distribs` output from `CollectVcfQcMetrics` per interval set. |
+
+#### Plotting customization & other options
+
+| Input                       | Type    | Description                                                  |
+| --------------------------- | ------- | ------------------------------------------------------------ |
+| `previous_stats`            | `File?` | An `all_stats_tsv` output from a prior run of `PlotVcfQcMetrics` for longitudinal comparison. |
+| `custom_qc_target_metrics`  | `File?` | Custom QC target thresholds for summary plots. Not recommended for most users. |
+| `custom_plotting_constants` | `File?` | Custom constants for overriding default plot aesthetics. This must be an R code file assigning new values to existing constants from `G2CR::load_constants()`. Not recommended for most users. |
 
 ### Outputs
 
-| Output | Type | Description |
-|--------|------|-------------|
-| `summary_plot_pdf` | `File` | Summary PDF containing all QC visualizations. |
-| `summary_metrics_tsv` | `File` | Cohort-level summary of QC metrics. |
-| `variant_distribution_plots` | `File` | Individual variant-level distribution plots. |
-| `genotype_distribution_plots` | `File` | Per-sample genotype and call rate plots. |
-| `ref_comparison_plots` | `File?` | Comparison plots vs. reference datasets (if provided). |
-
----
-
-## Usage
-
-### Running locally with Cromwell
-```bash
-java -jar cromwell.jar run CollectVcfQcMetrics.wdl \
-  -i inputs_collect.json
-
-java -jar cromwell.jar run PlotVcfQcMetrics.wdl \
-  -i inputs_plot.json
-```
-
-### Running on Terra
-We have registered both workflows on Dockstore, where they are synchronized with the latest version of the code on GitHub: 
-TODO: add URLs here
-
----
-
-## Best Practices
-
-- Run `CollectVcfQcMetrics` separately per chromosome to parallelize efficiently.  
-- Aggregate outputs into `PlotVcfQcMetrics` **only once** all chromosomes are complete.  
-- Use the same `out_prefix` naming convention across runs for clarity.  
+| Output          | Type   | Description                                                                                      |
+| --------------- | ------ | ------------------------------------------------------------------------------------------------ |
+| `plots_tarball` | `File` | Compressed archive (`*.plots.tar.gz`) containing all generated QC plots.                         |
+| `stats_tarball` | `File` | Compressed archive (`*.stats.tar.gz`) containing per-module QC TSVs and summaries.               |
+| `all_stats_tsv` | `File` | Unified TSV (`*.all_qc_summary_metrics.tsv`) aggregating all QC summary metrics across analyses. This can be fed into a subsequent run of `PlotVcfQcMetrics` to, for example, compare the impact of a new set of filters on a callset. |

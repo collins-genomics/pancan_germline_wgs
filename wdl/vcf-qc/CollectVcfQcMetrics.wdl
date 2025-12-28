@@ -18,8 +18,10 @@ import "QcTasks.wdl" as QcTasks
 
 workflow CollectVcfQcMetrics {
   input {
-    Array[File] vcfs
-    Array[File] vcf_idxs
+    Array[File]? vcfs_array                        # Two ways to provide VCF information: as arrays for VCF & indexes, or
+    Array[File]? vcf_idxs_array                    # as a two-column .tsv with URIs for VCF and index. If both are provided,
+    File? vcf_info_tsv                             # the array-style inputs will be used. Also note that these VCFs can
+                                                   # include any combination of SNVs, indels, or SVs
 
     Boolean shard_vcf = true                       # Should the input VCF be sharded for QC collection?
     File? scatter_intervals_list                   # GATK-style intervals file for scattering over vcf 
@@ -50,10 +52,9 @@ workflow CollectVcfQcMetrics {
                                                    # with high priority tier in this file; otherwise, sample overlaps will be 
                                                    # left to random chance, which will often be suboptimal.
     Int n_for_sample_level_analyses = 1000         # Number of samples to use for all sample-level analyses, including trio/twin/benchmarking
-    Boolean concat_vcfs_for_trio_analysis = false  # Should VCFs be concatenated into a single VCF prior to trio analysis?
 
     Array[File?] snv_site_benchmark_beds           # BED files for SNV site benchmarking; one per reference dataset or cohort
-    Array[File?] indel_site_benchmark_beds         # BED files for SNV site benchmarking; one per r`eference dataset or cohort
+    Array[File?] indel_site_benchmark_beds         # BED files for SNV site benchmarking; one per reference dataset or cohort
     Array[File?] sv_site_benchmark_beds            # BED files for SNV site benchmarking; one per reference dataset or cohort
     Array[String?] site_benchmark_dataset_names
 
@@ -83,6 +84,17 @@ workflow CollectVcfQcMetrics {
 
   Int n_gt_benchmark_datasets = length(sample_benchmark_dataset_names)
   Boolean do_sample_bench = (n_gt_benchmark_datasets > 0)
+
+  # Determine method of VCF input
+  if ( !defined(vcfs_array) || !defined(vcf_idxs_array) ) {
+    call ExtractVcfArrays {
+      input:
+        vcf_info = select_first(select_all([vcf_info_tsv])),
+        linux_docker = linux_docker
+    }
+  }
+  Array[File] vcfs = select_first([ExtractVcfArrays.vcf_uris, vcfs_array])
+  Array[File] vcf_idxs = select_first([ExtractVcfArrays.vcf_tbi_uris, vcf_idxs_array])
 
   #####################
   ### SAMPLE MANAGEMENT
@@ -1068,6 +1080,45 @@ task CleanTwins {
 }
 
 
+# Extract URIs of VCFs and indexes from a flat text file of URI strings
+task ExtractVcfArrays {
+  input {
+    File vcf_info # Either a .txt file with VCF URIs or a two-column .tsv of VCF and tabix URIs.
+                  # If provided as a single-column .txt file, we assume tabix indexes exist in the same bucket.
+    String linux_docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+
+    max_fields=$( awk -v FS="\t" '{ print NF }' ~{vcf_info} \
+                  | sort -nrk1,1 | sed -n '1p' )
+
+    if [ $max_fields -gt 1 ]; then
+      awk -v FS="\t" '{ print $1 }' ~{vcf_info} > vcf_uris.list
+      awk -v FS="\t" '{ print $2 }' ~{vcf_info} > index_uris.list
+    else
+      cp ~{vcf_info} vcf_uris.list
+      awk '{ print $1".tbi" }' ~{vcf_info} > index_uris.list
+    fi
+  >>>
+
+  output {
+    Array[String] vcf_uris = read_lines("vcf_uris.list")
+    Array[String] vcf_tbi_uris = read_lines("index_uris.list")
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
+
+
 # Infer reference assembly from VCF header
 task GetRefFromVcfHeader {
   input {
@@ -1306,4 +1357,3 @@ task PreprocessVcf {
     preemptible: 3
   }
 }
-
