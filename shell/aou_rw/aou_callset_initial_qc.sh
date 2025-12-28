@@ -649,26 +649,31 @@ if ! [ -e $staging_dir/calling_intervals ]; then
     $staging_dir/calling_intervals/
 fi
 
-# Initialize .json of contig-specific overrieds for SV VCF paths and scatter counts
+# Write two-column .tsv of VCF & index info for each contig
+while read contig; do
+  gsutil cat \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2/$contig/PosthocCleanupPart2.$contig.outputs.json \
+  | jq '.["PosthocCleanupPart2.filtered_vcfs"]' \
+  | fgrep "gs://" | awk '{ print $1 }' | tr -d '",' \
+  | cat - <( echo -e "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/$contig/HardFilterPart2/dfci-g2c.v1.$contig.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz" ) \
+  | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
+  > $staging_dir/dfci-g2c.v1.initial_qc.vcf_info.$contig.tsv
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.initial_qc.vcf_info.*.tsv \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/vcf_list_inputs/
+
+# Initialize .json of contig-specific overrides for scatter counts
 echo "{ " > $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json
 while read contig; do
   kc=$( fgrep -v "@" \
           $staging_dir/calling_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
         | wc -l | awk '{ printf "%i\n", $1 / 3 }' )
-  echo "\"$contig\" : {\"CONTIG_SCATTER_COUNT\" : $kc,"
-  echo "\"CONTIG_VCFS\" : [\"$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/$contig/HardFilterPart2/dfci-g2c.v1.$contig.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz\"],"
-  echo "\"CONTIG_VCF_IDXS\" : [\"$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/$contig/HardFilterPart2/dfci-g2c.v1.$contig.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz.tbi\"] },"
+  echo "\"$contig\" : {\"CONTIG_SCATTER_COUNT\" : $kc},"
 done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
 | paste -s -d\  | sed 's/,$//g' \
 >> $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json
 echo " }" >> $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json
-
-# Build chromosome-specific override json of VCFs and VCF indexes
-add_contig_vcfs_to_chromshard_overrides_json \
-  $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json \
-  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2 \
-  PosthocCleanupPart2.filtered_vcfs \
-  PosthocCleanupPart2.filtered_vcf_idxs
 
 # Write template input .json for QC metric collection
 cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
@@ -682,7 +687,6 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.0,
   "CollectVcfQcMetrics.BenchmarkSites.snv_mem_scalar": 4.0,
   "CollectVcfQcMetrics.common_af_cutoff": 0.001,
-  "CollectVcfQcMetrics.concat_vcfs_for_trio_analysis": true,
   "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:1aac84d",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
@@ -723,8 +727,7 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.sv_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.\$CONTIG.sv.sites.bed.gz"],
   "CollectVcfQcMetrics.trios_fam_file": "$MAIN_WORKSPACE_BUCKET/data/sample_info/relatedness/dfci-g2c.reported_families.fam",
   "CollectVcfQcMetrics.twins_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/InferTwins/dfci-g2c.v1.cleaned.tsv",
-  "CollectVcfQcMetrics.vcfs": \$CONTIG_VCFS,
-  "CollectVcfQcMetrics.vcf_idxs": \$CONTIG_VCF_IDXS
+  "CollectVcfQcMetrics.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/vcf_list_inputs/dfci-g2c.v1.initial_qc.vcf_info.\$CONTIG.tsv"
 }
 EOF
 

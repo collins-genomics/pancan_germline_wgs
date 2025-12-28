@@ -598,7 +598,7 @@ task ImputeSvs {
             --min-accuracy ~{min_accuracy} \
             --min-r2 ~{min_imputation_r2} \
             --out-tsv imp_res/$svid.imputation_results.tsv \
-          >> ~{out_log}
+          >> ~{out_log} || true
 
         fi
 
