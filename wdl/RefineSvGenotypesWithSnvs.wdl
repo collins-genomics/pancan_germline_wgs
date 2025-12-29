@@ -206,6 +206,7 @@ workflow RefineSvGenotypesWithSnvs {
           vcf_idxs = QuerySnvs.snv_vcf_idx,
           out_prefix = shard_prefix + ".eligible_snvs",
           bcftools_concat_options = "--allow-overlaps --remove-duplicates",
+          check_index_localization = true,
           bcftools_docker = g2c_analysis_docker
       }
 

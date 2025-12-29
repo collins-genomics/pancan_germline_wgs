@@ -414,8 +414,8 @@ args <- parser$parse_args()
 #              "min_accuracy" = 0.7,
 #              "min_r2" = 0.2,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_11231.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_11231",
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_6647.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_6647",
 #              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "min_ac" = 50,

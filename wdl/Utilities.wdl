@@ -134,6 +134,8 @@ task ConcatVcfs {
 
     String bcftools_concat_options = ""
 
+    Boolean check_index_localization = false # If true, will check that vcf_idxs are in the same localization directory as vcfs
+
     Float mem_gb = 3.5
     Int cpu_cores = 2
     Int? disk_gb
@@ -148,9 +150,27 @@ task ConcatVcfs {
   command <<<
     set -eu -o pipefail
 
+    cat ~{write_lines(vcfs)} > vcfs.list
+
+    if ~{check_index_localization}; then
+      cat ~{write_lines(vcf_idxs)} > idxs.list
+      while read vcf; do
+        expected_tbi=$( echo $vcf | awk '{ print $1".tbi" }' )
+        if ! [ -s $expected_tbi ]; then
+          loc_idx=$( fgrep $( basename $expected_tbi ) idxs.list )
+          if [ -z $loc_idx ]; then
+            echo -e "\nUnable to find corresponding tabix index for $vcf\n"
+            exit 1
+          else
+            ln -s $loc_idx $expected_tbi
+          fi
+        fi
+      done < vcfs.list
+    fi
+
     bcftools concat \
       ~{bcftools_concat_options} \
-      --file-list ~{write_lines(vcfs)} \
+      --file-list vcfs.list \
       -O z \
       -o ~{out_filename} \
       --threads ~{cpu_cores}
