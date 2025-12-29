@@ -38,6 +38,8 @@ workflow CollectVcfQcMetrics {
     Int ld_window = 500000                         # Window size to draw around each variant for plink LD computation
     Int ld_scatter_chunk_size = 5000000            # Chunk size for parallelizing LD computations. Will overlap other chunks by ld_window bp
     File? genome_file                              # BEDTools-style .genome file. Required for LD computation as well as any benchmarking
+    String? ref_build                              # Reference build as ingestible by plink2 for LD computation. If not provided, will
+                                                   # attempt to infer from input VCF header
 
     File? trios_fam_file                           # .fam file of trios for Mendelian transmission analyses
     File? all_samples_fam_file                     # Plink-style .fam file with sex encodings. Family IDs and phenotype values are not 
@@ -442,13 +444,16 @@ workflow CollectVcfQcMetrics {
   if ( do_ld && defined(genome_file) ) {
 
     # Infer reference assembly (necessary for plink to handle LD on chrX/Y)
-    call GetRefFromVcfHeader {
-      input:
-        vcf = dense_sites_vcf_shards[0],
-        vcf_idx = dense_sites_vcf_shard_idxs[0],
-        bcftools_docker = bcftools_docker
+    if ( !defined(ref_build) ) {
+      call GetRefFromVcfHeader {
+        input:
+          vcf = dense_sites_vcf_shards[0],
+          vcf_idx = dense_sites_vcf_shard_idxs[0],
+          bcftools_docker = bcftools_docker
+      }
     }
-
+    String ld_ref_build = select_first([ref_build, GetRefFromVcfHeader.ref_build])
+    
     # Collapse common sites for dense subset
     Array[File] dense_common_snv_site_shards = select_all(select_first([DenseSiteMetrics.common_snv_sites, [empty_bed]]))
     Array[File] dense_common_indel_site_shards = select_all(select_first([DenseSiteMetrics.common_indel_sites, [empty_bed]]))
@@ -498,7 +503,7 @@ workflow CollectVcfQcMetrics {
         input:
           vcf = chunk_info.left,
           vcf_idx = chunk_info.right,
-          ref_build = GetRefFromVcfHeader.ref_build,
+          ref_build = ld_ref_build,
           common_snvs_bed = CollapseCommonSnvs.merged_file,
           common_indels_bed = CollapseCommonIndels.merged_file,
           common_svs_bed = CollapseCommonSvs.merged_file,
