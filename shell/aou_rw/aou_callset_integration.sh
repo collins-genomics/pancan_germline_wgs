@@ -151,24 +151,9 @@ code/scripts/manage_chromshards.py \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup \
   --name RefineSvGenotypesWithSnvs \
-  --contig-list <( echo "chr22" ) \
+  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
   --status-tsv cromshell/progress/dfci-g2c.v1.RefineSvGenotypesWithSnvs.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
   --max-attempts 3
-
-# (Dev) chr22 submission
-gsutil -m cp \
-  $MAIN_WORKSPACE_BUCKET/code/wdl/pancan_germline_wgs/RefineSvGenotypesWithSnvs.wdl \
-  code/wdl/pancan_germline_wgs/ && \
-cromshell --no_turtle -t 120 -mc submit \
-  --options-json code/refs/json/aou.cromwell_options.default.json \
-  --dependencies-zip g2c.dependencies.zip \
-  --no-validation code/wdl/pancan_germline_wgs/RefineSvGenotypesWithSnvs.wdl \
-  /home/jupyter/cromshell/inputs/RefineSvGenotypesWithSnvs.inputs.chr22.json \
-| jq .id | tr -d '"' > scratch/dev.wid && \
-monitor_workflow $( cat scratch/dev.wid ) 2
-
-# (Dev) debug
-cromshell -t 180 metadata $( cat scratch/dev.wid ) | fgrep -A30 -B30 ailed | head -n500
 

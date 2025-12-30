@@ -48,6 +48,10 @@ These are complex workflows with dozens of inputs and outputs. We document each 
 
 When using these template inputs, note that you will still need to update many fields in the .json with information specific to your callset.  
 
+These templates are pre-configured to benchmark variant sites vs. gnomAD v4 and genotypes per sample versus the 1000 Genomes cohort across Genome in a Bottle "easy" and "hard" genomic regions. Note that this configuration assumes your callset has some sample overlap with the 1000 Genomes cohort (recommended in most cases for QC purposes). If your callset does not have any 1000 Genomes samples included, you will need to modify the sample benchmarking inputs to be empty arrays (see below).  
+
+Virutally all optional inputs have been omitted from these boilerplate template .json files; please review the full list of inputs below to access other functionality.  
+
 ### Permissions  
 
 Some reference files consumable by this workflow (including those referenced in the example template .jsons) are currently staged in controlled-access Google buckets. 
@@ -73,10 +77,24 @@ It can scatter across multiple VCFs or intervals to parallelize processing, then
 
 ### Required inputs
 
+#### Input callset  
+
+There are two options for providing a callset for evaluation:  
+1. As a matching pair of `Array[File]` for VCFs and their corresponding tabix indexes. The order of these arrays must match.  
+2. As a two-column .tsv with the GCS URI for each VCF in the first column and their corresponding tabix indexes in the second column.  
+
+These inputs are _technically_ "optional" in the strict sense of WDL syntax, but one of the two input styles must be provided for the workflow to be successful:  
+
+| Input             | Type          | Description                                                                              |
+| ----------------- | ------------- | ---------------------------------------------------------------------------------------- |
+| `vcfs_array`     | `Array[File]?` | Array of VCFs to evaluate.                                                               |
+| `vcf_idxs_array` | `Array[File]?` | Array of tabix indexes for each VCF in `vcfs_array`. Order must match.                   |
+| `vcf_info_tsv`   | `File?`        | TSV of GSC URIs for VCFs (first column) and their corresponding indexes (second column). |
+
+#### Other required inputs  
+
 | Input                 | Type          | Description                                                                        |
 | --------------------- | ------------- | ---------------------------------------------------------------------------------- |
-| `vcfs`                | `Array[File]` | One or more bgzipped, joint-genotyped VCFs to be evaluated.                        |
-| `vcf_idxs`            | `Array[File]` | Tabix index files (`.tbi`) corresponding to each VCF in `vcfs` (order must match). |
 | `output_prefix`       | `String`      | Prefix used for naming all output files.                                           |
 | `bcftools_docker`     | `String`      | Docker image containing `bcftools`.                                                |
 | `g2c_analysis_docker` | `String`      | Docker image containing G2C analysis scripts and dependencies.                     |
@@ -272,11 +290,11 @@ These nested `Array[]` inputs expect the following convention for their organiza
 As above, these nested `Array[]` inputs expect the following convention: `Array[benchmarking_dataset][interval_set][shards_per_interval_set]`  
 
 | Input                                         | Type                         | Default | Description | 
-| --------------------------------------------- | ---------------------------- | --------------------------------------------- |
-| `sample_benchmark_ppv_distribs`               | `Array[Array[Array[File?]]]` | — | `sample_benchmark_ppv_distribs` from `CollectVcfQcMetrics` |
-| `sample_benchmark_sensitivity_distribs`       | `Array[Array[Array[File?]]]` | — | `sample_benchmark_sensitivity_distribs` from `CollectVcfQcMetrics` |
-| `sample_benchmark_dataset_prefixes`           | `Array[String?]`             | — | Dataset identifiers for sample benchmarking. Must match `CollectVcfQcMetrics`.  |
-| `sample_benchmark_dataset_titles`             | `Array[String?]`             | — | Plot titles for sample benchmarking datasets. |
+| --------------------------------------------- | ---------------------------- | ------- | --------------------------------------------- |
+| `sample_benchmark_ppv_distribs`               | `Array[Array[Array[File?]]]` | —       | `sample_benchmark_ppv_distribs` from `CollectVcfQcMetrics` |
+| `sample_benchmark_sensitivity_distribs`       | `Array[Array[Array[File?]]]` | —       | `sample_benchmark_sensitivity_distribs` from `CollectVcfQcMetrics` |
+| `sample_benchmark_dataset_prefixes`           | `Array[String?]`             | —       | Dataset identifiers for sample benchmarking. Must match `CollectVcfQcMetrics`.  |
+| `sample_benchmark_dataset_titles`             | `Array[String?]`             | —       | Plot titles for sample benchmarking datasets. |
 | `transpose_sample_benchmarking_nested_arrays` | `Boolean`                    | `false` | Transpose middle/inner arrays if required for Terra compatability. |
 
 #### Twin- and family-based benchmarking metrics

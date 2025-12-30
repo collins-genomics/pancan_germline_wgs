@@ -743,8 +743,8 @@ code/scripts/manage_chromshards.py \
   --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
   --status-tsv cromshell/progress/dfci-g2c.v1.CollectInitialVcfQcMetrics.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
-  --outer-gate 20 \
-  --vm-gate 500 \
+  --outer-gate 60 \
+  --vm-gate 400 \
   --submission-gate 60 \
   --max-attempts 3
 
@@ -820,7 +820,7 @@ while read key; do
   done
 done < $staging_dir/bench_keys.list
 for suffix in af_distribution size_distribution; do
-  fname=$staging_dir/gnomAD_$suffix.list
+  fname=$staging_dir/gnomAD_$suffix.uris.list
   if [ -e $fname ]; then rm $fname; fi
 done
 for key in sample_benchmark_ppv_distribs sample_benchmark_sensitivity_distribs; do

@@ -260,6 +260,7 @@ workflow RefineSvGenotypesWithSnvs {
       vcf_idxs = flatten([imputed_vcf_idx, [SplitSvs.passthrough_sv_vcf_idx]]),
       out_prefix = output_prefix + ".imputed",
       bcftools_concat_options = "-a -D",
+      check_index_localization = true,
       bcftools_docker = g2c_analysis_docker
   }
 
