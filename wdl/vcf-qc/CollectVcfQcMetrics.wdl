@@ -56,8 +56,8 @@ workflow CollectVcfQcMetrics {
     Int n_for_sample_level_analyses = 1000         # Number of samples to use for all sample-level analyses, including trio/twin/benchmarking
 
     Array[File?] snv_site_benchmark_beds           # BED files for SNV site benchmarking; one per reference dataset or cohort
-    Array[File?] indel_site_benchmark_beds         # BED files for SNV site benchmarking; one per reference dataset or cohort
-    Array[File?] sv_site_benchmark_beds            # BED files for SNV site benchmarking; one per reference dataset or cohort
+    Array[File?] indel_site_benchmark_beds         # BED files for indel site benchmarking; one per reference dataset or cohort
+    Array[File?] sv_site_benchmark_beds            # BED files for SV site benchmarking; one per reference dataset or cohort
     Array[String?] site_benchmark_dataset_names
 
     Array[Array[File?]] sample_benchmark_vcfs      # VCFs to use for sample-level genotype benchmarking. Each outer array corresponds
@@ -73,6 +73,9 @@ workflow CollectVcfQcMetrics {
     Array[String]? benchmark_interval_bed_names    # Descriptive names for each set of evaluation intervals
     Int benchmarking_shards = 2500                 # Number of total parallel tasks to use for site and sample benchmarking
     Int min_samples_per_bench_shard = 10           # Minimum number of samples per shard to allow for sample benchmarking
+
+    File ref_fasta
+    File ref_fasta_idx
 
     String output_prefix
 
@@ -238,6 +241,8 @@ workflow CollectVcfQcMetrics {
           site_exclude_samples = ChooseTargetSamples.site_exclude_samples,
           has_mcnvs = McnvCheck.has_mcnvs,
           extra_commands = extra_vcf_preprocessing_commands,
+          ref_fasta = ref_fasta,
+          ref_fasta_idx = ref_fasta_idx,
           supp_vcf_header = MakeHeaderFiller.supp_vcf_header,
           out_prefix = basename(vcf, ".vcf.gz"),
           g2c_analysis_docker = g2c_analysis_docker
@@ -1277,6 +1282,8 @@ task PreprocessVcf {
     File? site_exclude_samples
     Boolean has_mcnvs = false
     String extra_commands = ""
+    File ref_fasta
+    File ref_fasta_idx
     File supp_vcf_header
     
     String out_prefix
@@ -1297,6 +1304,7 @@ task PreprocessVcf {
 
   Int default_disk_gb = ceil(4 * size(vcf, "GB")) + 10
   Int hdd_gb = select_first([disk_gb, default_disk_gb])
+  Int n_threads = floor(2 * n_cpu)
 
   command <<<
     set -eu -o pipefail
@@ -1306,29 +1314,37 @@ task PreprocessVcf {
       mv ~{select_first([site_exclude_samples])} ./
     fi
 
+    # Normalize VCF to ensure proper representation of indels downstream
+    # Also assign record names all records for consistency
+    bcftools annotate \
+      -h ~{supp_vcf_header} \
+      ~{vcf} \
+    | bcftools norm \
+      --fasta-ref ~{ref_fasta} \
+      --check-ref s \
+      --multiallelics - \
+      --threads ~{n_threads} \
+      --site-win 100 \
+      ~{extra_commands} \
+    | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
+      --vcf-out cleaned.vcf.gz
+    tabix -p vcf -f cleaned.vcf.gz
+    rm ~{vcf}
+
     # Generate sites-only VCF of unrelated samples
-    bcftools view ~{no_rel_cmd} ~{vcf} \
-    | bcftools annotate -h ~{supp_vcf_header} --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' \
+    bcftools view ~{no_rel_cmd} cleaned.vcf.gz \
     | bcftools +fill-tags -- -t AN,AC,AF,AC_Hemi,AC_Het,AC_Hom,HWE \
     ~{mcnv_anno} \
-    ~{extra_commands} \
-    | bcftools annotate -x "^INFO/END,INFO/SVTYPE,INFO/SVLEN,INFO/AN,INFO/AC,INFO/AF,INFO/CN_NONREF_COUNT,INFO/CN_NONREF_FREQ,INFO/AC_Het,INFO/AC_Hom,INFO/AC_Hemi,INFO/HWE,^FILTER/PASS,FILTER/MULTIALLELIC" \
+    | bcftools annotate -x "^INFO/END,INFO/SVTYPE,INFO/SVLEN,INFO/AN,INFO/AC,INFO/AF,INFO/CN_NONREF_COUNT,INFO/CN_NONREF_FREQ,INFO/AC_Het,INFO/AC_Hom,INFO/AC_Hemi,INFO/HWE" \
     | bcftools view -G --threads 2 \
       --include 'INFO/AC > 0 | FILTER="MULTIALLELIC"' \
       -Oz -o ~{sites_outfile}
     tabix -p vcf -f ~{sites_outfile}
 
     # Generate dense VCF of only target samples
-    # Note that this command also reassigns all variant IDs to G2C QC standards
-    # This is required for compatability with downstream LD calculations
-    # This command also intentionally does not recalculate variant frequency information
-    # on the dense subset, as we want the frequencies to reflect the overall cohort
-    bcftools annotate -h ~{supp_vcf_header} ~{vcf} \
-    | bcftools +fill-tags -- -t AN,AC,AF,AC_Hemi,AC_Het,AC_Hom,HWE \
+    bcftools +fill-tags -- -t AN,AC,AF,AC_Hemi,AC_Het,AC_Hom,HWE cleaned.vcf.gz \
     ~{mcnv_anno} \
-    ~{extra_commands} \
     | bcftools annotate -x "^INFO/END,INFO/SVTYPE,INFO/SVLEN,INFO/AN,INFO/AC,INFO/AF,INFO/CN_NONREF_COUNT,INFO/CN_NONREF_FREQ,INFO/AC_Het,INFO/AC_Hom,INFO/AC_Hemi,INFO/HWE,^FILTER/PASS,FILTER/MULTIALLELIC,^FORMAT/GT,FORMAT/RD_CN" \
-    | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
     | bcftools view --no-update --samples-file ~{target_samples} --force-samples \
     | bcftools view --no-update --include 'GT="alt" | FILTER="MULTIALLELIC"' \
       -Oz -o ~{dense_outfile}

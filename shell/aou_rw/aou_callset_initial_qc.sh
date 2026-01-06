@@ -695,6 +695,8 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.PreprocessVcf.mem_gb": 15.5,
   "CollectVcfQcMetrics.PreprocessVcf.n_cpu": 4,
   "CollectVcfQcMetrics.ref_build": "hg38",
+  "CollectVcfQcMetrics.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
+  "CollectVcfQcMetrics.ref_fasta_idx" : "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai",
   "CollectVcfQcMetrics.sample_benchmark_dataset_names": ["external_srwgs", "external_lrwgs"],
   "CollectVcfQcMetrics.sample_benchmark_id_maps": [["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
@@ -732,21 +734,6 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
 }
 EOF
 
-# Submit, monitor, stage, and cleanup QC metric collection workflows
-code/scripts/manage_chromshards.py \
-  --wdl code/wdl/pancan_germline_wgs/vcf-qc/CollectVcfQcMetrics.wdl \
-  --input-json-template $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json \
-  --contig-variable-overrides $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json \
-  --dependencies-zip qc.dependencies.zip \
-  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/VcfQcMetrics/ \
-  --name CollectInitialVcfQcMetrics \
-  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
-  --status-tsv cromshell/progress/dfci-g2c.v1.CollectInitialVcfQcMetrics.progress.tsv \
-  --workflow-id-log-prefix "dfci-g2c.v1" \
-  --outer-gate 60 \
-  --vm-gate 400 \
-  --submission-gate 60 \
-  --max-attempts 3
 
 
 #####################

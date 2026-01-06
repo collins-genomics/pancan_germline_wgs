@@ -84,8 +84,6 @@ def classify_variant(ref, alt, var_len=None):
             return 'indel del'.split()
         elif len(ref) < len(alt):
             return 'indel ins'.split()
-        elif len(ref) == len(alt):
-            return 'indel cpx'.split()
         else:
             msg = 'g2cpy classify_variant unable to classify suspected indel ' + \
                   'with ref {}, alt {}, and length {:,}'
