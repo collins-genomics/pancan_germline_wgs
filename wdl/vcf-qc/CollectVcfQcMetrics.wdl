@@ -1342,7 +1342,7 @@ task PreprocessVcf {
     tabix -p vcf -f ~{sites_outfile}
 
     # Generate dense VCF of only target samples
-    bcftools +fill-tags -- -t AN,AC,AF,AC_Hemi,AC_Het,AC_Hom,HWE cleaned.vcf.gz \
+    bcftools +fill-tags cleaned.vcf.gz -- -t AN,AC,AF,AC_Hemi,AC_Het,AC_Hom,HWE \
     ~{mcnv_anno} \
     | bcftools annotate -x "^INFO/END,INFO/SVTYPE,INFO/SVLEN,INFO/AN,INFO/AC,INFO/AF,INFO/CN_NONREF_COUNT,INFO/CN_NONREF_FREQ,INFO/AC_Het,INFO/AC_Hom,INFO/AC_Hemi,INFO/HWE,^FILTER/PASS,FILTER/MULTIALLELIC,^FORMAT/GT,FORMAT/RD_CN" \
     | bcftools view --no-update --samples-file ~{target_samples} --force-samples \
