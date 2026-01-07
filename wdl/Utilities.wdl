@@ -152,6 +152,26 @@ task ConcatVcfs {
 
     cat ~{write_lines(vcfs)} > vcfs.list
 
+    # To avoid segfaults, we must ensure all VCFs are non-empty
+    if [ $( cat vcfs.list | wc -l ) -gt 1 ]; then
+      while read vcf; do
+        if [ $( bcftools view --no-header $vcf | sed -n '1p' | wc -l ) -gt 0 ]; then
+          echo $vcf
+        fi
+      done < vcfs.list > vcfs.list2
+      mv vcfs.list2 vcfs.list
+    fi
+    n_vcfs=$( cat vcfs.list | wc -l )
+    if [ $n_vcfs -lt 2 ]; then
+      if [ $n_vcfs -eq 0 ]; then
+        bcftools view --header-only ~{vcfs[0]} -Oz -o ~{out_filename}
+      else
+        cp ~{vcfs[0]} ~{out_filename}
+      fi
+      tabix -p vcf -f ~{out_filename}
+      exit 0
+    fi
+
     if ~{check_index_localization}; then
       cat ~{write_lines(vcf_idxs)} > idxs.list
       while read vcf; do

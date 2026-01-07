@@ -188,7 +188,8 @@ workflow RefineSvGenotypesWithSnvs {
       }
 
       # Scatter over SNV VCF chunks and filter SNVs
-      scatter ( i in range(length(vcf_info_chunks)) ) {
+      Int n_chunks = length(vcf_info_chunks)
+      scatter ( i in range(n_chunks) ) {
         call QuerySnvs {
           input:
             snv_info_tsv = vcf_info_chunks[i],
@@ -200,15 +201,19 @@ workflow RefineSvGenotypesWithSnvs {
             output_prefix = shard_prefix + ".chunk_" + i
         }
       }
-      call Utils.ConcatVcfs as ConcatSnvs {
-        input:
-          vcfs = QuerySnvs.snv_vcf,
-          vcf_idxs = QuerySnvs.snv_vcf_idx,
-          out_prefix = shard_prefix + ".eligible_snvs",
-          bcftools_concat_options = "--allow-overlaps --remove-duplicates",
-          check_index_localization = true,
-          bcftools_docker = g2c_analysis_docker
+      if ( n_chunks > 1 ) {
+        call Utils.ConcatVcfs as ConcatSnvs {
+          input:
+            vcfs = QuerySnvs.snv_vcf,
+            vcf_idxs = QuerySnvs.snv_vcf_idx,
+            out_prefix = shard_prefix + ".eligible_snvs",
+            bcftools_concat_options = "--allow-overlaps --remove-duplicates",
+            check_index_localization = false,
+            bcftools_docker = g2c_analysis_docker
+        }
       }
+      File merged_snv_vcf = select_first(flatten([[ConcatSnvs.merged_vcf], QuerySnvs.snv_vcf]))
+      File merged_snv_vcf_idx = select_first(flatten([[ConcatSnvs.merged_vcf_idx], QuerySnvs.snv_vcf_idx]))
 
       # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
       # TODO: need to update this to train on filtered SV VCF but apply to full cohort of SNV GTs
@@ -216,8 +221,8 @@ workflow RefineSvGenotypesWithSnvs {
         input:
           sv_vcf = sv_training_vcf,
           sv_vcf_idx = sv_training_vcf_idx,
-          snv_vcf = ConcatSnvs.merged_vcf,
-          snv_vcf_idx = ConcatSnvs.merged_vcf_idx,
+          snv_vcf = merged_snv_vcf,
+          snv_vcf_idx = merged_snv_vcf_idx,
           training_samples_list = FindSharedSamples.intersection_file,
           sample_group_labels = sample_group_labels,
           sample_covariates = sample_covariates,
