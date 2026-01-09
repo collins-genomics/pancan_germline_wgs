@@ -153,6 +153,209 @@ code/scripts/manage_chromshards.py \
   --max-attempts 3
 
 
+#############################
+# Curate GATK-SV QC targets #
+#############################
+
+# Reaffirm staging directory
+staging_dir=staging/qc_targets
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+
+# Estimate number of variants per genome in gnomAD for the necessary contigs
+for k in $( seq 1 22 ) X Y; do
+  gsutil cat \
+    gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/chr$k/gnomad.v4.1.gatksv.chr$k.*.sites.bed.gz
+done | gunzip -c \
+| code/scripts/estimate_vpg_from_sites.py \
+| fgrep -v "#" \
+| awk -v OFS="\t" '{ print "variants_per_genome."$1":median", $2 }' \
+> $staging_dir/dfci-g2c.v1.gatksv.qc_targets.tsv
+
+# Copy QC targets to central bucket for reference by Cromwell
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.gatksv.qc_targets.tsv \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/
+
+
+##################################################
+# Analyze & visualize initial GATK-SV QC metrics #
+##################################################
+
+# Note: this only needs to be run once for the entire cohort across all workspaces
+
+# Reaffirm staging directory
+staging_dir=staging/initial_gatksv_qc
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+
+cat << EOF > $staging_dir/main_keys.list
+size_distrib
+af_distrib
+size_vs_af_distrib
+all_svs_bed
+common_svs_bed
+genotype_distrib
+ld_stats
+EOF
+
+cat << EOF > $staging_dir/bench_keys.list
+site_benchmark_ppv_by_freqs
+site_benchmark_sensitivity_by_freqs
+site_benchmark_common_sv_ppv_beds
+site_benchmark_common_sv_sens_beds
+twin_genotype_benchmark_distribs
+trio_mendelian_violation_distribs
+EOF
+
+# Clear old input arrays
+while read key; do  
+  fname=$staging_dir/$key.uris.list
+  if [ -e $fname ]; then rm $fname; fi
+done < $staging_dir/main_keys.list
+while read key; do
+  for subset in giab_easy giab_hard; do
+    fname=$staging_dir/$key.$subset.uris.list
+    if [ -e $fname ]; then rm $fname; fi
+  done
+done < $staging_dir/bench_keys.list
+for suffix in af_distribution size_distribution; do
+  fname=$staging_dir/gnomAD_$suffix.uris.list
+  if [ -e $fname ]; then rm $fname; fi
+done
+for key in sample_benchmark_ppv_distribs sample_benchmark_sensitivity_distribs; do
+  for dset in external_srwgs external_lrwgs; do
+    for subset in giab_easy giab_hard; do
+      fname=$staging_dir/$key.$subset.$dset.uris.list
+      if [ -e $fname ]; then rm $fname; fi
+    done
+  done
+done
+
+# Build input arrays
+for k in $( seq 1 22 ) X Y; do
+  
+  # Localize output tracker json and get URIs for QC metrics
+  json_fname=CollectInitialGatksvQcMetrics.chr$k.outputs.json
+  gsutil cp \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/GatksvQcMetrics/chr$k/$json_fname \
+    $staging_dir/
+  while read key; do
+    jq .\"CollectVcfQcMetrics.$key\" $staging_dir/$json_fname \
+    | fgrep -xv "null" | tr -d '"' \
+    >> $staging_dir/$key.uris.list
+  done < $staging_dir/main_keys.list
+  while read key; do
+    for subset in giab_easy giab_hard; do
+      jq .\"CollectVcfQcMetrics.$key\" $staging_dir/$json_fname \
+      | fgrep -xv "null" | tr -d '"[]' | sed 's/,$/\n/g' \
+      | sed '/^$/d' | awk '{ print $1 }' | fgrep $subset \
+      >> $staging_dir/$key.$subset.uris.list
+    done
+  done < $staging_dir/bench_keys.list
+
+  # Due to delisting behavior of manage_chromshards.py, external sample benchmark
+  # results need to be parsed in a custom manner as below
+  for key in sample_benchmark_ppv_distribs sample_benchmark_sensitivity_distribs; do
+    for dset in external_srwgs external_lrwgs; do
+      for subset in giab_easy giab_hard; do
+        jq .\"CollectVcfQcMetrics.$key\" $staging_dir/$json_fname \
+        | fgrep -xv "null" | tr -d '"[]' | sed 's/,$/\n/g' \
+        | sed '/^$/d' | awk '{ print $1 }' | fgrep $dset | fgrep $subset \
+        >> $staging_dir/$key.$subset.$dset.uris.list
+      done
+    done
+  done
+
+  # Clear local copy of output tracker json
+  rm $staging_dir/$json_fname
+
+  # Add precomputed gnomAD v4.1 reference distributions to file lists
+  for suffix in af_distribution size_distribution; do
+    echo "gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/chr$k/gnomad.v4.1.gatksv.chr$k.$suffix.merged.tsv.gz" \
+    >> $staging_dir/gnomAD_$suffix.uris.list
+  done
+done
+
+# Write input .json
+cat << EOF | python -m json.tool > cromshell/inputs/PlotInitialGatksvQcMetrics.inputs.json
+{
+  "PlotVcfQcMetrics.af_distribution_tsvs": $( collapse_txt $staging_dir/af_distrib.uris.list ),
+  "PlotVcfQcMetrics.all_sv_beds": $( collapse_txt $staging_dir/all_svs_bed.uris.list ),
+  "PlotVcfQcMetrics.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+  "PlotVcfQcMetrics.benchmark_interval_names": ["Easy", "Hard"],
+  "PlotVcfQcMetrics.common_af_cutoff": 0.001,
+  "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
+  "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/dfci-g2c.v1.gatksv.qc_targets.tsv",
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:1aac84d",
+  "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.initial_gatksv_qc",
+  "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
+  "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
+  "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
+  "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 32,
+  "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
+  "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
+  "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
+  "PlotVcfQcMetrics.ref_cohort_prefix": "gnomAD_v4.1",
+  "PlotVcfQcMetrics.ref_cohort_plot_title": "gnomAD v4.1",
+  "PlotVcfQcMetrics.sample_ancestry_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_ancestry.tsv",
+  "PlotVcfQcMetrics.sample_phenotype_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_phenotype.tsv",
+  "PlotVcfQcMetrics.sample_benchmark_dataset_prefixes": ["external_srwgs", "external_lrwgs"],
+  "PlotVcfQcMetrics.sample_benchmark_dataset_titles": ["external srWGS", "external lrWGS"],
+  "PlotVcfQcMetrics.sample_benchmark_ppv_distribs": [[ $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_easy.external_srwgs.uris.list ),
+                                                       $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_hard.external_srwgs.uris.list ) ],
+                                                     [ $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_easy.external_lrwgs.uris.list ),
+                                                       $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_hard.external_lrwgs.uris.list ) ]],
+  "PlotVcfQcMetrics.sample_benchmark_sensitivity_distribs": [[ $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_easy.external_srwgs.uris.list ),
+                                                               $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_hard.external_srwgs.uris.list ) ],
+                                                             [ $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_easy.external_lrwgs.uris.list ),
+                                                               $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_hard.external_lrwgs.uris.list ) ]],
+  "PlotVcfQcMetrics.sample_genotype_distribution_tsvs": $( collapse_txt $staging_dir/genotype_distrib.uris.list ),
+  "PlotVcfQcMetrics.site_benchmark_common_sv_ppv_beds": [[ $( collapse_txt $staging_dir/site_benchmark_common_sv_ppv_beds.giab_easy.uris.list ),
+                                                           $( collapse_txt $staging_dir/site_benchmark_common_sv_ppv_beds.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_common_sv_sens_beds": [[ $( collapse_txt $staging_dir/site_benchmark_common_sv_sens_beds.giab_easy.uris.list ),
+                                                            $( collapse_txt $staging_dir/site_benchmark_common_sv_sens_beds.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_ppv_by_freqs": [[ $( collapse_txt $staging_dir/site_benchmark_ppv_by_freqs.giab_easy.uris.list ),
+                                                     $( collapse_txt $staging_dir/site_benchmark_ppv_by_freqs.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_sensitivity_by_freqs": [[ $( collapse_txt $staging_dir/site_benchmark_sensitivity_by_freqs.giab_easy.uris.list ),
+                                                             $( collapse_txt $staging_dir/site_benchmark_sensitivity_by_freqs.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_dataset_prefixes": ["gnomad_v4.1"],
+  "PlotVcfQcMetrics.site_benchmark_dataset_titles": ["gnomAD v4.1"],
+  "PlotVcfQcMetrics.size_distribution_tsvs": $( collapse_txt $staging_dir/size_distrib.uris.list ),
+  "PlotVcfQcMetrics.size_vs_af_distribution_tsvs": $( collapse_txt $staging_dir/size_vs_af_distrib.uris.list ),
+  "PlotVcfQcMetrics.trio_mendelian_violation_distribs": [ $( collapse_txt $staging_dir/trio_mendelian_violation_distribs.giab_easy.uris.list ),
+                                                          $( collapse_txt $staging_dir/trio_mendelian_violation_distribs.giab_hard.uris.list ) ],
+  "PlotVcfQcMetrics.twin_genotype_benchmark_distribs": [ $( collapse_txt $staging_dir/twin_genotype_benchmark_distribs.giab_easy.uris.list ),
+                                                         $( collapse_txt $staging_dir/twin_genotype_benchmark_distribs.giab_hard.uris.list ) ]
+}
+EOF
+
+# Submit QC visualization workflow
+cromshell --no_turtle -t 120 -mc submit --no-validation \
+  --options-json code/refs/json/aou.cromwell_options.default.json \
+  --dependencies-zip qc.dependencies.zip \
+  code/wdl/pancan_germline_wgs/vcf-qc/PlotVcfQcMetrics.wdl \
+  cromshell/inputs/PlotInitialGatksvQcMetrics.inputs.json \
+| jq .id | tr -d '"' \
+>> cromshell/job_ids/dfci-g2c.v1.PlotInitialGatksvQcMetrics.job_ids.list
+
+# Monitor QC visualization workflow
+monitor_workflow $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotInitialGatksvQcMetrics.job_ids.list ) 5
+
+# Once workflow is complete, stage output
+gsutil -m rm -rf $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotGatksvQc
+cromshell -t 120 list-outputs \
+  $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotInitialGatksvQcMetrics.job_ids.list ) \
+| awk '{ print $2 }' \
+| gsutil -m cp -I \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotQc/
+
+# Clear Cromwell execution & output buckets for plotting job
+gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotInitialGatksvQcMetrics.job_ids.list \
+                | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell/*/PlotVcfQcMetrics/" \
+                  '{ print bucket_prefix$1"/**" }' ) \
+> uris_to_delete.list
+cleanup_garbage
+
+
 #################################################
 # Refine common SV genotypes with flanking SNVs #
 #################################################
@@ -325,38 +528,11 @@ code/scripts/manage_chromshards.py \
   --max-attempts 3
 
 
-#####################
-# Curate GATK-SV QC targets #
-#####################
-
-# Reaffirm staging directory
-staging_dir=staging/qc_targets
-if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
-
-# Estimate number of variants per genome in gnomAD for the necessary contigs
-for k in $( seq 1 22 ) X Y; do
-  gsutil cat \
-    gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/chr$k/gnomad.v4.1.gatksv.chr$k.*.sites.bed.gz
-done | gunzip -c \
-| code/scripts/estimate_vpg_from_sites.py \
-| fgrep -v "#" \
-| awk -v OFS="\t" '{ print "variants_per_genome."$1":median", $2 }' \
-> $staging_dir/dfci-g2c.v1.gatksv.qc_targets.tsv
-
-# Copy QC targets to central bucket for reference by Cromwell
-gsutil -m cp \
-  $staging_dir/dfci-g2c.v1.gatksv.qc_targets.tsv \
-  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/
-
-
 ##############################################################
 # Analyze & visualize GATK-SV QC metrics pre/post imputation #
 ##############################################################
 
 # Note: this only needs to be run once for the entire cohort across all workspaces
-
-#### NOTE: NEED TO RUN THIS FOR BASELINE TO GENERATE STATS
-#### NOTE: NEED TO RUN THIS FOR BASELINE TO GENERATE STATS#### NOTE: NEED TO RUN THIS FOR BASELINE TO GENERATE STATS#### NOTE: NEED TO RUN THIS FOR BASELINE TO GENERATE STATS#### NOTE: NEED TO RUN THIS FOR BASELINE TO GENERATE STATS#### NOTE: NEED TO RUN THIS FOR BASELINE TO GENERATE STATS#### NOTE: NEED TO RUN THIS FOR BASELINE TO GENERATE STATS#### NOTE: NEED TO RUN THIS FOR BASELINE TO GENERATE STATS#### NOTE: NEED TO RUN THIS FOR BASELINE TO GENERATE STATS
 
 # Reaffirm staging directory
 staging_dir=staging/gatksv_qc_post_imputation
@@ -515,20 +691,18 @@ cromshell --no_turtle -t 120 -mc submit --no-validation \
 # Monitor QC visualization workflow
 monitor_workflow $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list ) 5
 
-# Once workflow is complete, stage output
-gsutil -m rm -rf $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotQc
-cromshell -t 120 list-outputs \
-  $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list ) \
-| awk '{ print $2 }' \
-| gsutil -m cp -I \
-  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotQc/
+# # Once workflow is complete, stage output
+# gsutil -m rm -rf $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotQc
+# cromshell -t 120 list-outputs \
+#   $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list ) \
+# | awk '{ print $2 }' \
+# | gsutil -m cp -I \
+#   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotQc/
 
-# Clear Cromwell execution & output buckets for plotting job
-gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list \
-                | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell/*/PlotVcfQcMetrics/" \
-                  '{ print bucket_prefix$1"/**" }' ) \
-> uris_to_delete.list
-cleanup_garbage
-
-
+# # Clear Cromwell execution & output buckets for plotting job
+# gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list \
+#                 | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell/*/PlotVcfQcMetrics/" \
+#                   '{ print bucket_prefix$1"/**" }' ) \
+# > uris_to_delete.list
+# cleanup_garbage
 
