@@ -734,6 +734,21 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
 }
 EOF
 
+# Submit, monitor, stage, and cleanup QC metric collection workflows
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/pancan_germline_wgs/vcf-qc/CollectVcfQcMetrics.wdl \
+  --input-json-template $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json \
+  --contig-variable-overrides $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json \
+  --dependencies-zip qc.dependencies.zip \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/VcfQcMetrics/ \
+  --name CollectInitialVcfQcMetrics \
+  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
+  --status-tsv cromshell/progress/dfci-g2c.v1.CollectInitialVcfQcMetrics.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 60 \
+  --vm-gate 400 \
+  --submission-gate 60 \
+  --max-attempts 3
 
 
 #####################

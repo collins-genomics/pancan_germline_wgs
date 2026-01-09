@@ -945,7 +945,7 @@ task ChunkCommonSites {
     String docker
   }
 
-  Int disk_gb = ceil(3 * size(sites_bed, "GB")) + 10
+  Int disk_gb = ceil(5 * size(sites_bed, "GB")) + 50
   Int step_size = chunk_size - buffer + 2
 
   command <<<
@@ -969,11 +969,12 @@ task ChunkCommonSites {
 
   runtime {
     docker: docker
-    memory: "1.75 GB"
+    memory: "3.5 GB"
     cpu: 1
     disks: "local-disk ~{disk_gb} HDD"
+    bootDiskSizeGb: 20
     preemptible: 3
-    maxRetries: 2
+    maxRetries: 1
   }
 }
 
@@ -1200,7 +1201,7 @@ task MergeAndReshardVcfs {
     String bcftools_docker
   }
 
-  Int default_disk_gb = ceil(4 * size(vcfs, "GB")) + 10
+  Int default_disk_gb = ceil(5 * size(vcfs, "GB")) + 25
 
   command <<<
     set -eu -o pipefail
@@ -1227,8 +1228,9 @@ task MergeAndReshardVcfs {
     memory: mem_gb + " GB"
     cpu: cpu_cores
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"
+    bootDiskSizeGb: 20
     preemptible: 3
-    maxRetries: 3
+    maxRetries: 1
   }
 }
 
@@ -1241,7 +1243,7 @@ task MergePeakLdChunks {
     String docker
   }
 
-  Int disk_gb = ceil(3 * size(chunks, "GB")) + 10
+  Int disk_gb = ceil(5 * size(chunks, "GB")) + 25
 
   command <<<
     set -eu -o pipefail
@@ -1265,10 +1267,12 @@ task MergePeakLdChunks {
 
   runtime {
     docker: docker
-    memory: "1.75 GB"
-    cpu: 1
+    memory: "3.5 GB"
+    cpu: 2
     disks: "local-disk ~{disk_gb} HDD"
+    bootDiskSizeGb: 20
     preemptible: 3
+    maxRetries: 1
   }
 }
 
@@ -1325,7 +1329,7 @@ task PreprocessVcf {
       --multiallelics - \
       --threads ~{n_threads} \
       --site-win 100 \
-      ~{extra_commands} \
+    ~{extra_commands} \
     | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
       --vcf-out cleaned.vcf.gz
     tabix -p vcf -f cleaned.vcf.gz

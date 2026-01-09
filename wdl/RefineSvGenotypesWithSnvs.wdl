@@ -979,7 +979,10 @@ task UpdateGts {
       -i ~{vcf} \
       -u filtered.updates.tsv.gz \
       --no-compare \
-      -o ~{outfile}
+    | bcftools +fill-tags -- -t AC,AN,AF \
+    | bcftools view \
+      -i 'AC > 0 | FILTER = "MULTIALLELIC"' \
+      -Oz -o ~{outfile}
     tabix -p vcf -f ~{outfile}
   >>>
 
