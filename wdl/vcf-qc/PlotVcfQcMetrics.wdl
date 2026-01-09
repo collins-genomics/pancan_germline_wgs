@@ -240,15 +240,15 @@ workflow PlotVcfQcMetrics {
       }
     }
   }
-  File pw_common_snvs_bed = select_first([DownsampleCommonSnvs.downsampled_bed, common_snvs_bed])
+  File? pw_common_snvs_bed = select_first([DownsampleCommonSnvs.downsampled_bed, common_snvs_bed])
   Boolean common_snvs_were_downsampled = select_first([DownsampleCommonSnvs.was_downsampled, false])
   if (!common_snvs_were_downsampled) {
     call QcTasks.GetBedFeatureNames as GetCommonSnvVids {
       input:
-        bed = pw_common_snvs_bed
+        bed = select_first(select_all([pw_common_snvs_bed]))
     }
   }
-  File pw_common_snv_vids = select_first([DownsampleCommonSnvs.downsampled_record_ids,
+  File? pw_common_snv_vids = select_first([DownsampleCommonSnvs.downsampled_record_ids,
                                           GetCommonSnvVids.feature_names])
 
   # If necessary, collapse common indel BEDs
@@ -283,15 +283,15 @@ workflow PlotVcfQcMetrics {
       }
     }
   }
-  File pw_common_indels_bed = select_first([DownsampleCommonIndels.downsampled_bed, common_indels_bed])
+  File? pw_common_indels_bed = select_first([DownsampleCommonIndels.downsampled_bed, common_indels_bed])
   Boolean common_indels_were_downsampled = select_first([DownsampleCommonIndels.was_downsampled, false])
   if (!common_indels_were_downsampled) {
     call QcTasks.GetBedFeatureNames as GetCommonIndelVids {
       input:
-        bed = pw_common_indels_bed
+        bed = select_first(select_all([pw_common_indels_bed]))
     }
   }
-  File pw_common_indel_vids = select_first([DownsampleCommonIndels.downsampled_record_ids,
+  File? pw_common_indel_vids = select_first([DownsampleCommonIndels.downsampled_record_ids,
                                             GetCommonIndelVids.feature_names])
 
   # If necessary, collapse common SV BEDs
@@ -326,15 +326,15 @@ workflow PlotVcfQcMetrics {
       }
     }
   }
-  File pw_common_svs_bed = select_first([DownsampleCommonSvs.downsampled_bed, common_svs_bed])
+  File? pw_common_svs_bed = select_first([DownsampleCommonSvs.downsampled_bed, common_svs_bed])
   Boolean common_svs_were_downsampled = select_first([DownsampleCommonSvs.was_downsampled, false])
   if (!common_svs_were_downsampled) {
     call QcTasks.GetBedFeatureNames as GetCommonSvVids {
       input:
-        bed = pw_common_svs_bed
+        bed = select_first(select_all([pw_common_svs_bed]))
     }
   }
-  File pw_common_sv_vids = select_first([DownsampleCommonSvs.downsampled_record_ids,
+  File? pw_common_sv_vids = select_first([DownsampleCommonSvs.downsampled_record_ids,
                                           GetCommonSvVids.feature_names])
 
   # If necessary, collapse sample genotype distributions
@@ -369,7 +369,7 @@ workflow PlotVcfQcMetrics {
     call QcTasks.FilterTextFileByColumn as SubsetLdStatsByVid {
       input:
         input_txt = ld_stats_tsv,
-        key_files = [pw_common_snv_vids, pw_common_indel_vids, pw_common_sv_vids],
+        key_files = select_all([pw_common_snv_vids, pw_common_indel_vids, pw_common_sv_vids]),
         column_number = 1,
         outfile_name = output_prefix + ".peak_ld_stats.subsetted.tsv.gz",
         postprocessing_command = "| gzip -c ",
