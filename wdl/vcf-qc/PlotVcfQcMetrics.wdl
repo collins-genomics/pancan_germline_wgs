@@ -739,7 +739,8 @@ task PackageOutputs {
     fi
 
     # Collapse all summary stats and generate summary barplots
-    echo -e "#analysis\tmeasure\tvalue\tn" > ss.all.tsv
+    echo -e "#analysis\tmeasure\tvalue\tn" \
+    > ~{out_prefix}.all_qc_summary_metrics.tsv
     find ~{out_prefix}.stats/ -name "*.summary_metrics.tsv" \
     | xargs -I {} cat {} | grep -ve '^#' | grep -ve '^analysis' \
     | sort -Vk1,1 -k2,2V -k3,3n -k4,4n >> \

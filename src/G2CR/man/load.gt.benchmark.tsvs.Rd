@@ -9,7 +9,8 @@ load.gt.benchmark.tsvs(
   set.names,
   key.cols = 1:5,
   trio.mode = FALSE,
-  keep.samples = NULL
+  keep.samples = NULL,
+  keep.vcs = NULL
 )
 }
 \arguments{
@@ -24,6 +25,9 @@ unique keys [default: 1:5]}
 
 \item{keep.samples}{Optional list of sample IDs to retain from \code{tsvs.in}. By
 default, all samples will be retained}
+
+\item{keep.vcs}{Optional list of variant classes to retain from \code{tsvs.in}. By
+default, all variant classes will be retained}
 }
 \value{
 List of one data.frame per element in \code{tsvs.in}

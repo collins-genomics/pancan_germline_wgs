@@ -248,8 +248,8 @@ get.inter <- function(ss, vc, vcs){
 
 # Load summary statistics & organize in sub-dataframes for plotting
 load.ss <- function(tsv.in, ref.prefix=NULL, gb.prefixes=c()){
-  ss <- read.table(tsv.in, header=F, sep="\t")
-  colnames(ss) <- c("analysis", "measure", "value", "n")
+  ss <- read.table(tsv.in, header=T, sep="\t", comment.char="", check.names=F)
+  colnames(ss) <- gsub("#", "", colnames(ss), fixed=T)
   ss$analysis <- gsub("\\.all_variants$", ".all", ss$analysis)
   ss <- invert.dynamic.ranges(ss)
 
@@ -807,15 +807,15 @@ parser$add_argument("--out-prefix", metavar="path", type="character",
 args <- parser$parse_args()
 
 # # DEV (SINGLE CLASS)
-# args <- list("stats" = "~/scratch/dfci-ufc.sv.v1.QcPostBatchFxOutliers.all_qc_summary_metrics.tsv",
-#              "previous_stats" = "~/scratch/dfci-ufc.sv.v1.QcPostCleanupPart1.all_qc_summary_metrics.tsv",
+# args <- list("stats" = "~/Downloads/dfci-g2c.v1.initial_gatksv_qc.all_qc_summary_metrics.tsv.gz",
+#              "previous_stats" = NULL,
 #              "site_ref_prefix" = "gnomad-sv_v4.1",
 #              "site_ref_title" = "gnomAD-SV v4.1",
 #              "sample_benchmarking_prefix" = c("external_srwgs", "external_lrwgs"),
 #              "sample_benchmarking_title" = c("External srWGS", "External lrWGS"),
-#              "custom_targets" = "~/scratch/dfci-g2c.v1.qc_targets.tsv",
+#              "custom_targets" = "~/scratch/dfci-g2c.v1.gatksv.qc_targets.tsv",
 #              "custom_constants" = NULL,
-#              "out_prefix" = "~/scratch/dfci-g2c.v1.initial_qc")
+#              "out_prefix" = "~/scratch/dfci-g2c.v1.gatk-sv.initial_qc")
 
 # Load custom constants if optioned
 if(!is.null(args$custom_constants)){
