@@ -1206,16 +1206,28 @@ task MergeAndReshardVcfs {
   command <<<
     set -eu -o pipefail
 
+    # Merge VCFs
     bcftools concat \
       ~{bcftools_concat_options} \
       --file-list ~{write_lines(vcfs)} \
       --threads ~{cpu_cores} \
-    | bcftools +scatter \
-      --scatter-file ~{new_intervals_tsv} \
-      -o . -Oz -p "~{out_prefix}."
+      -Oz -o concat.vcf.gz
+    tabix -p vcf -f concat.vcf.gz
+    echo "Merged all input VCFs" # Print something to stdout to keep VM alive
 
-    find ./ -name "~{out_prefix}*vcf.gz" \
-    | xargs -I {} tabix -p vcf -f {}
+    # Next, scatter VCFs (don't do this in pipe to avoid VM timeouts)
+    bcftools +scatter \
+      --scatter-file ~{new_intervals_tsv} \
+      -o . -Oz -p "~{out_prefix}." \
+      concat.vcf.gz
+    rm concat.vcf.gz
+    echo "Sharded merged VCF" # Print something to stdout to keep VM alive
+
+    # Tabix in while read loop to avoid bursty system load for large contigs
+    while read shard; do
+      tabix -p vcf -f "$shard"
+      echo "Indexed $shard" # Print something to stdout to keep the VM alive
+    done < <( find ./ -name "~{out_prefix}*vcf.gz" )
   >>>
 
   output {

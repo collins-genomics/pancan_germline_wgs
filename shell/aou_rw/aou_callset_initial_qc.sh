@@ -686,6 +686,8 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
   "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.0,
   "CollectVcfQcMetrics.BenchmarkSites.snv_mem_scalar": 4.0,
+  "CollectVcfQcMetrics.ChunkCommonVcf.mem_gb": 7.5,
+  "CollectVcfQcMetrics.ChunkCommonVcf.cpu_cores": 4,
   "CollectVcfQcMetrics.common_af_cutoff": 0.001,
   "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:1aac84d",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
