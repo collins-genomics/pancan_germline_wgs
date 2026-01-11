@@ -807,7 +807,7 @@ parser$add_argument("--out-prefix", metavar="path", type="character",
 args <- parser$parse_args()
 
 # # DEV (SINGLE CLASS)
-# args <- list("stats" = "~/Downloads/dfci-g2c.v1.initial_gatksv_qc.all_qc_summary_metrics.tsv.gz",
+# args <- list("stats" = "~/Downloads/dfci-g2c.v1.initial_gatksv_qc.all_qc_summary_metrics.tsv",
 #              "previous_stats" = NULL,
 #              "site_ref_prefix" = "gnomad-sv_v4.1",
 #              "site_ref_title" = "gnomAD-SV v4.1",
