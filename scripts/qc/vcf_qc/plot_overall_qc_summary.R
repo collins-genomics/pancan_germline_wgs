@@ -333,13 +333,22 @@ compare.prev <- function(ss, prev.ss, vc, g, targets, annotate.targets=FALSE,
   })
 
   # Organize various other values
-  improved <- as.character(delta >= 0)
+  improved <- as.character(delta > 0.005)
   labels <- paste(remap(improved, c("TRUE" = "+", "FALSE" = ""),
                         default.value=NA),
                   round(100 * delta, 0), "%", sep="")
   labels[which(is.na(delta))] <- NA
-  colors <- sapply(remap(improved, boolean.colors, default.value=NA), function(col){
-    if(is.na(col)){NA}else{MixColor(base.color, col, amount1=color.mix)}
+  colors <- sapply(delta, function(d){
+    if(is.na(d)){
+      return(NA)
+    }else if(d > 0.005){
+      col <- boolean.colors["TRUE"]
+    }else if(d < -0.005){
+      col <- boolean.colors["FALSE"]
+    }else{
+      col <- "grey50"
+    }
+    MixColor(base.color, col, amount1=color.mix)
   })
   density <- as.numeric(remap(improved, c("TRUE" = NA, "FALSE" = 20), default.value=NA))
 
@@ -597,9 +606,9 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
            density=prev.dat$density[prev.notna.idx],
            col=prev.dat$colors[prev.notna.idx],
            border=prev.dat$colors[prev.notna.idx])
-      segments(x0=prev.dat$prev.vals, x1=prev.dat$prev.vals,
-               y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-               lend="square", col=prev.dat$colors)
+      # segments(x0=prev.dat$prev.vals, x1=prev.dat$prev.vals,
+      #          y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
+      #          lend="square", col=prev.dat$colors)
       text(x=par("usr")[2], y=bar.mids,
            xpd=T, pos=4, cex=4.5/6, font=3, col=prev.dat$colors,
            labels=prev.dat$labels, offset=0.4)
@@ -615,9 +624,9 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
     }
 
     # Labels + strong current marks
-    segments(x0=bar.vals, x1=bar.vals,
-             y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-             lend="square", lwd=1, col=MixColor(bar.color, "black"))
+    # segments(x0=bar.vals, x1=bar.vals,
+    #          y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
+    #          lend="square", lwd=1, col=MixColor(bar.color, "black"))
     label.widths <- bar.vals
     sapply(1:length(bar.vals), function(x){
       bar.label <- clean.numeric.labels(10^bar.vals[x], min.label.length=2)
@@ -674,20 +683,24 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
       # Previous bars & labels
       if(!is.null(prev.ss)){
         prev.notna.idx <- which(!is.na(prev.dat$prev.vals))
-        rect(xleft=bar.vals, xright=prev.dat$prev.vals,
-             ybottom=bar.mids - bar.w.half,
-             ytop=bar.mids + bar.w.half,
-             col=adjustcolor(prev.dat$colors, alpha=0.3),
+        rect(xleft=bar.vals[prev.notna.idx],
+             xright=prev.dat$prev.vals[prev.notna.idx],
+             ybottom=bar.mids[prev.notna.idx] - bar.w.half,
+             ytop=bar.mids[prev.notna.idx] + bar.w.half,
+             col=adjustcolor(prev.dat$colors[prev.notna.idx], alpha=0.3),
              border=NA, bty="n")
-        rect(xleft=bar.vals, xright=prev.dat$prev.vals,
-             ybottom=bar.mids - bar.w.half,
-             ytop=bar.mids + bar.w.half,
+        rect(xleft=bar.vals[prev.notna.idx],
+             xright=prev.dat$prev.vals[prev.notna.idx],
+             ybottom=bar.mids[prev.notna.idx] - bar.w.half,
+             ytop=bar.mids[prev.notna.idx] + bar.w.half,
              density=prev.dat$density[prev.notna.idx],
              col=prev.dat$colors[prev.notna.idx],
              border=prev.dat$colors[prev.notna.idx])
-        segments(x0=prev.dat$prev.vals, x1=prev.dat$prev.vals,
-                 y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-                 lend="square", col=prev.dat$colors)
+        # segments(x0=prev.dat$prev.vals[prev.notna.idx],
+        #          x1=prev.dat$prev.vals[prev.notna.idx],
+        #          y0=bar.mids[prev.notna.idx] - bar.w.half,
+        #          y1=bar.mids[prev.notna.idx] + bar.w.half,
+        #          lend="square", col=prev.dat$colors)
         text(x=par("usr")[2], y=bar.mids,
              xpd=T, pos=4, cex=4.5/6, font=3, col=prev.dat$colors,
              labels=prev.dat$labels, offset=0.4)
@@ -703,9 +716,9 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
       }
 
       # Labels + strong current marks
-      segments(x0=bar.vals, x1=bar.vals,
-               y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-               lend="square", lwd=1, col=MixColor(bar.color, "black"))
+      # segments(x0=bar.vals, x1=bar.vals,
+      #          y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
+      #          lend="square", lwd=1, col=MixColor(bar.color, "black"))
       label.widths <- bar.vals
       sapply(1:length(bar.vals), function(x){
         if(is.na(bar.vals[x]) | is.infinite(bar.vals[x])){
@@ -807,8 +820,8 @@ parser$add_argument("--out-prefix", metavar="path", type="character",
 args <- parser$parse_args()
 
 # # DEV (SINGLE CLASS)
-# args <- list("stats" = "~/Downloads/dfci-g2c.v1.initial_gatksv_qc.all_qc_summary_metrics.tsv",
-#              "previous_stats" = NULL,
+# args <- list("stats" = "~/Downloads/dfci-g2c.v1.gatksv_qc_post_imputation.all_qc_summary_metrics.tsv.gz",
+#              "previous_stats" = "~/Downloads/dfci-g2c.v1.initial_gatksv_qc.all_qc_summary_metrics.tsv.gz",
 #              "site_ref_prefix" = "gnomad-sv_v4.1",
 #              "site_ref_title" = "gnomAD-SV v4.1",
 #              "sample_benchmarking_prefix" = c("external_srwgs", "external_lrwgs"),

@@ -316,7 +316,7 @@ pointwise.plots <- function(df, ld, n.sites, out.prefix, fname.suffix="all",
   # Also compute AF-weighted mean HWE accuracy
   hwe.weights <- 2 * (0.5 - abs(0.5 - df$af))
   mean.hwe.acc <- 1 - weighted.mean(df$hwe_dist, w=hwe.weights)
-  ss.df[nrow(ss.df), ] <- c(paste(ss.prefix, "common_hwe", sep="."),
+  ss.df[nrow(ss.df)+1, ] <- c(paste(ss.prefix, "common_hwe", sep="."),
                             "weighted_accuracy", mean.hwe.acc, length(df$hwe_dist))
 
   # HWE topo heatmap as .pdf

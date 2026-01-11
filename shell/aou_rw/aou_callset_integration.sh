@@ -602,58 +602,59 @@ for k in $( seq 1 22 ) X Y; do
   done
 done
 
-# # Write input .json
-# cat << EOF | python -m json.tool > cromshell/inputs/PlotGatksvQcPostImputation.inputs.json
-# {
-#   "PlotVcfQcMetrics.af_distribution_tsvs": $( collapse_txt $staging_dir/af_distrib.uris.list ),
-#   "PlotVcfQcMetrics.all_sv_beds": $( collapse_txt $staging_dir/all_svs_bed.uris.list ),
-#   "PlotVcfQcMetrics.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
-#   "PlotVcfQcMetrics.benchmark_interval_names": ["Easy", "Hard"],
-#   "PlotVcfQcMetrics.common_af_cutoff": 0.001,
-#   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
-#   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/dfci-g2c.v1.gatksv.qc_targets.tsv",
-#   "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:a9d85cd",
-#   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.gatksv_qc_post_imputation",
-#   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
-#   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
-#   "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
-#   "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 32,
-#   "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
-#   "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
-#   "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
-#   "PlotVcfQcMetrics.ref_cohort_prefix": "gnomAD_v4.1",
-#   "PlotVcfQcMetrics.ref_cohort_plot_title": "gnomAD v4.1",
-#   "PlotVcfQcMetrics.sample_ancestry_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_ancestry.tsv",
-#   "PlotVcfQcMetrics.sample_phenotype_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_phenotype.tsv",
-#   "PlotVcfQcMetrics.sample_benchmark_dataset_prefixes": ["external_srwgs", "external_lrwgs"],
-#   "PlotVcfQcMetrics.sample_benchmark_dataset_titles": ["external srWGS", "external lrWGS"],
-#   "PlotVcfQcMetrics.sample_benchmark_ppv_distribs": [[ $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_easy.external_srwgs.uris.list ),
-#                                                        $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_hard.external_srwgs.uris.list ) ],
-#                                                      [ $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_easy.external_lrwgs.uris.list ),
-#                                                        $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_hard.external_lrwgs.uris.list ) ]],
-#   "PlotVcfQcMetrics.sample_benchmark_sensitivity_distribs": [[ $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_easy.external_srwgs.uris.list ),
-#                                                                $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_hard.external_srwgs.uris.list ) ],
-#                                                              [ $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_easy.external_lrwgs.uris.list ),
-#                                                                $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_hard.external_lrwgs.uris.list ) ]],
-#   "PlotVcfQcMetrics.sample_genotype_distribution_tsvs": $( collapse_txt $staging_dir/genotype_distrib.uris.list ),
-#   "PlotVcfQcMetrics.site_benchmark_common_sv_ppv_beds": [[ $( collapse_txt $staging_dir/site_benchmark_common_sv_ppv_beds.giab_easy.uris.list ),
-#                                                            $( collapse_txt $staging_dir/site_benchmark_common_sv_ppv_beds.giab_hard.uris.list ) ]],
-#   "PlotVcfQcMetrics.site_benchmark_common_sv_sens_beds": [[ $( collapse_txt $staging_dir/site_benchmark_common_sv_sens_beds.giab_easy.uris.list ),
-#                                                             $( collapse_txt $staging_dir/site_benchmark_common_sv_sens_beds.giab_hard.uris.list ) ]],
-#   "PlotVcfQcMetrics.site_benchmark_ppv_by_freqs": [[ $( collapse_txt $staging_dir/site_benchmark_ppv_by_freqs.giab_easy.uris.list ),
-#                                                      $( collapse_txt $staging_dir/site_benchmark_ppv_by_freqs.giab_hard.uris.list ) ]],
-#   "PlotVcfQcMetrics.site_benchmark_sensitivity_by_freqs": [[ $( collapse_txt $staging_dir/site_benchmark_sensitivity_by_freqs.giab_easy.uris.list ),
-#                                                              $( collapse_txt $staging_dir/site_benchmark_sensitivity_by_freqs.giab_hard.uris.list ) ]],
-#   "PlotVcfQcMetrics.site_benchmark_dataset_prefixes": ["gnomad_v4.1"],
-#   "PlotVcfQcMetrics.site_benchmark_dataset_titles": ["gnomAD v4.1"],
-#   "PlotVcfQcMetrics.size_distribution_tsvs": $( collapse_txt $staging_dir/size_distrib.uris.list ),
-#   "PlotVcfQcMetrics.size_vs_af_distribution_tsvs": $( collapse_txt $staging_dir/size_vs_af_distrib.uris.list ),
-#   "PlotVcfQcMetrics.trio_mendelian_violation_distribs": [ $( collapse_txt $staging_dir/trio_mendelian_violation_distribs.giab_easy.uris.list ),
-#                                                           $( collapse_txt $staging_dir/trio_mendelian_violation_distribs.giab_hard.uris.list ) ],
-#   "PlotVcfQcMetrics.twin_genotype_benchmark_distribs": [ $( collapse_txt $staging_dir/twin_genotype_benchmark_distribs.giab_easy.uris.list ),
-#                                                          $( collapse_txt $staging_dir/twin_genotype_benchmark_distribs.giab_hard.uris.list ) ]
-# }
-# EOF
+# Write input .json
+cat << EOF | python -m json.tool > cromshell/inputs/PlotGatksvQcPostImputation.inputs.json
+{
+  "PlotVcfQcMetrics.af_distribution_tsvs": $( collapse_txt $staging_dir/af_distrib.uris.list ),
+  "PlotVcfQcMetrics.all_sv_beds": $( collapse_txt $staging_dir/all_svs_bed.uris.list ),
+  "PlotVcfQcMetrics.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+  "PlotVcfQcMetrics.benchmark_interval_names": ["Easy", "Hard"],
+  "PlotVcfQcMetrics.common_af_cutoff": 0.001,
+  "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
+  "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/dfci-g2c.v1.gatksv.qc_targets.tsv",
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:a9d85cd",
+  "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.gatksv_qc_post_imputation",
+  "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
+  "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
+  "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
+  "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 32,
+  "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
+  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotGatksvQc/dfci-g2c.v1.initial_gatksv_qc.all_qc_summary_metrics.tsv",
+  "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
+  "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
+  "PlotVcfQcMetrics.ref_cohort_prefix": "gnomAD_v4.1",
+  "PlotVcfQcMetrics.ref_cohort_plot_title": "gnomAD v4.1",
+  "PlotVcfQcMetrics.sample_ancestry_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_ancestry.tsv",
+  "PlotVcfQcMetrics.sample_phenotype_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_phenotype.tsv",
+  "PlotVcfQcMetrics.sample_benchmark_dataset_prefixes": ["external_srwgs", "external_lrwgs"],
+  "PlotVcfQcMetrics.sample_benchmark_dataset_titles": ["external srWGS", "external lrWGS"],
+  "PlotVcfQcMetrics.sample_benchmark_ppv_distribs": [[ $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_easy.external_srwgs.uris.list ),
+                                                       $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_hard.external_srwgs.uris.list ) ],
+                                                     [ $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_easy.external_lrwgs.uris.list ),
+                                                       $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_hard.external_lrwgs.uris.list ) ]],
+  "PlotVcfQcMetrics.sample_benchmark_sensitivity_distribs": [[ $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_easy.external_srwgs.uris.list ),
+                                                               $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_hard.external_srwgs.uris.list ) ],
+                                                             [ $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_easy.external_lrwgs.uris.list ),
+                                                               $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_hard.external_lrwgs.uris.list ) ]],
+  "PlotVcfQcMetrics.sample_genotype_distribution_tsvs": $( collapse_txt $staging_dir/genotype_distrib.uris.list ),
+  "PlotVcfQcMetrics.site_benchmark_common_sv_ppv_beds": [[ $( collapse_txt $staging_dir/site_benchmark_common_sv_ppv_beds.giab_easy.uris.list ),
+                                                           $( collapse_txt $staging_dir/site_benchmark_common_sv_ppv_beds.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_common_sv_sens_beds": [[ $( collapse_txt $staging_dir/site_benchmark_common_sv_sens_beds.giab_easy.uris.list ),
+                                                            $( collapse_txt $staging_dir/site_benchmark_common_sv_sens_beds.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_ppv_by_freqs": [[ $( collapse_txt $staging_dir/site_benchmark_ppv_by_freqs.giab_easy.uris.list ),
+                                                     $( collapse_txt $staging_dir/site_benchmark_ppv_by_freqs.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_sensitivity_by_freqs": [[ $( collapse_txt $staging_dir/site_benchmark_sensitivity_by_freqs.giab_easy.uris.list ),
+                                                             $( collapse_txt $staging_dir/site_benchmark_sensitivity_by_freqs.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_dataset_prefixes": ["gnomad_v4.1"],
+  "PlotVcfQcMetrics.site_benchmark_dataset_titles": ["gnomAD v4.1"],
+  "PlotVcfQcMetrics.size_distribution_tsvs": $( collapse_txt $staging_dir/size_distrib.uris.list ),
+  "PlotVcfQcMetrics.size_vs_af_distribution_tsvs": $( collapse_txt $staging_dir/size_vs_af_distrib.uris.list ),
+  "PlotVcfQcMetrics.trio_mendelian_violation_distribs": [ $( collapse_txt $staging_dir/trio_mendelian_violation_distribs.giab_easy.uris.list ),
+                                                          $( collapse_txt $staging_dir/trio_mendelian_violation_distribs.giab_hard.uris.list ) ],
+  "PlotVcfQcMetrics.twin_genotype_benchmark_distribs": [ $( collapse_txt $staging_dir/twin_genotype_benchmark_distribs.giab_easy.uris.list ),
+                                                         $( collapse_txt $staging_dir/twin_genotype_benchmark_distribs.giab_hard.uris.list ) ]
+}
+EOF
 
 # Submit QC visualization workflow
 cromshell --no_turtle -t 120 -mc submit --no-validation \
@@ -667,18 +668,18 @@ cromshell --no_turtle -t 120 -mc submit --no-validation \
 # Monitor QC visualization workflow
 monitor_workflow $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list ) 5
 
-# # Once workflow is complete, stage output
-# gsutil -m rm -rf $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotQc
-# cromshell -t 120 list-outputs \
-#   $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list ) \
-# | awk '{ print $2 }' \
-# | gsutil -m cp -I \
-#   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotQc/
+# Once workflow is complete, stage output
+gsutil -m rm -rf $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/PlotGatksvQc
+cromshell -t 120 list-outputs \
+  $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list ) \
+| awk '{ print $2 }' \
+| gsutil -m cp -I \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/PlotGatksvQc/
 
-# # Clear Cromwell execution & output buckets for plotting job
-# gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list \
-#                 | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell/*/PlotVcfQcMetrics/" \
-#                   '{ print bucket_prefix$1"/**" }' ) \
-# > uris_to_delete.list
-# cleanup_garbage
+# Clear Cromwell execution & output buckets for plotting job
+gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list \
+                | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwel*/PlotVcfQcMetrics/" \
+                  '{ print bucket_prefix$1"/**" }' ) \
+> uris_to_delete.list
+cleanup_garbage
 
