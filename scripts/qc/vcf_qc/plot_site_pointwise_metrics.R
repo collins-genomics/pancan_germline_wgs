@@ -27,7 +27,7 @@ load.constants("all")
 # Data Functions #
 ##################
 # Load a site metrics BED file and subset to minimal required columns
-read.bed <- function(bed.in, common_af=0, autosomes.only=T){
+read.bed <- function(bed.in, common_af=0, deduplicate=FALSE, autosomes.only=T){
   # Read and clean data
   df <- read.table(bed.in, header=T, sep="\t", comment.char="",
                    check.names=F, quote="")
@@ -38,6 +38,9 @@ read.bed <- function(bed.in, common_af=0, autosomes.only=T){
   df[, keep.cols] <- as.data.frame(apply(df[, keep.cols], 2, as.numeric))
   df <- df[which(df$af >= common_af), c("vid", keep.cols)]
   df <- df[complete.cases(df), ]
+  if(deduplicate){
+    df <- df[which(!duplicated(df)), ]
+  }
 
   # Compute HWE ternary coordinates
   df[, c("hwe.x", "hwe.y")] <- t(apply(df[, c("freq_het", "freq_hom")], 1,
@@ -381,6 +384,8 @@ parser$add_argument("--true-n-svs", metavar="int", type="numeric",
                                "downsampled prior to this script"))
 parser$add_argument("--combine", action="store_true", default=FALSE,
                     help="Also generate a combined set of plots for all variant types")
+parser$add_argument("--deduplicate", action="store_true", default=FALSE,
+                    help="Deduplicate identical variants before performing QC")
 parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric",
                     help="Allele frequency threshold for common variants")
 parser$add_argument("--ld-stats", metavar=".tsv", type="character",
@@ -400,6 +405,7 @@ args <- parser$parse_args()
 #              "svs" = "~/scratch/dfci-g2c.v1.chr22.0.norm.posthoc_filtered.sites.sv.sites.common.bed.gz",
 #              "true_n_svs" = NULL,
 #              "combine" = TRUE,
+#              "deduplicate" = TRUE,
 #              "common_af" = 0.001,
 #              "ld_stats" = "~/scratch/renamed.common.peak_ld_by_vc.tsv.gz",
 #              "custom_constants" = NULL,
@@ -419,6 +425,9 @@ if(!is.null(args$custom_constants)){
 if(!is.null(args$ld_stats)){
   ld <- read.table(args$ld_stats, header=T, sep="\t", check.names=F,
                    quote="", comment.char="")
+  if(args$deduplicate){
+    ld <- ld[which(!duplicated(ld)), ]
+  }
   colnames(ld)[1] <- gsub("#", "", colnames(ld)[1])
 }else{
   ld <- NULL
@@ -427,7 +436,7 @@ if(!is.null(args$ld_stats)){
 # Load & plot SNVs, if provided
 if(!is.null(args$snvs)){
   # Load SNV data
-  snv.df <- read.bed(args$snvs, args$common_af)
+  snv.df <- read.bed(args$snvs, args$common_af, args$deduplicate)
   n.snvs <- if(!is.null(args$true_n_snvs)){args$true_n_snvs}else{nrow(snv.df)}
 
   # Plot SNV metrics
@@ -442,7 +451,7 @@ if(!is.null(args$snvs)){
 # Load & plot indels, if provided
 if(!is.null(args$indels)){
   # Load indel data
-  indel.df <- read.bed(args$indels, args$common_af)
+  indel.df <- read.bed(args$indels, args$common_af, args$deduplicate)
   n.indels <- if(!is.null(args$true_n_indels)){args$true_n_indels}else{nrow(indel.df)}
 
   # Plot indel metrics
@@ -458,7 +467,7 @@ if(!is.null(args$indels)){
 # Load & plot SVs, if provided
 if(!is.null(args$svs)){
   # Load SV data
-  sv.df <- read.bed(args$svs, args$common_af)
+  sv.df <- read.bed(args$svs, args$common_af, args$deduplicate)
   n.svs <- if(!is.null(args$true_n_svs)){args$true_n_svs}else{nrow(sv.df)}
 
   # Plot SV metrics
@@ -474,6 +483,9 @@ if(!is.null(args$svs)){
 if(args$combine){
   # Merge all data
   all.df <- do.call("rbind", list(snv.df, indel.df, sv.df))
+  if(args$deduplicate){
+    all.df <- all.df[which(!duplicated(all.df)), ]
+  }
   n.all <- n.snvs + n.indels + n.svs
 
   # Plot all metrics

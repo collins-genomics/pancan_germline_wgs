@@ -110,6 +110,7 @@ These inputs are _technically_ "optional" in the strict sense of WDL syntax, but
 | `scatter_intervals_list`           | `File?`   | —       | GATK-style intervals list (or any tabix-compatible intervals) used to shard VCFs efficiently. |
 | `n_records_per_shard`              | `Int`     | `25000` | Fallback shard size (records per shard) if `scatter_intervals_list` is not provided.          |
 | `extra_vcf_preprocessing_commands` | `String`  | `""`    | Optional shell commands (prefixed with `|`) injected into the VCF preprocessing pipeline.     |
+| `deduplicate`                      | `Boolean` | `false` | Should VCFs be deduplicated before QC collection? Generally not recommended.                  |
 
 #### Allele frequency & linkage parameters  
 
@@ -256,6 +257,7 @@ If provided, these inputs enable pointwise/variant-level QC plots and LD analysi
 | `peak_ld_stat_tsvs` | `Array[File]?` | — | One or more `ld_stats` outputs from `CollectVcfQcMetrics`.          |
 | `common_af_cutoff`                | `Float` | `0.01` | Allele frequency threshold defining “common” variants. This should be the same value as for `CollectVcfQcMetrics`. |
 | `pointwise_site_downsample_limit` | `Int` | `1000000` | Maximum number of sites used for pointwise plots; larger BEDs are downsampled. |
+| `deduplicate` | `Boolean` | `false` | Should site-level data be deduplicated prior to plotting? Generally not recommended. |
 
 #### Sample metadata
 

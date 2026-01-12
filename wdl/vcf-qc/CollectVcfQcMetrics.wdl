@@ -28,6 +28,10 @@ workflow CollectVcfQcMetrics {
                                                    # (any tabix-compliant interval definitions should work)
     Int n_records_per_shard = 25000                # Number of records per shard. This will only be used as a backup if 
                                                    # scatter_intervals_list is not provided and shard_vcf is true
+    Boolean deduplicate = false                    # Should VCF records be deduplicated before QC collection? Usually not
+                                                   # optimal to do this unless you _know_ your VCF has duplicate records
+                                                   # and you want a hard workaround (otherwise, the presence of unexpected 
+                                                   # duplicate records can be a useful QC error to know about)
     String extra_vcf_preprocessing_commands = ""   # Optional string of extra shell commands to execute when preprocessing
                                                    # main input vcfs. This must be prefixed by a pipe so that it can
                                                    # be injected into a chain of bash commands while reading from stdin 
@@ -243,6 +247,7 @@ workflow CollectVcfQcMetrics {
           extra_commands = extra_vcf_preprocessing_commands,
           ref_fasta = ref_fasta,
           ref_fasta_idx = ref_fasta_idx,
+          deduplicate = deduplicate,
           supp_vcf_header = MakeHeaderFiller.supp_vcf_header,
           out_prefix = basename(vcf, ".vcf.gz"),
           g2c_analysis_docker = g2c_analysis_docker
@@ -1300,6 +1305,7 @@ task PreprocessVcf {
     String extra_commands = ""
     File ref_fasta
     File ref_fasta_idx
+    Boolean deduplicate = false
     File supp_vcf_header
     
     String out_prefix
@@ -1311,11 +1317,12 @@ task PreprocessVcf {
     String g2c_analysis_docker
   }
 
-  String no_rel_cmd = if defined(site_exclude_samples) then "--force-samples --samples-file ^" + basename(select_first([site_exclude_samples])) else ""
   String sites_outfile = out_prefix + ".sites.vcf.gz"
   String dense_outfile = out_prefix + ".dense_subset.vcf.gz"
   String dense_sites_outfile = out_prefix + ".dense_subset.sites.vcf.gz"
 
+  String no_rel_cmd = if defined(site_exclude_samples) then "--force-samples --samples-file ^" + basename(select_first([site_exclude_samples])) else ""
+  String dedup_cmd = if deduplicate then "--remove-duplicates" else ""
   String mcnv_anno = if has_mcnvs then "| /opt/pancan_germline_wgs/scripts/gatksv_helpers/annotate_mcnv_freqs.py - -" else ""
 
   Int default_disk_gb = ceil(4 * size(vcf, "GB")) + 10
@@ -1339,6 +1346,7 @@ task PreprocessVcf {
       --fasta-ref ~{ref_fasta} \
       --check-ref s \
       --multiallelics - \
+      ~{dedup_cmd} \
       --threads ~{n_threads} \
       --site-win 100 \
     ~{extra_commands} \

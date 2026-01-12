@@ -86,6 +86,11 @@ workflow PlotVcfQcMetrics {
     File? custom_qc_target_metrics
     File? custom_plotting_constants
 
+    # Automatically drop duplicate sites from pointwise analyses
+    # In general, this isn't recommended as learning about the presence
+    # of unexpected duplicate variants can be a useful QC safeguard/sanity check
+    Boolean deduplicate = false
+
     String output_prefix
 
     String bcftools_docker
@@ -1013,6 +1018,7 @@ task PlotSiteBenchmarking {
     String output_prefix
     Float common_af_cutoff
     Int max_records_per_bed = 100000000
+    Boolean deduplicate = false
     File? custom_plotting_constants
 
     Float mem_gb = 7.5
@@ -1023,6 +1029,7 @@ task PlotSiteBenchmarking {
   }
 
   String constants_opt = if defined(custom_plotting_constants) then "--custom-constants ~{basename(select_first([custom_plotting_constants, 'not_real.txt']))}"  else ""
+  String dedup_opt = if deduplicate then "--deduplicate" else ""
 
   # Note that this outdir string is used as both a directory name and a file prefix
   String outdir = sub(output_prefix + "." + ref_dataset_prefix + "." + "site_benchmarking", "[ ]+", "_")
@@ -1221,7 +1228,7 @@ CODE
       if [ $sv_bed != "." ]; then
         cmd="$cmd --svs $sv_bed"
       fi
-      cmd="$cmd --common-af ~{common_af_cutoff} --ref-title \"~{ref_dataset_title}\""
+      cmd="$cmd --common-af ~{common_af_cutoff} ~{dedup_opt} --ref-title \"~{ref_dataset_title}\""
       cmd="$cmd --combine ~{constants_opt} --out-prefix ~{outdir}/~{outdir}.$set_name --set-name $set_name"
       echo -e "Now performing pointwise site benchmarking as follows:\n$cmd"
       eval "$cmd"
