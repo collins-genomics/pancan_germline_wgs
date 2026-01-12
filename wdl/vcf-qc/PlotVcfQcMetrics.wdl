@@ -1107,9 +1107,15 @@ CODE
       while read bed; do
         n_lines=$( zcat $bed | grep -ve '^#' | wc -l )
         if [ $n_lines -gt ~{max_records_per_bed} ]; then
-          ratio=$( echo "" | awk -v num=$n_lines -v denom=~{max_records_per_bed} '{ print int(num/denom) }' )
-          zcat $bed | awk "NR % $ratio == 1" | bgzip -c > tmp.bed.gz
-          mv tmp.bed.gz $bed
+          p=$( awk -v num=~{max_records_per_bed} -v denom=$n_lines 'BEGIN { print num / denom }' )
+          zcat $bed | sed -n '1p' > header.tmp
+          zcat "$bed" \
+          | fgrep -v "#" \
+          | awk -v p="$p" 'BEGIN { srand() } rand() < p' \
+          | cat header.tmp - \
+          | bgzip -c \
+          > tmp.bed.gz
+          mv tmp.bed.gz "$bed"
         fi
       done < snv_beds.list
     else
@@ -1137,9 +1143,15 @@ CODE
       while read bed; do
         n_lines=$( zcat $bed | grep -ve '^#' | wc -l )
         if [ $n_lines -gt ~{max_records_per_bed} ]; then
-          ratio=$( echo "" | awk -v num=$n_lines -v denom=~{max_records_per_bed} '{ print int(num/denom) }' )
-          zcat $bed | awk "NR % $ratio == 1" | bgzip -c > tmp.bed.gz
-          mv tmp.bed.gz $bed
+          p=$( awk -v num=~{max_records_per_bed} -v denom=$n_lines 'BEGIN { print num / denom }' )
+          zcat $bed | sed -n '1p' > header.tmp
+          zcat "$bed" \
+          | fgrep -v "#" \
+          | awk -v p="$p" 'BEGIN { srand() } rand() < p' \
+          | cat header.tmp - \
+          | bgzip -c \
+          > tmp.bed.gz
+          mv tmp.bed.gz "$bed"
         fi
       done < indel_beds.list
     else
@@ -1167,9 +1179,15 @@ CODE
       while read bed; do
         n_lines=$( zcat $bed | grep -ve '^#' | wc -l )
         if [ $n_lines -gt ~{max_records_per_bed} ]; then
-          ratio=$( echo "" | awk -v num=$n_lines -v denom=~{max_records_per_bed} '{ print int(num/denom) }' )
-          zcat $bed | awk "NR % $ratio == 1" | bgzip -c > tmp.bed.gz
-          mv tmp.bed.gz $bed
+          p=$( awk -v num=~{max_records_per_bed} -v denom=$n_lines 'BEGIN { print num / denom }' )
+          zcat $bed | sed -n '1p' > header.tmp
+          zcat "$bed" \
+          | fgrep -v "#" \
+          | awk -v p="$p" 'BEGIN { srand() } rand() < p' \
+          | cat header.tmp - \
+          | bgzip -c \
+          > tmp.bed.gz
+          mv tmp.bed.gz "$bed"
         fi
       done < sv_beds.list
     else

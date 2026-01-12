@@ -37,7 +37,7 @@ for lang in "$@"; do
     R)
 
       # Install all R libraries distributed via CRAN
-      for lib in argparse optparse beeswarm bedr caret EQL vioplot DescTools; do
+      for lib in argparse optparse beeswarm bedr caret EQL vioplot DescTools colourvalues; do
         Rscript -e "if(require('$lib') == FALSE){install.packages('$lib', repos='https://cloud.r-project.org')}"
       done
 
