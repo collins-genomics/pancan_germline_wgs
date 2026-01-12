@@ -594,6 +594,7 @@ workflow PlotVcfQcMetrics {
       output_prefix = output_prefix,
       ref_title = ref_cohort_plot_title,
       custom_plotting_constants = custom_plotting_constants,
+      deduplicate = deduplicate,
       g2c_analysis_docker = g2c_analysis_docker
   }
 
@@ -631,6 +632,7 @@ workflow PlotVcfQcMetrics {
           output_prefix = output_prefix,
           common_af_cutoff = common_af_cutoff,
           max_records_per_bed = pointwise_site_downsample_limit,
+          deduplicate = deduplicate,
           custom_plotting_constants = custom_plotting_constants,
           g2c_analysis_docker = g2c_analysis_docker
       }
@@ -1305,6 +1307,7 @@ task PlotSiteMetrics {
     String output_prefix
     String? ref_title
     File? custom_plotting_constants
+    Boolean deduplicate = false
 
     Float mem_gb = 7.5
     Int n_cpu = 4
@@ -1319,6 +1322,7 @@ task PlotSiteMetrics {
   Int default_disk_gb = ceil(2 * size(select_all(loc_inputs), "GB")) + 20
 
   String constants_opt = if defined(custom_plotting_constants) then "--custom-constants ~{basename(select_first([custom_plotting_constants, 'not_real.txt']))}"  else ""
+  String dedup_opt = if deduplicate then "--deduplicate" else ""
 
   Boolean has_ref_size = defined(ref_size_distrib)
   String ref_size_bname = if has_ref_size then basename(select_first([ref_size_distrib])) else ""
@@ -1421,6 +1425,7 @@ task PlotSiteMetrics {
         --common-af ~{common_af_cutoff} \
         ~{ld_cmd} \
         ~{constants_opt} \
+        ~{dedup_opt} \
         --out-prefix ~{output_prefix}.site_metrics/~{output_prefix}
 
       # Append summary stats to previous stats file
