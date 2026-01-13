@@ -683,3 +683,5 @@ gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job
 > uris_to_delete.list
 cleanup_garbage
 
+
+# TODO: indel/SV integration and variant resharding

@@ -494,11 +494,51 @@ workflow CollectVcfQcMetrics {
 
     # Concatenate dense common VCFs
     # Necessary for LD comparisons (need all variants in a single file)
-    # TODO: rework this to output sharded VCFs according to LD chunks
+    # Need to do this iteratively for large VCF arrays to avoid high inode pressure\
+    Int n_dense_vcfs = length(CommonFilterDenseVcf.subsetted_vcf)
+    Int n_dense_per_split = 100
+    if ( n_dense_vcfs >= 2 * n_dense_per_split ) {
+      # Write VCF shards to file listing URIs
+      call WriteArrayToFile as WriteDenseVcfsToList {
+        input:
+          uris = CommonFilterDenseVcf.subsetted_vcf,
+          linux_docker = linux_docker
+      }
+
+      # Shard list of URIs
+      Int n_dense_splits = floor(n_dense_vcfs / n_dense_per_split)
+      call QcTasks.ShardTextFile as ShardDenseVcfList {
+        input:
+          input_file = WriteDenseVcfsToList.array_manifest,
+          n_splits = n_dense_splits,
+          out_prefix = output_prefix,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+
+      scatter ( dense_vcf_list_shard in ShardDenseVcfList.shards ) {
+        call ExtractVcfArrays as ExtractDenseVcfArrays {
+          input:
+            vcf_info = dense_vcf_list_shard,
+            linux_docker = linux_docker
+        }
+        call QcTasks.ConcatVcfs as InnerConcatDenseVcfs {
+          input:
+            vcfs = ExtractDenseVcfArrays.vcf_uris,
+            vcf_idxs = ExtractDenseVcfArrays.vcf_tbi_uris,
+            bcftools_concat_options = "--allow-overlaps",
+            out_prefix = output_prefix,
+            bcftools_docker = bcftools_docker
+        }
+      }
+    }
+    Array[File] dense_vcfs_to_chunk = select_first([InnerConcatDenseVcfs.merged_vcf, 
+                                                    CommonFilterDenseVcf.subsetted_vcf])
+    Array[File] dense_vcf_idxs_to_chunk = select_first([InnerConcatDenseVcfs.merged_vcf_idx, 
+                                                        CommonFilterDenseVcf.subsetted_vcf_idx])
     call MergeAndReshardVcfs as ChunkCommonVcf {
       input:
-        vcfs = CommonFilterDenseVcf.subsetted_vcf,
-        vcf_idxs = CommonFilterDenseVcf.subsetted_vcf_idx,
+        vcfs = dense_vcfs_to_chunk,
+        vcf_idxs = dense_vcf_idxs_to_chunk,
         new_intervals_tsv = MakeLdChunks.chunks_tsv,
         out_prefix = output_prefix + ".dense.common",
         bcftools_concat_options = "--allow-overlaps",
@@ -1202,6 +1242,7 @@ task MergeAndReshardVcfs {
     Float mem_gb = 3.5
     Int cpu_cores = 2
     Int? disk_gb
+    Int n_preemptible = 3
 
     String bcftools_docker
   }
@@ -1247,7 +1288,7 @@ task MergeAndReshardVcfs {
     cpu: cpu_cores
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"
     bootDiskSizeGb: 20
-    preemptible: 3
+    preemptible: n_preemptible
     maxRetries: 1
   }
 }
@@ -1401,5 +1442,33 @@ task PreprocessVcf {
     cpu: n_cpu
     disks: "local-disk ~{hdd_gb} HDD"
     preemptible: 3
+  }
+}
+
+
+# Helper task to write an Array[File] to a flat text file of URIs
+task WriteArrayToFile {
+  input {
+    Array[String] uris
+    String outfile_name = "array_uris.list"
+    String linux_docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+    cat ~{write_lines(uris)} > ~{outfile_name}
+  >>>
+
+  output {
+    File array_manifest = "~{outfile_name}"
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 25 HDD"
+    preemptible: 3
+    maxRetries: 1
   }
 }
