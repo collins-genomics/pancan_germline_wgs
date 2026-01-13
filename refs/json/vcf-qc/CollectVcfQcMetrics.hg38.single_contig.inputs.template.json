@@ -3,7 +3,7 @@
   "CollectVcfQcMetrics.benchmark_interval_beds": ["gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.easy.\$CONTIG.bed.gz",
                                                   "gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz"],
   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
-  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:1aac84d",
+  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:9f33a42",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
   "CollectVcfQcMetrics.output_prefix": String,

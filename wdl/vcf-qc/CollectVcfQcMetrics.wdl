@@ -1209,6 +1209,7 @@ task MergeAndReshardVcfs {
   Int default_disk_gb = ceil(5 * size(vcfs, "GB")) + 25
 
   command <<<
+    ulimit -n 4096
     set -eu -o pipefail
 
     # Merge VCFs

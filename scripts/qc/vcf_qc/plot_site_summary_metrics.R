@@ -95,7 +95,7 @@ get.af.ss <- function(af.d, common.af=0.01){
 plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
                                ref.size.d=NULL, ref.title=NULL,
                                bar.sep=0.1, vc.sep=0.35, ref.pt.cex=2/3,
-                               parmar=c(0.1, 7.5, 2, 2)){
+                               parmar=c(0.1, 7.5, 2, 2.1)){
 
   # Get summary statistics for output .tsv
   ss.df <- data.frame("analysis"=character(), "measure"=character(),
@@ -165,7 +165,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
   ylims <- c(if(add.ref){-1}else{0}, length(k)+bar.sep+(vc.sep*n.vc))
   bar.cols <- var.class.colors[df$class]
   bar.labs <- sapply(10^k, function(lk){
-    if(lk < 10000){
+    if(lk < 100000){
       prettyNum(lk, big.mark=",")
     }else{
       clean.numeric.labels(lk, acceptable.decimals=1, min.label.length=3)

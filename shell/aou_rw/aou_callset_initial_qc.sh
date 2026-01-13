@@ -689,6 +689,9 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.ChunkCommonVcf.mem_gb": 15.5,
   "CollectVcfQcMetrics.ChunkCommonVcf.cpu_cores": 4,
   "CollectVcfQcMetrics.common_af_cutoff": 0.001,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.disk_gb": 270,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.mem_gb": 15.5,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.n_cpu": 4,
   "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:1aac84d",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
@@ -967,7 +970,7 @@ cromshell -t 120 list-outputs \
 
 # Clear Cromwell execution & output buckets for plotting job
 gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotInitialVcfQcMetrics.job_ids.list \
-                | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell/*/PlotVcfQcMetrics/" \
+                | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell*/PlotVcfQcMetrics/" \
                   '{ print bucket_prefix$1"/**" }' ) \
 > uris_to_delete.list
 cleanup_garbage

@@ -333,9 +333,14 @@ task ConcatGenotypeTsvs {
     Array[File] tsvs
     String output_prefix
     String g2c_analysis_docker
+
+    Int? disk_gb
+    Float mem_gb = 3.5
+    Int n_cpu = 2
   }
 
-  Int disk_gb = ceil(2 * size(tsvs, "GB")) + 10
+  Int default_disk_gb = ceil(4 * size(tsvs, "GB")) + 25
+  Int use_disk_gb = select_first([disk_gb, default_disk_gb])
   String outdir = output_prefix + "_sample_genotypes"
 
   command <<<
@@ -358,10 +363,12 @@ task ConcatGenotypeTsvs {
 
   runtime {
     docker: g2c_analysis_docker
-    memory: "3.5 GB"
-    cpu: 2
-    disks: "local-disk ~{disk_gb} HDD"
+    memory: "~{mem_gb} GB"
+    cpu: n_cpu
+    disks: "local-disk ~{use_disk_gb} HDD"
+    bootDiskSizeGb: 20
     preemptible: 3
+    maxRetries: 1
   }
 }
 

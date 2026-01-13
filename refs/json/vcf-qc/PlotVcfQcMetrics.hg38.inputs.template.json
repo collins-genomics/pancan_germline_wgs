@@ -6,7 +6,7 @@
     "PlotVcfQcMetrics.common_snv_beds": Array[File],
     "PlotVcfQcMetrics.common_indel_beds": Array[File],
     "PlotVcfQcMetrics.common_sv_beds": Array[File],
-    "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:1aac84d",
+    "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:9f33a42",
     "PlotVcfQcMetrics.output_prefix": String,
     "PlotVcfQcMetrics.ref_af_distribution_tsvs": [
         "gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/chr1/gnomad.v4.1.chr1.af_distribution.merged.tsv.gz",
