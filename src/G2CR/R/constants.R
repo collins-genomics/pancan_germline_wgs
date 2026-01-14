@@ -54,10 +54,10 @@ create.cancer.colors <- function(cancers, n.shades=2, saturation.range=c(0.3, 0.
                                        value.range=value.range, period=period)
   names(cancer.colors) <- cancers
   cancer.colors["oral_cavity"] <- cancer.colors["oral"]
-  cancer.colors["control"] <- "#D6D6D6"
+  cancer.colors[c("control", "Control")] <- "#D6D6D6"
   cancer.colors["multiple"] <- cancer.colors["other"] <- cancer.colors["pancan"]
   cancer.colors[c("unknown", "not_specified", "NA")] <- "gray95"
-  cancer.colors[c("pancan", "all", "case")] <- "#C43825"
+  cancer.colors[c("pancan", "all", "case", "Case")] <- "#C43825"
 
   # Visualize cancer colors to screen, if optioned
   if(plot.colors){

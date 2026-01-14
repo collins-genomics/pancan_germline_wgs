@@ -1098,7 +1098,9 @@ CODE
     # Localize SNV beds
     if [ -s snv_ppv_beds.txt ]; then
       cat snv_ppv_beds.txt | gsutil -m cp -I ./
-      cat snv_ppv_beds.txt | xargs -I {} basename {} > snv_beds.list
+      while read uri; do
+        basename $uri
+      done < snv_ppv_beds.txt > snv_beds.list
       # Add false negatives to BED for plotting
       if [ -s snv_sens_beds.txt ]; then
         while read main_bed sens_uri; do
@@ -1134,7 +1136,9 @@ CODE
     # Localize indel beds
     if [ -s indel_ppv_beds.txt ]; then
       cat indel_ppv_beds.txt | gsutil -m cp -I ./
-      cat indel_ppv_beds.txt | xargs -I {} basename {} > indel_beds.list
+      while read uri; do
+        basename $uri
+      done < indel_ppv_beds.txt > indel_beds.list
       # Add false negatives to BED for plotting
       if [ -s indel_sens_beds.txt ]; then
         while read main_bed sens_uri; do
@@ -1170,7 +1174,9 @@ CODE
     # Localize SV beds
     if [ -s sv_ppv_beds.txt ]; then
       cat sv_ppv_beds.txt | gsutil -m cp -I ./
-      cat sv_ppv_beds.txt | xargs -I {} basename {} > sv_beds.list
+      while read uri; do
+        basename $uri
+      done < sv_ppv_beds.txt > sv_beds.list
       # Add false negatives to BED for plotting
       if [ -s sv_sens_beds.txt ]; then
         while read main_bed sens_uri; do
@@ -1242,13 +1248,13 @@ CODE
       cat ppv_by_af.txt | gsutil -m cp -I ./
       while read tsv; do
         cmd="$cmd --ppv-by-af $tsv"
-      done < <( cat ppv_by_af.txt | xargs -I {} basename {} )
+      done < <( awk -v FS="/" '{ print $NF }' ppv_by_af.txt )
     fi
     if [ -s sens_by_af.txt ]; then
       cat sens_by_af.txt | gsutil -m cp -I ./
       while read tsv; do
         cmd="$cmd --sens-by-af $tsv"
-      done < <( cat sens_by_af.txt | xargs -I {} basename {} )
+      done < <( awk -v FS="/" '{ print $NF }' sens_by_af.txt )
     fi
     while read sname; do
       cmd="$cmd --set-name $sname"

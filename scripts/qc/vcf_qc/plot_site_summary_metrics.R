@@ -127,7 +127,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
     n.sv <- as.numeric(vc.counts[vc.counts$analysis == "site_count.sv", "n"])
     DUPDEL.r <- sum(as.numeric(vsc.counts[vsc.counts$analysis %in% c("site_count.DUP", "site_count.INS"), "n"])) / n.sv
     sv.ratios <- data.frame("analysis"="site_ratios.sv", "measure"="DUP_DEL_ratio",
-                               "value"=DUPDEL.r, "n"=n.sv)
+                            "value"=DUPDEL.r, "n"=n.sv)
   }else{
     sv.ratios <- data.frame("analysis"=character(), "measure"=character(),
                             "value"=numeric(), "n"=numeric())
@@ -252,7 +252,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
                    staple.len=0.35, accent.len=0.2,
                    staple.accent.color=var.class.colors["sv"])
     text(x=vc.x+bracket.lab.buf, y=mean(sv.bracket.y)-0.1,
-         labels="Structural\nvariants\n(SVs;\n>49 bp)",
+         labels="SVs\n(>49 bp)",
          cex=5/6, pos=2, xpd=T)
   }
 
@@ -299,7 +299,8 @@ plot.size.volcano <- function(size.d, ref.size.d=NULL, ref.title=NULL,
   }
 
   # Get plot values
-  xlims <- c(-1, 1) * (max(breaks) + 0.1 + (0.5*snv.width) + snv.gap + indel.gap)
+  x.log.max <- ceiling(breaks[max(which(apply(df[, names(breaks)], 2, sum) > 0))])
+  xlims <- c(-1, 1) * (max(x.log.max, log10(100)) + 0.1 + (0.5*snv.width) + snv.gap + indel.gap)
   xlims[1] <- xlims[1]-0.1
   if(add.ref){
     ref.df.for.lims <- merge(df[, c("class", "subclass")], ref.df, all=F, sort=F)
@@ -317,14 +318,14 @@ plot.size.volcano <- function(size.d, ref.size.d=NULL, ref.title=NULL,
          ybottom=0, ytop=snv.k, col=var.class.colors["snv"],
          border=NA, bty="n")
     if(do.ref.snvs){
-        if(ref.snv.k >= (1-ref.hex.gap)*snv.k){
-          snv.ref.color <-var.ref.color
-        }else{
-          snv.ref.color <-"white"
-        }
-        segments(x0=-0.5*snv.width, x1=0.5*snv.width, y0=ref.snv.k, y1=ref.snv.k,
-                 lty=ref.lty, col=snv.ref.color, xpd=T)
+      if(ref.snv.k >= (1-ref.hex.gap)*snv.k){
+        snv.ref.color <-var.ref.color
+      }else{
+        snv.ref.color <-"white"
       }
+      segments(x0=-0.5*snv.width, x1=0.5*snv.width, y0=ref.snv.k, y1=ref.snv.k,
+               lty=ref.lty, col=snv.ref.color, xpd=T)
+    }
   }
 
   # Add indels
@@ -344,41 +345,41 @@ plot.size.volcano <- function(size.d, ref.size.d=NULL, ref.title=NULL,
 
     # Add indel reference ticks
     if(do.ref.indels){
-        ref.indel.idx <- which(ref.breaks >= 0 & ref.breaks <= log10(50))
-        ref.ins.xy <- list("x"=ref.breaks[ref.indel.idx] + snv.gap + (0.5 * snv.width),
-                           "y"=ref.ins.k[ref.indel.idx])
-        ref.ins.col <- sapply(1:(length(ref.ins.xy$x)-1), function(r){
-          ovr.idx <- which(sapply(ins.xy$x, is.inside, interval=ref.ins.xy$x[c(r, r+1)]))
-          if(length(ovr.idx) == 0){return(var.ref.color)}
-          if(mean(ref.ins.xy$y[r] >= (1-ref.hex.gap)*ins.xy$y[ovr.idx]) >= 0.5){
-            return(var.ref.color)
-          }else{
-            return("white")
-          }
-        })
-        segments(x0=ref.ins.xy$x[-length(ref.ins.xy$x)],
-                 x1=ref.ins.xy$x[-1],
-                 y0=ref.ins.xy$y[-length(ref.ins.xy$y)],
-                 y1=ref.ins.xy$y[-length(ref.ins.xy$y)],
-                 lty=ref.lty, col=ref.ins.col, lend="butt", xpd=T)
+      ref.indel.idx <- which(ref.breaks >= 0 & ref.breaks <= log10(50))
+      ref.ins.xy <- list("x"=ref.breaks[ref.indel.idx] + snv.gap + (0.5 * snv.width),
+                         "y"=ref.ins.k[ref.indel.idx])
+      ref.ins.col <- sapply(1:(length(ref.ins.xy$x)-1), function(r){
+        ovr.idx <- which(sapply(ins.xy$x, is.inside, interval=ref.ins.xy$x[c(r, r+1)]))
+        if(length(ovr.idx) == 0){return(var.ref.color)}
+        if(mean(ref.ins.xy$y[r] >= (1-ref.hex.gap)*ins.xy$y[ovr.idx]) >= 0.5){
+          return(var.ref.color)
+        }else{
+          return("white")
+        }
+      })
+      segments(x0=ref.ins.xy$x[-length(ref.ins.xy$x)],
+               x1=ref.ins.xy$x[-1],
+               y0=ref.ins.xy$y[-length(ref.ins.xy$y)],
+               y1=ref.ins.xy$y[-length(ref.ins.xy$y)],
+               lty=ref.lty, col=ref.ins.col, lend="butt", xpd=T)
 
-        ref.del.xy <- list("x"=ref.breaks[ref.indel.idx] + snv.gap + (0.5 * snv.width),
-                           "y"=ref.del.k[ref.indel.idx])
-        ref.del.col <- sapply(1:(length(ref.del.xy$x)-1), function(r){
-          ovr.idx <- which(sapply(del.xy$x, is.inside, interval=ref.del.xy$x[c(r, r+1)]))
-          if(length(ovr.idx) == 0){return(var.ref.color)}
-          if(mean(ref.del.xy$y[r] >= (1-ref.hex.gap)*del.xy$y[ovr.idx]) >= 0.5){
-            return(var.ref.color)
-          }else{
-            return("white")
-          }
-        })
-        segments(x0=-ref.del.xy$x[-length(ref.del.xy$x)],
-                 x1=-ref.del.xy$x[-1],
-                 y0=ref.del.xy$y[-length(ref.del.xy$y)],
-                 y1=ref.del.xy$y[-length(ref.del.xy$y)],
-                 lty=ref.lty, col=ref.del.col, lend="butt", xpd=T)
-      }
+      ref.del.xy <- list("x"=ref.breaks[ref.indel.idx] + snv.gap + (0.5 * snv.width),
+                         "y"=ref.del.k[ref.indel.idx])
+      ref.del.col <- sapply(1:(length(ref.del.xy$x)-1), function(r){
+        ovr.idx <- which(sapply(del.xy$x, is.inside, interval=ref.del.xy$x[c(r, r+1)]))
+        if(length(ovr.idx) == 0){return(var.ref.color)}
+        if(mean(ref.del.xy$y[r] >= (1-ref.hex.gap)*del.xy$y[ovr.idx]) >= 0.5){
+          return(var.ref.color)
+        }else{
+          return("white")
+        }
+      })
+      segments(x0=-ref.del.xy$x[-length(ref.del.xy$x)],
+               x1=-ref.del.xy$x[-1],
+               y0=ref.del.xy$y[-length(ref.del.xy$y)],
+               y1=ref.del.xy$y[-length(ref.del.xy$y)],
+               lty=ref.lty, col=ref.del.col, lend="butt", xpd=T)
+    }
   }
 
   # Add indel axes
@@ -400,12 +401,16 @@ plot.size.volcano <- function(size.d, ref.size.d=NULL, ref.title=NULL,
     sv.idx <- which(breaks >= log10(50))
     gain.xy <- step.function(x=breaks[sv.idx] + snv.gap + indel.gap + (0.5*snv.width),
                              y=GAIN.k[sv.idx], offset=1)
+    keep.gain.xy <- which(!is.na(gain.xy$y))
+    gain.xy <- lapply(gain.xy, function(l){l[keep.gain.xy]})
     polygon(x=c(gain.xy$x, rev(gain.xy$x)),
             y=c(gain.xy$y, rep(0, length(gain.xy$x))),
             col=var.class.colors["sv"], border=NA, bty="n", xpd=T)
     # points(x=gain.xy$x, y=gain.xy$y, type="l", xpd=T)
     loss.xy <- step.function(x=breaks[sv.idx] + snv.gap + indel.gap + (0.5*snv.width),
                              y=LOSS.k[sv.idx], offset=1)
+    keep.loss.xy <- which(!is.na(loss.xy$y))
+    loss.xy <- lapply(loss.xy, function(l){l[keep.loss.xy]})
     polygon(x=-c(loss.xy$x, rev(loss.xy$x)),
             y=c(loss.xy$y, rep(0, length(loss.xy$x))),
             col=var.class.colors["sv"], border=NA, bty="n", xpd=T)
@@ -413,41 +418,41 @@ plot.size.volcano <- function(size.d, ref.size.d=NULL, ref.title=NULL,
 
     # Add SV reference ticks
     if(do.ref.svs){
-        ref.sv.idx <- which(ref.breaks >= log10(50))
-        ref.gain.xy <- list("x"=ref.breaks[sv.idx] + snv.gap + indel.gap + (0.5*snv.width),
-                            "y"=ref.GAIN.k[ref.sv.idx])
-        ref.gain.col <- sapply(1:(length(ref.gain.xy$x)-1), function(r){
-          ovr.idx <- which(sapply(gain.xy$x, is.inside, interval=ref.gain.xy$x[c(r, r+1)]))
-          if(length(ovr.idx) == 0){return(var.ref.color)}
-          if(mean(ref.gain.xy$y[r] >= (1-ref.hex.gap)*gain.xy$y[ovr.idx]) >= 0.5){
-            return(var.ref.color)
-          }else{
-            return("white")
-          }
-        })
-        segments(x0=ref.gain.xy$x[-length(ref.gain.xy$x)],
-                 x1=ref.gain.xy$x[-1],
-                 y0=ref.gain.xy$y[-length(ref.gain.xy$y)],
-                 y1=ref.gain.xy$y[-length(ref.gain.xy$y)],
-                 lty=ref.lty, col=ref.gain.col, lend="butt", xpd=T)
+      ref.sv.idx <- which(ref.breaks >= log10(50))
+      ref.gain.xy <- list("x"=ref.breaks[sv.idx] + snv.gap + indel.gap + (0.5*snv.width),
+                          "y"=ref.GAIN.k[ref.sv.idx])
+      ref.gain.col <- sapply(1:(length(ref.gain.xy$x)-1), function(r){
+        ovr.idx <- which(sapply(gain.xy$x, is.inside, interval=ref.gain.xy$x[c(r, r+1)]))
+        if(length(ovr.idx) == 0){return(var.ref.color)}
+        if(mean(ref.gain.xy$y[r] >= (1-ref.hex.gap)*gain.xy$y[ovr.idx]) >= 0.5){
+          return(var.ref.color)
+        }else{
+          return("white")
+        }
+      })
+      segments(x0=ref.gain.xy$x[-length(ref.gain.xy$x)],
+               x1=ref.gain.xy$x[-1],
+               y0=ref.gain.xy$y[-length(ref.gain.xy$y)],
+               y1=ref.gain.xy$y[-length(ref.gain.xy$y)],
+               lty=ref.lty, col=ref.gain.col, lend="butt")
 
-        ref.loss.xy <- list("x"=ref.breaks[sv.idx] + snv.gap + indel.gap + (0.5*snv.width),
-                            "y"=ref.LOSS.k[ref.sv.idx])
-        ref.loss.col <- sapply(1:(length(ref.loss.xy$x)-1), function(r){
-          ovr.idx <- which(sapply(loss.xy$x, is.inside, interval=ref.loss.xy$x[c(r, r+1)]))
-          if(length(ovr.idx) == 0){return(var.ref.color)}
-          if(mean(ref.loss.xy$y[r] >= (1-ref.hex.gap)*loss.xy$y[ovr.idx]) >= 0.5){
-            return(var.ref.color)
-          }else{
-            return("white")
-          }
-        })
-        segments(x0=-ref.loss.xy$x[-length(ref.loss.xy$x)],
-                 x1=-ref.loss.xy$x[-1],
-                 y0=ref.loss.xy$y[-length(ref.loss.xy$y)],
-                 y1=ref.loss.xy$y[-length(ref.loss.xy$y)],
-                 lty=ref.lty, col=ref.loss.col, lend="butt", xpd=T)
-      }
+      ref.loss.xy <- list("x"=ref.breaks[sv.idx] + snv.gap + indel.gap + (0.5*snv.width),
+                          "y"=ref.LOSS.k[ref.sv.idx])
+      ref.loss.col <- sapply(1:(length(ref.loss.xy$x)-1), function(r){
+        ovr.idx <- which(sapply(loss.xy$x, is.inside, interval=ref.loss.xy$x[c(r, r+1)]))
+        if(length(ovr.idx) == 0){return(var.ref.color)}
+        if(mean(ref.loss.xy$y[r] >= (1-ref.hex.gap)*loss.xy$y[ovr.idx]) >= 0.5){
+          return(var.ref.color)
+        }else{
+          return("white")
+        }
+      })
+      segments(x0=-ref.loss.xy$x[-length(ref.loss.xy$x)],
+               x1=-ref.loss.xy$x[-1],
+               y0=ref.loss.xy$y[-length(ref.loss.xy$y)],
+               y1=ref.loss.xy$y[-length(ref.loss.xy$y)],
+               lty=ref.lty, col=ref.loss.col, lend="butt")
+    }
   }
 
   # Add SV axes
@@ -501,7 +506,7 @@ plot.size.volcano <- function(size.d, ref.size.d=NULL, ref.title=NULL,
     }
     if(do.ref.svs){
       ref.legend.y <- max(ref.gain.xy$y[which(names(ref.gain.xy$x) %in%
-                                            names(which(ref.breaks >= log10(500))))],
+                                                names(which(ref.breaks >= log10(500))))],
                           na.rm=T) + (0.075*diff(par("usr")[3:4]))
     }else{
       ref.legend.y <- 0.925*par("usr")[4]
@@ -666,6 +671,7 @@ plot.size.by.af <- function(joint.d, bar.sep=0.1, parmar=c(2.6, 2.75, 0.25, 3.75
   xlims <- c(0, length(size.bins))
   ylims <- c(0, 1)
   af.pal <- rev(viridis(length(af.bins), begin=0.05, end=0.95))
+  parmar[4] <- parmar[4] * (1 + (length(af.bins)/8))
 
   # Prep plot area
   prep.plot.area(xlims, ylims, parmar, xaxs="r")
@@ -766,6 +772,17 @@ args <- parser$parse_args()
 #              "ref_title" = "gnomAD v4.1",
 #              "custom_constants" = "~/Desktop/Collins/VanAllen/jackie_younglung/data/yl_qc.custom_constants.R",
 #              "out_prefix" = "~/scratch/yl.qc.test")
+
+# # Peds DEV:
+# args <- list("size_distrib" = "~/scratch/ei_plot_dbg_1/Peds_cohort.size_distribution.merged.tsv.gz",
+#              "af_distrib" = "~/scratch/ei_plot_dbg_1/Peds_cohort.af_distribution.merged.tsv.gz",
+#              "joint_distrib" = "~/scratch/ei_plot_dbg_1/Peds_cohort.size_vs_af_distribution.merged.tsv.gz",
+#              "sv_sites" = "~/scratch/ei_plot_dbg_1/Peds_cohort.all_svs.bed.gz",
+#              "common_af" = 0.01,
+#              "ref_size_distrib" = "~/scratch/ei_plot_dbg_1/gnomAD_v4.1.size_distribution.merged.tsv.gz",
+#              "ref_af_distrib" = "~/scratch/ei_plot_dbg_1/gnomAD_v4.1.af_distribution.merged.tsv.gz",
+#              "ref_title" = "gnomAD_v4.1",
+#              "out_prefix" = "~/scratch/ei_plot_dbg_1/Peds_cohort")
 
 # Load custom constants if optioned
 if(!is.null(args$custom_constants)){

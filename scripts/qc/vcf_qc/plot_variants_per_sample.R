@@ -604,14 +604,14 @@ interclass.scatter <- function(plot.df, pop=NULL, title=NULL, label.units=NULL,
     pw.col <- rep("black", nrow(plot.df))
   }else{
     n.pops <- length(unique(pop))
-    pop <- toupper(pop)
-    if(all(pop %in% names(pop.colors))){
+    if(all(toupper(pop) %in% names(pop.colors))){
+      pop <- toupper(pop)
       pop.pal <- pop.colors[sort(unique(pop))]
     }else{
       pop.pal <- categorical.rainbow(n.pops)
-      names() <- unique(pop)
+      names(pop.pal) <- unique(pop)
     }
-    pw.col <- pop.colors[pop[rownames(plot.df)]]
+    pw.col <- pop.pal[pop[rownames(plot.df)]]
   }
 
   # Prepare plotting area
@@ -665,7 +665,8 @@ interclass.scatter <- function(plot.df, pop=NULL, title=NULL, label.units=NULL,
     if(all(pop %in% names(pop.abbreviations))){
       pop.labs <- pop.abbreviations[names(pop.labs.at)]
     }else{
-      pop.labs <- names(pop.labs.at)
+      pop.labs <- sapply(names(pop.labs.at), shorten.text,
+                         width=diff(par("usr")[1:2])/3)
     }
     pop.labs.at <- smart.spacing(pop.labs.at, min.dist=0.025*diff(par("usr")[3:4]),
                                  lower.limit=par("usr")[3], upper.limit=par("usr")[4])
@@ -819,6 +820,14 @@ args <- parser$parse_args()
 #              "subset_samples" = "~/Desktop/Collins/VanAllen/jackie_younglung/younglung_metadata/YL.samples_with_complete_variant_data.list",
 #              "custom_constants" = "~/Desktop/Collins/VanAllen/jackie_younglung/data/yl_qc.custom_constants.R",
 #              "out_prefix" = "~/scratch/yl_terra_dev")
+
+# # DEV (Peds):
+# args <- list("genotype_dist_tsv" = "~/scratch/ei_plot_dbg_2/Peds_cohort.genotype_distribution.merged.tsv.gz",
+#              "ancestry_labels" = "~/scratch/ei_plot_dbg_2/ancestry.tsv",
+#              "phenotype_labels" = "~/scratch/ei_plot_dbg_2/pheno.tsv",
+#              "subset_samples" = "~/scratch/ei_plot_dbg_2/pediatric_cohort.list",
+#              "custom_constants" = NULL,
+#              "out_prefix" = "~/scratch/ei_plot_dbg_2/Peds_cohort")
 
 # Load custom constants if optioned
 if(!is.null(args$custom_constants)){
