@@ -686,6 +686,8 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
   "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.0,
   "CollectVcfQcMetrics.BenchmarkSites.snv_mem_scalar": 4.0,
+  "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 40,
+  "CollectVcfQcMetrics.CalcCommonLd.max_disk_gb": 1000,
   "CollectVcfQcMetrics.ChunkCommonVcf.disk_gb": 1000,
   "CollectVcfQcMetrics.ChunkCommonVcf.n_preemptible": 0,
   "CollectVcfQcMetrics.ChunkCommonVcf.mem_gb": 15.5,
