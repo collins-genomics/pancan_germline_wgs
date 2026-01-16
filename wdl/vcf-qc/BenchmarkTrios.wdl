@@ -29,6 +29,9 @@ workflow BenchmarkTrios {
     String output_prefix
     Float common_af_cutoff = 0.01
 
+    Float? benchmarking_mem_gb
+    Int? benchmarking_n_cpu
+
     String bcftools_docker
     String g2c_analysis_docker
   }
@@ -84,6 +87,8 @@ workflow BenchmarkTrios {
           trios_fam = trios_fam,
           trios_samples_list = trios_samples_list,
           common_af_cutoff = common_af_cutoff,
+          mem_gb = benchmarking_mem_gb,
+          n_cpu = benchmarking_n_cpu,
           output_prefix = ei_prefix + "." + basename(vcf_info.left, ".vcf.gz"),
           g2c_analysis_docker = g2c_analysis_docker
       }
@@ -124,7 +129,7 @@ task BenchmarkTrios {
   }
 
   String out_fname = "~{output_prefix}.mendelian_violations.distribs.tsv.gz"
-  Int disk_gb = ceil(2 * size([vcf, eligible_sites_bed], "GB")) + 5
+  Int disk_gb = ceil(3 * size([vcf, eligible_sites_bed], "GB")) + 20
 
   command <<<
     set -eu -o pipefail
@@ -138,6 +143,7 @@ task BenchmarkTrios {
     # Don't do this in one single pipe to avoid VM timeouts for very large VCFs
     bcftools view --no-update --force-samples \
       --samples-file ~{trios_samples_list} \
+      --include 'ID==@elig_vids.list' \
       ~{vcf} \
     | bcftools view --no-update \
       --include 'GT="alt" | FILTER="MULTIALLELIC"' \
