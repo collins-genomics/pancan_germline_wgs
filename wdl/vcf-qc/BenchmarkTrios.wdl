@@ -118,8 +118,8 @@ task BenchmarkTrios {
     Float common_af_cutoff = 0.01
     String output_prefix
     
-    Float mem_gb = 3.75
-    Int n_cpu = 2
+    Float mem_gb = 1.75
+    Int n_cpu = 1
     String g2c_analysis_docker
   }
 
