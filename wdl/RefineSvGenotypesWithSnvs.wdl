@@ -209,6 +209,7 @@ workflow RefineSvGenotypesWithSnvs {
             out_prefix = shard_prefix + ".eligible_snvs",
             bcftools_concat_options = "--allow-overlaps --remove-duplicates",
             check_index_localization = false,
+            mem_gb = 1.75,
             bcftools_docker = g2c_analysis_docker
         }
       }
@@ -353,7 +354,7 @@ task DefineQueryIntervals {
 
   runtime {
     docker: bcftools_docker
-    memory: "3.5 GB"
+    memory: "1.75 GB"
     cpu: 2
     disks: "local-disk " + disk_gb +" HDD"
     preemptible: 1
@@ -424,8 +425,8 @@ task ImputeSvs {
 
     String g2c_analysis_docker
 
-    Float mem_gb = 7.5
-    Int n_cpu = 4
+    Float mem_gb = 3.5
+    Int n_cpu = 2
     Int n_preemptible = 1
   }
 
@@ -663,6 +664,8 @@ task MaskSvGts {
 
     String output_prefix
 
+    Float mem_gb = 1.75
+
     String g2c_analysis_docker
   }
 
@@ -699,7 +702,7 @@ task MaskSvGts {
 
   runtime {
     docker: g2c_analysis_docker
-    memory: "3.75 GB"
+    memory: "~{mem_gb} GB"
     cpu: 2
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: 1
@@ -723,7 +726,7 @@ task QuerySnvs {
 
     String output_prefix
 
-    Int disk_gb = 275
+    Int disk_gb = 30
     Float mem_gb = 7.5
     Int n_cpu = 2
     Int n_preemptible = 1

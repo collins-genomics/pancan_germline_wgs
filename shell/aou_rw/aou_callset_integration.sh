@@ -273,7 +273,7 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotInitialGatksvQcMetrics.i
   "PlotVcfQcMetrics.common_af_cutoff": 0.001,
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/dfci-g2c.v1.gatksv.qc_targets.tsv",
-  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:64501fc",
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:90f40f9",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.initial_gatksv_qc",
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
@@ -429,6 +429,8 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.RefineSvGenotypesWithSnvs.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
+  --submission-gate 240 \
+  --vm-gate 600 \
   --max-attempts 3
 
 

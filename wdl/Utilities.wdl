@@ -475,7 +475,7 @@ task IntersectTextFiles {
   input {
     Array[File] files
     String outfile = "intersection.txt"
-    Int disk_gb = 25
+    Int disk_gb = 20
     String docker
   }
 
@@ -547,7 +547,7 @@ task ShardTextFile {
     Int? lines_per_split       # If both are provided, n_splits will be used
     String out_prefix
     Boolean shuffle = false
-    Float mem_gb = 3.5
+    Float mem_gb = 1.75
     String g2c_analysis_docker
   }
 
@@ -572,7 +572,7 @@ task ShardTextFile {
   runtime {
     docker: g2c_analysis_docker
     memory: "~{mem_gb} GB"
-    cpu: 2
+    cpu: 1
     disks: "local-disk ~{disk_gb} HDD"
     preemptible: 3
   }
@@ -590,7 +590,7 @@ task ShardVcf {
   }
 
   String out_prefix = basename(vcf, ".vcf.gz") + ".sharded"
-  Int use_disk_gb = select_first([disk_gb, ceil(5 * size(vcf, "GB")) + 20])
+  Int use_disk_gb = select_first([disk_gb, ceil(5 * size(vcf, "GB")) + 15])
 
   command <<<
     set -eu -o pipefail
@@ -755,9 +755,9 @@ task StreamSamplesFromVcfHeader {
 
   runtime {
     docker: bcftools_docker
-    memory: "3.75 GB"
-    cpu: 2
-    disks: "local-disk 25 HDD"
+    memory: "1.7 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
     preemptible: 3
   }
 }
