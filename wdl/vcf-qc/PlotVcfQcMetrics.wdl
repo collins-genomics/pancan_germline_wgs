@@ -357,29 +357,34 @@ workflow PlotVcfQcMetrics {
   # If necessary, collapse peak LD stats
   if ( defined(peak_ld_stat_tsvs) ) {
     Array[File] peak_ld_stat_tsv_use = select_first([peak_ld_stat_tsvs])
-    if ( length(peak_ld_stat_tsv_use) > 1 ) {
+    # First subset LD stats to only variants in common SNV, indel, or SV BED files
+    # This makes merging easier and final files smaller
+    scatter ( ld_tsv in peak_ld_stat_tsv_use ) {
+      call QcTasks.FilterTextFileByColumn as SubsetLdStatsByVid {
+        input:
+          input_txt = ld_tsv,
+          key_files = select_all([pw_common_snv_vids, pw_common_indel_vids, pw_common_sv_vids]),
+          column_number = 1,
+          outfile_name = basename(ld_tsv, ".tsv.gz") + ".subsetted.tsv.gz",
+          postprocessing_command = "| gzip -c ",
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+    }
+    Array[File] filtered_ld_tsvs = SubsetLdStatsByVid.filtered_txt
+    # Subsequently, concatenate filtered LD stats
+    if ( length(filtered_ld_tsvs) > 1 ) {
       call QcTasks.ConcatTextFiles as CollapseLdStats {
         input:
-          shards = peak_ld_stat_tsv_use,
+          shards = filtered_ld_tsvs,
           concat_command = "zcat",
           sort_command = "sort -Vk1,1 -k2,2V",
           compression_command = "gzip -c",
           input_has_header = true,
-          output_filename = output_prefix + ".peak_ld_stats.tsv.gz",
+          output_filename = output_prefix + ".peak_ld_stats.subsetted.tsv.gz",
           docker = bcftools_docker
       }
     }
-    File ld_stats_tsv = select_first([CollapseLdStats.merged_file, peak_ld_stat_tsv_use[0]])
-    # Subset LD stats to only variants in common SNV, indel, or SV BED files
-    call QcTasks.FilterTextFileByColumn as SubsetLdStatsByVid {
-      input:
-        input_txt = ld_stats_tsv,
-        key_files = select_all([pw_common_snv_vids, pw_common_indel_vids, pw_common_sv_vids]),
-        column_number = 1,
-        outfile_name = output_prefix + ".peak_ld_stats.subsetted.tsv.gz",
-        postprocessing_command = "| gzip -c ",
-        g2c_analysis_docker = g2c_analysis_docker
-    }
+    File ld_stats_tsv = select_first([CollapseLdStats.merged_file, filtered_ld_tsvs[0]])
   }
 
   # Preprocess site benchmarking, if provided
@@ -590,7 +595,7 @@ workflow PlotVcfQcMetrics {
       common_svs_bed = common_svs_bed,
       common_svs_were_downsampled = common_svs_were_downsampled,
       n_common_svs = n_common_svs,
-      ld_stats_tsv = SubsetLdStatsByVid.filtered_txt,
+      ld_stats_tsv = ld_stats_tsv,
       output_prefix = output_prefix,
       ref_title = ref_cohort_plot_title,
       custom_plotting_constants = custom_plotting_constants,

@@ -345,8 +345,10 @@ cleanup_garbage
 
 
 #################################################
-# Refine common SV genotypes with flanking SNVs #
+# Prepare covariates for SV genotype imputation #
 #################################################
+
+# This block only needs to be run once for the entire cohort
 
 # Reaffirm staging directory
 staging_dir=staging/sv_gt_cleanup
@@ -380,6 +382,18 @@ gzip -f $staging_dir/dfci-g2c.v1.sv_imputation_covariates.tsv
 gsutil -m cp \
   $staging_dir/dfci-g2c.v1.sv_imputation_covariates.tsv.gz \
   $MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/
+
+
+
+#################################################
+# Refine common SV genotypes with flanking SNVs #
+#################################################
+
+# This block must be run once per workspace for parallelization
+
+# Reaffirm staging directory
+staging_dir=staging/sv_gt_cleanup
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
 # Make lists of all SNV VCFs and indexes for each contig
 while read contig; do

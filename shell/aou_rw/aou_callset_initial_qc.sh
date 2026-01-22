@@ -903,7 +903,7 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotInitialVcfQcMetrics.inpu
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_targets.tsv",
   "PlotVcfQcMetrics.deduplicate": true,
-  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:9f33a42",
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:90f40f9",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.initial_qc",
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
