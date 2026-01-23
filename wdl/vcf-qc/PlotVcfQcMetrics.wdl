@@ -239,7 +239,7 @@ workflow PlotVcfQcMetrics {
       call QcTasks.DownsampleBed as DownsampleCommonSnvs {
         input:
           bed = common_snvs_bed,
-          downsample_ratio = floor(CountCommonSnvs.num_records / pointwise_site_downsample_limit),
+          downsample_ratio = floor(n_common_snvs / pointwise_site_downsample_limit),
           return_record_ids = true,
           docker = g2c_analysis_docker
       }
@@ -282,7 +282,7 @@ workflow PlotVcfQcMetrics {
       call QcTasks.DownsampleBed as DownsampleCommonIndels {
         input:
           bed = common_indels_bed,
-          downsample_ratio = floor(CountCommonIndels.num_records / pointwise_site_downsample_limit),
+          downsample_ratio = floor(n_common_indels / pointwise_site_downsample_limit),
           return_record_ids = true,
           docker = g2c_analysis_docker
       }
@@ -325,7 +325,7 @@ workflow PlotVcfQcMetrics {
       call QcTasks.DownsampleBed as DownsampleCommonSvs {
         input:
           bed = common_svs_bed,
-          downsample_ratio = floor(CountCommonSvs.num_records / pointwise_site_downsample_limit),
+          downsample_ratio = floor(n_common_svs / pointwise_site_downsample_limit),
           return_record_ids = true,
           docker = g2c_analysis_docker
       }
@@ -589,10 +589,10 @@ workflow PlotVcfQcMetrics {
       common_snvs_bed = pw_common_snvs_bed,
       common_snvs_were_downsampled = common_snvs_were_downsampled,
       n_common_snvs = n_common_snvs,
-      common_indels_bed = common_indels_bed,
+      common_indels_bed = pw_common_indels_bed,
       common_indels_were_downsampled = common_indels_were_downsampled,
       n_common_indels = n_common_indels,
-      common_svs_bed = common_svs_bed,
+      common_svs_bed = pw_common_svs_bed,
       common_svs_were_downsampled = common_svs_were_downsampled,
       n_common_svs = n_common_svs,
       ld_stats_tsv = ld_stats_tsv,

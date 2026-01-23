@@ -303,7 +303,7 @@ ld.plot <- function(df, ld, vc2, title, ld.cutoffs=c(0.2, 0.5, 0.8),
 
 # Plot wrapper function for all site-level pointwise plots
 pointwise.plots <- function(df, ld, n.sites, out.prefix, fname.suffix="all",
-                            title="All variant"){
+                            title="All variant", hwe.topo=FALSE){
 
   ss.df <- data.frame("analysis"=character(), "measure"=character(),
                       "value"=numeric(), "n"=numeric())
@@ -323,10 +323,12 @@ pointwise.plots <- function(df, ld, n.sites, out.prefix, fname.suffix="all",
                             "weighted_accuracy", mean.hwe.acc, length(df$hwe_dist))
 
   # HWE topo heatmap as .pdf
-  pdf(paste(out.prefix, fname.suffix, "hwe.topo.pdf", sep="."), height=2.25, width=2.25)
-  m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""), style="topo",
-                    true.n.sites=n.sites)
-  dev.off()
+  if(hwe.topo){
+    pdf(paste(out.prefix, fname.suffix, "hwe.topo.pdf", sep="."), height=2.25, width=2.25)
+    m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""), style="topo",
+                      true.n.sites=n.sites)
+    dev.off()
+  }
 
   # Exit now if LD stats are not provided
   if(is.null(ld)){
@@ -390,6 +392,9 @@ parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric"
                     help="Allele frequency threshold for common variants")
 parser$add_argument("--ld-stats", metavar=".tsv", type="character",
                     help="Peak LD R2 per variant for each other variant class")
+parser$add_argument("--hwe-topo-heatmap", action="store_true", default=FALSE,
+                    help=paste("Also generate a topographical heatmap of",
+                               "Hardy-Weinberg density"))
 parser$add_argument("--custom-constants", metavar=".R", type="character",
                     help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
@@ -408,6 +413,7 @@ args <- parser$parse_args()
 #              "deduplicate" = TRUE,
 #              "common_af" = 0.001,
 #              "ld_stats" = "~/scratch/renamed.common.peak_ld_by_vc.tsv.gz",
+#              "hwe_topo_heatmap" = FALSE,
 #              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/qc.test")
 
@@ -441,7 +447,8 @@ if(!is.null(args$snvs)){
 
   # Plot SNV metrics
   snv.ss <- pointwise.plots(snv.df, ld, n.snvs, args$out_prefix,
-                            fname.suffix="snv", title="Common SNV")
+                            fname.suffix="snv", title="Common SNV",
+                            args$hwe_topo_heatmap)
 }else{
   snv.df <- NULL
   snv.ss <- NULL
@@ -456,7 +463,8 @@ if(!is.null(args$indels)){
 
   # Plot indel metrics
   indel.ss <- pointwise.plots(indel.df, ld, n.indels, args$out_prefix,
-                              fname.suffix="indel", title="Common indel")
+                              fname.suffix="indel", title="Common indel",
+                              args$hwe_topo_heatmap)
 
 }else{
   indel.df <- NULL
@@ -472,7 +480,8 @@ if(!is.null(args$svs)){
 
   # Plot SV metrics
   sv.ss <- pointwise.plots(sv.df, ld, n.svs, args$out_prefix,
-                           fname.suffix="sv", title="Common SV")
+                           fname.suffix="sv", title="Common SV",
+                           args$hwe_topo_heatmap)
 }else{
   sv.df <- NULL
   sv.ss <- NULL
@@ -483,14 +492,16 @@ if(!is.null(args$svs)){
 if(args$combine){
   # Merge all data
   all.df <- do.call("rbind", list(snv.df, indel.df, sv.df))
+  rm(snv.df, indel.df, sv.df)
   if(args$deduplicate){
-    all.df <- all.df[which(!duplicated(all.df$vid)), ]
+    all.df <- all.df[which(!duplicated(rownames(all.df))), ]
   }
   n.all <- n.snvs + n.indels + n.svs
 
   # Plot all metrics
   all.ss <- pointwise.plots(all.df, ld, n.all, args$out_prefix,
-                            fname.suffix="all", title="All common variant")
+                            fname.suffix="all", title="All common variant",
+                            args$hwe_topo_heatmap)
 }else{
   all.ss <- NULL
 }

@@ -166,10 +166,14 @@ task CheckBedSize {
     ~{concat_command} ~{bed} \
     | cut -f1 | grep -ve '^#' | wc -l \
     > line_count.txt
+
+    echo -e "Number of lines:\n"
+    cat line_count.txt
   >>>
 
   output {
     Int num_records = read_int("line_count.txt")
+    File line_count_file = "line_count.txt"
   }
 
   runtime {
