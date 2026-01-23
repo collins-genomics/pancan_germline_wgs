@@ -39,7 +39,7 @@ read.bed <- function(bed.in, common_af=0, deduplicate=FALSE, autosomes.only=T){
   df <- df[which(df$af >= common_af), c("vid", keep.cols)]
   df <- df[complete.cases(df), ]
   if(deduplicate){
-    df <- df[which(!duplicated(df)), ]
+    df <- df[which(!duplicated(df$vid)), ]
   }
 
   # Compute HWE ternary coordinates
@@ -426,7 +426,7 @@ if(!is.null(args$ld_stats)){
   ld <- read.table(args$ld_stats, header=T, sep="\t", check.names=F,
                    quote="", comment.char="")
   if(args$deduplicate){
-    ld <- ld[which(!duplicated(ld)), ]
+    ld <- ld[which(!duplicated(ld[, 1:2])), ]
   }
   colnames(ld)[1] <- gsub("#", "", colnames(ld)[1])
 }else{
@@ -484,7 +484,7 @@ if(args$combine){
   # Merge all data
   all.df <- do.call("rbind", list(snv.df, indel.df, sv.df))
   if(args$deduplicate){
-    all.df <- all.df[which(!duplicated(all.df)), ]
+    all.df <- all.df[which(!duplicated(all.df$vid)), ]
   }
   n.all <- n.snvs + n.indels + n.svs
 

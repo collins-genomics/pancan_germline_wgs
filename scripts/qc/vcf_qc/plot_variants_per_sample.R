@@ -435,7 +435,8 @@ add.waterfall.markers <- function(order.df, pop.map, pheno.map,
     pop.names <- names(pop.map)
     names(pop.names) <- names(pop.pal) <- names(pop.map)
   }
-  if(all(pheno.labs %in% names(cancer.colors))){
+  if(all(pheno.labs %in% names(cancer.colors))
+     & all(pheno.labs %in% names(cancer.names))){
     pheno.pal <- cancer.colors[names(pheno.map)]
     pheno.names <- cancer.names[names(pheno.map)]
   }else{
@@ -822,12 +823,12 @@ args <- parser$parse_args()
 #              "out_prefix" = "~/scratch/yl_terra_dev")
 
 # # DEV (Peds):
-# args <- list("genotype_dist_tsv" = "~/scratch/ei_plot_dbg_2/Peds_cohort.genotype_distribution.merged.tsv.gz",
-#              "ancestry_labels" = "~/scratch/ei_plot_dbg_2/ancestry.tsv",
-#              "phenotype_labels" = "~/scratch/ei_plot_dbg_2/pheno.tsv",
-#              "subset_samples" = "~/scratch/ei_plot_dbg_2/pediatric_cohort.list",
+# args <- list("genotype_dist_tsv" = "~/scratch/ei_dbg_jan23_1/Peds_cohort.genotype_distribution.merged.tsv.gz",
+#              "ancestry_labels" = "~/scratch/ei_dbg_jan23_1/ancestry.tsv",
+#              "phenotype_labels" = "~/scratch/ei_dbg_jan23_1/pheno.tsv",
+#              "subset_samples" = NULL,
 #              "custom_constants" = NULL,
-#              "out_prefix" = "~/scratch/ei_plot_dbg_2/Peds_cohort")
+#              "out_prefix" = "~/scratch/Peds_cohort")
 
 # Load custom constants if optioned
 if(!is.null(args$custom_constants)){

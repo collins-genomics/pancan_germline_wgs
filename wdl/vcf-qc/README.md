@@ -40,7 +40,9 @@ We currently support two options for QC pipeline deployment:
 
 1. Both steps of this workflow can be deployed manually via Cromwell with [cromshell](https://github.com/broadinstitute/cromshell). This is how we have deployed this pipeline for the DFCI G2C project. When deploying directly via a stand-alone Cromwell server, you must include **all WDLs in this directory in a dependencies.zip** provided to Cromwell.  
 
-2. We have also registered this pipeline on [Dockstore](https://dockstore.org/). For Terra users, this is the easiest route for deploying this pipeline. Simply navigate to the Dockstore pages for [part 1 (metric collection)](https://dockstore.org/workflows/github.com/vanallenlab/pancan_germline_wgs/CollectVcfQcMetrics) and [part 2 (plotting)](https://dockstore.org/workflows/github.com/vanallenlab/pancan_germline_wgs/PlotVcfQcMetrics:posthoc_filtering), export both of them to your Terra workspace, and run them as you would any other workflow. All dependencies will be handled for you by Dockstore!  
+2. We have also registered this pipeline on [Dockstore](https://dockstore.org/). For Terra users, this is the easiest route for deploying this pipeline. Simply navigate to the Dockstore pages for [part 1 (metric collection)](https://dockstore.org/workflows/github.com/vanallenlab/pancan_germline_wgs/CollectVcfQcMetrics) and [part 2 (plotting)](https://dockstore.org/workflows/github.com/vanallenlab/pancan_germline_wgs/PlotVcfQcMetrics:posthoc_filtering), export both of them to your Terra workspace, and run them as you would any other workflow. All dependencies will be handled for you by Dockstore!
+
+**Important note for Terra users:** Due to Terra's data model, if you collect QC per chromosome with site and/or sample benchmarking and feed these as inputs to QC plotting using syntax like `contig_seg.contig.benchmarking_data` (for example), you will likely need to set `transpose_site_benchmarking_nested_arrays` and/or `transpose_sample_benchmarking_nested_arrays` to `true` for all data to be properly ingested. See full input documentation below for more information.  
 
 ### Inputs  
 
@@ -129,7 +131,7 @@ These inputs are _technically_ "optional" in the strict sense of WDL syntax, but
 | `trios_fam_file`                | `File?`   | —       | PLINK `.fam` file defining trios for Mendelian analyses.                                                                                               |
 | `all_samples_fam_file`          | `File?`   | —       | PLINK-style `.fam` file with sex encodings for all samples; required for LD analysis involving sex chromosomes.                                        |
 | `twins_tsv`                     | `File?`   | —       | Two-column TSV listing sample IDs for pairs of technical replicates / identical twins.                                                                 |
-| `sample_priority_tsv`           | `File?`   | —       | TSV defining sample priority tiers (column 2, integer) and sampling weights (column 3, float) when downsampling callset for all sample-level analyses. |
+| `sample_priority_tsv`           | `File?`   | —       | TSV defining sample priority tiers (column 2, integer) and sampling weights (column 3, float) when downsampling callset for all sample-level analyses. All samples with higher values for `tier` will be sampled before moving to lower tiers. |
 | `n_for_sample_level_analyses`   | `Int`     | `1000`  | Number of samples retained for all sample-level analyses (benchmarking, twins, trios).                                                                 |
 
 #### Site-level benchmarking

@@ -126,10 +126,15 @@ plot.af.scatter <- function(df, title=NULL, common.af=NULL, ref.prefix=NULL,
 
   # Add points
   if(is.null(pt.params)){
-    density.topomap(plot.vals[, 1], jitter(plot.vals[, 2]),
-                    xlims=c(min.af, 0), ylims=c(min.af, 0),
-                    palette.fxn=af.topo.pal,
-                    contour.levels=6)
+    tryCatch(density.topomap(plot.vals[, 1], jitter(plot.vals[, 2]),
+                             xlims=c(min.af, 0), ylims=c(min.af, 0),
+                             palette.fxn=af.topo.pal,
+                             contour.levels=6),
+             error=function(e){
+               cat(paste("Warning: unable to generate topographic map of AF",
+                           "correlations for data frame with head as follows:\n"))
+               print(head(df))
+             })
   }else{
     pw.pal <- inferno(101, alpha=pt.alpha, begin=0.075, end=0.9)
     pw.col.idx <- ceiling(100 * log10(sapply(af.d, function(v){min(c(v, 10))}))) + 1
