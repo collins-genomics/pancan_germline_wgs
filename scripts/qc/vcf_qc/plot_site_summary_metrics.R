@@ -95,7 +95,7 @@ get.af.ss <- function(af.d, common.af=0.01){
 plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
                                ref.size.d=NULL, ref.title=NULL,
                                bar.sep=0.1, vc.sep=0.35, ref.pt.cex=2/3,
-                               parmar=c(0.1, 7.5, 2, 2.1)){
+                               parmar=c(0.1, 7.5, 2, 4.5)){
 
   # Get summary statistics for output .tsv
   ss.df <- data.frame("analysis"=character(), "measure"=character(),
@@ -110,6 +110,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
       rep(sum(df[which(df$subclass == vsc), -(1:2)]), 2))
   })))
   colnames(vc.counts) <- colnames(vsc.counts) <- colnames(ss.df)
+  vc.sums <- c()
   if(has.short.variants){
     n.snv <- as.numeric(vc.counts[vc.counts$analysis == "site_count.snv", "n"])
     titv.r <- as.numeric(vsc.counts[vsc.counts$analysis == "site_count.ti", "n"]) / n.snv
@@ -119,6 +120,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
                                "measure"=c("ti_tv_ratio", "ins_del_ratio"),
                                "value"=c(titv.r, insdel.r),
                                "n"=c(n.snv, n.indel))
+    vc.sums <- c("snv" = n.snv, "indel" = n.indel)
   }else{
     short.ratios <- data.frame("analysis"=character(), "measure"=character(),
                                "value"=numeric(), "n"=numeric())
@@ -128,6 +130,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
     DUPDEL.r <- sum(as.numeric(vsc.counts[vsc.counts$analysis %in% c("site_count.DUP", "site_count.INS"), "n"])) / n.sv
     sv.ratios <- data.frame("analysis"="site_ratios.sv", "measure"="DUP_DEL_ratio",
                             "value"=DUPDEL.r, "n"=n.sv)
+    vc.sums["sv"] = n.sv
   }else{
     sv.ratios <- data.frame("analysis"=character(), "measure"=character(),
                             "value"=numeric(), "n"=numeric())
@@ -168,7 +171,14 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
     if(lk < 100000){
       prettyNum(lk, big.mark=",")
     }else{
-      clean.numeric.labels(lk, acceptable.decimals=1, min.label.length=3)
+      clean.numeric.labels(lk, min.label.length=3, max.label.length=3)
+    }
+  })
+  vc.sum.labs <- sapply(vc.sums, function(vs){
+    if(vs < 100000){
+      prettyNum(vs, big.mark=",")
+    }else{
+      clean.numeric.labels(vs, min.label.length=3, max.label.length=3)
     }
   })
   bar.at <- c(1)
@@ -226,24 +236,41 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
   # Add left margin labels
   axis(2, at=bar.at-0.5, las=2, line=-0.9, tick=F,
        labels=var.subclass.names.short[df$subclass], cex.axis=5/6)
-  vc.x <- -0.9 * diff(par("usr")[1:2])
+  vc.x <- -1 * diff(par("usr")[1:2])
   bracket.lab.buf <- -0.075 * vc.x
+  vc.x.r <- 1.525 * diff(par("usr")[1:2])
+
+  # Add brackets to left and right margins
   if(has.short.variants){
     snv.bracket.y <- c(min(bar.at[vc.to.vsc.map[["snv"]]], na.rm=T) - 1 + bar.sep,
                        max(bar.at[vc.to.vsc.map[["snv"]]], na.rm=T) - bar.sep)
-    staple.bracket(x0=vc.x, x1=vc.x, y0=snv.bracket.y[1], y1=snv.bracket.y[2],
+    staple.bracket(x0=vc.x, x1=vc.x,
+                   y0=snv.bracket.y[1], y1=snv.bracket.y[2],
                    staple.len=0.35, accent.len=0.2,
                    staple.accent.color=var.class.colors["snv"])
     text(x=vc.x+bracket.lab.buf, y=mean(snv.bracket.y)-0.1, labels="SNVs",
          cex=5/6, pos=2, xpd=T)
+    staple.bracket(x0=vc.x.r, x1=vc.x.r,
+                   y0=snv.bracket.y[1], y1=snv.bracket.y[2],
+                   staple.len=-0.35, accent.len=-0.2,
+                   staple.accent.color=var.class.colors["snv"])
+    text(x=vc.x.r-bracket.lab.buf, y=mean(snv.bracket.y)-0.1,
+         labels=vc.sum.labs["snv"], cex=4.5/6, pos=4, xpd=T)
 
     indel.bracket.y <- c(min(bar.at[vc.to.vsc.map[["indel"]]], na.rm=T) - 1 + bar.sep,
                          max(bar.at[vc.to.vsc.map[["indel"]]], na.rm=T) - bar.sep)
-    staple.bracket(x0=vc.x, x1=vc.x, y0=indel.bracket.y[1], y1=indel.bracket.y[2],
+    staple.bracket(x0=vc.x, x1=vc.x,
+                   y0=indel.bracket.y[1], y1=indel.bracket.y[2],
                    staple.len=0.35, accent.len=0.2,
                    staple.accent.color=var.class.colors["indel"])
-    text(x=vc.x+bracket.lab.buf, y=mean(indel.bracket.y)-0.1, labels="Indels\n(1-49 bp)",
-         cex=5/6, pos=2, xpd=T)
+    text(x=vc.x+bracket.lab.buf, y=mean(indel.bracket.y)-0.1,
+         labels="Indels\n(1-49 bp)", cex=5/6, pos=2, xpd=T)
+    staple.bracket(x0=vc.x.r, x1=vc.x.r,
+                   y0=indel.bracket.y[1], y1=indel.bracket.y[2],
+                   staple.len=-0.35, accent.len=-0.2,
+                   staple.accent.color=var.class.colors["indel"])
+    text(x=vc.x.r-bracket.lab.buf, y=mean(indel.bracket.y)-0.1,
+         labels=vc.sum.labs["indel"], cex=4.5/6, pos=4, xpd=T)
   }
   if(has.svs){
     sv.bracket.y <- c(min(bar.at[vc.to.vsc.map[["sv"]]], na.rm=T) - 1 + bar.sep,
@@ -252,8 +279,13 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
                    staple.len=0.35, accent.len=0.2,
                    staple.accent.color=var.class.colors["sv"])
     text(x=vc.x+bracket.lab.buf, y=mean(sv.bracket.y)-0.1,
-         labels="SVs\n(>49 bp)",
-         cex=5/6, pos=2, xpd=T)
+         labels="SVs\n(>49 bp)", cex=5/6, pos=2, xpd=T)
+    staple.bracket(x0=vc.x.r, x1=vc.x.r,
+                   y0=sv.bracket.y[1], y1=sv.bracket.y[2],
+                   staple.len=-0.35, accent.len=-0.2,
+                   staple.accent.color=var.class.colors["sv"])
+    text(x=vc.x.r-bracket.lab.buf, y=mean(sv.bracket.y)-0.1,
+         labels=vc.sum.labs["sv"], cex=4.5/6, pos=4, xpd=T)
   }
 
   return(ss.df)
@@ -656,7 +688,8 @@ plot.af.distribs <- function(af.df, breaks, ref.af.df=NULL, colors=NULL,
 }
 
 # Stacked barplot of AF bins by variant size
-plot.size.by.af <- function(joint.d, bar.sep=0.1, parmar=c(2.6, 2.75, 0.25, 3.75)){
+plot.size.by.af <- function(joint.d, bar.sep=0.1,
+                            parmar=c(2.6, 2.75, 0.25, 3.75)){
   # Convert data into proportions
   df <- joint.d$df
   af.bins <- joint.d$breaks
@@ -671,7 +704,6 @@ plot.size.by.af <- function(joint.d, bar.sep=0.1, parmar=c(2.6, 2.75, 0.25, 3.75
   xlims <- c(0, length(size.bins))
   ylims <- c(0, 1)
   af.pal <- rev(viridis(length(af.bins), begin=0.05, end=0.95))
-  parmar[4] <- parmar[4] * (1 + (length(af.bins)/8))
 
   # Prep plot area
   prep.plot.area(xlims, ylims, parmar, xaxs="r")
@@ -703,9 +735,9 @@ plot.size.by.af <- function(joint.d, bar.sep=0.1, parmar=c(2.6, 2.75, 0.25, 3.75
                    + cumsum(plot.df[, ncol(plot.df)])) / 2
   legend.y.pos <- yaxis.legend(af.labels, x=ncol(plot.df)-bar.sep,
                                y.positions=legend.y.pos, parse.labels=parse.any,
-                               upper.limit=0.975, colors=af.pal, sep.wex=0.5,
-                               label.cex=5/6, min.label.spacing=0.1,
-                               return.label.pos=TRUE)
+                               upper.limit=0.975, colors=af.pal,
+                               sep.wex=0.5 * length(size.bins) / 8, label.cex=5/6,
+                               min.label.spacing=0.1, return.label.pos=TRUE)
 
   # Add bars last
   sapply(1:length(size.bins), function(x){
@@ -819,7 +851,7 @@ if(!is.null(count.use.d)){
       ref.d.sub <- NULL
     }
     pdf(paste(args$out_prefix, "variant_count_bars", pdf.suffix, sep="."),
-        height=2.25, width=2.85)
+        height=2.25, width=3.25)
     count.ss <- plot.counts.by.vsc(count.use.d$df, has.short.variants, has.svs,
                                    ref.d.sub, ref.title=args$ref_title)
     dev.off()

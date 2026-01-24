@@ -195,7 +195,7 @@ hwe.plot <- function(df, title="All variants", pt.cex=NULL, pt.pch=NULL,
 
   # Add title & subtitle
   mtext(3, line=0.4, text=title)
-  n.formatted <- clean.numeric.labels(c(n.pass, n.all), acceptable.decimals=2)
+  n.formatted <- clean.numeric.labels(c(n.pass, n.all))
   n.formatted[1] <- gsub("k|M|B|T", "", n.formatted[1])
   subtitle <- paste(n.formatted[1], " / ",
                     n.formatted[2], " (", round(100*pct.pass, 1),

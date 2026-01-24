@@ -337,8 +337,7 @@ plot.count.waterfall <- function(gt.counts, vc, pop=NULL, pheno=NULL,
     if(group.k.med < 10000){
       med.lab <- prettyNum(round(group.k.med, 0), big.mark=",")
     }else{
-      med.lab <- clean.numeric.labels(round(group.k.med, 0),
-                                      acceptable.decimals=2, min.label.length=2)
+      med.lab <- clean.numeric.labels(round(group.k.med, 0), min.label.length=3)
     }
     lab.width <- 1.075*strwidth(med.lab, cex=global.scaling.cex*5/6)
     lab.height <- 1.2*strheight(med.lab, cex=global.scaling.cex*5/6)
