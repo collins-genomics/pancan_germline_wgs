@@ -123,13 +123,15 @@ task BenchmarkTrios {
     Float common_af_cutoff = 0.01
     String output_prefix
     
-    Float mem_gb = 1.75
-    Int n_cpu = 1
+    Float? mem_gb = 1.75
+    Int? n_cpu = 1
     String g2c_analysis_docker
   }
 
   String out_fname = "~{output_prefix}.mendelian_violations.distribs.tsv.gz"
   Int disk_gb = ceil(3 * size([vcf, eligible_sites_bed], "GB")) + 20
+  Float mem_gb_use = select_first([mem_gb, 1.75])
+  Int n_cpu_use = select_first([n_cpu, 1])
 
   command <<<
     set -eu -o pipefail
@@ -164,8 +166,8 @@ task BenchmarkTrios {
 
   runtime {
     docker: g2c_analysis_docker
-    memory: "~{mem_gb} GB"
-    cpu: n_cpu
+    memory: "~{mem_gb_use} GB"
+    cpu: n_cpu_use
     disks: "local-disk ~{disk_gb} HDD"
     preemptible: 3
   }
