@@ -468,10 +468,24 @@ task ImputeSvs {
     mkdir imp_res
     echo -e "#sv_id\tsample\tGT\tGQ\tAD" > imp_res_header.tsv
 
+    # If no eligible SVs are found, write empty outputs and exit early
+    if [ $( cat svs.bed | wc -l ) -eq 0 ]; then
+      cat imp_res_header.tsv | gzip -c > ~{outfile}
+      echo "0" > imputed_svs.count.txt
+      touch ~{out_log}
+      exit 0
+    fi
+
     # Process each SV in serial
     while read chrom start end svid svaf; do
 
       echo -e "\nNow processing $svid..."
+
+      # AF must be defined for variant to be processed
+      if [ -z $svaf ]; then
+        echo -e "SV AF undefined for $svid; skipping..."
+        continue
+      fi
 
       mkdir $svid
 

@@ -469,6 +469,8 @@ cat << EOF > $staging_dir/CollectGatksvQcPostImputation.inputs.template.json
                                                   "gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz"],
   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
   "CollectVcfQcMetrics.common_af_cutoff": 0.001,
+  "RefineSvGenotypesWithSnvs.ConcatVcfs.boot_disk_gb": 25,
+  "RefineSvGenotypesWithSnvs.ConcatVcfs.disk_gb": 500,
   "CollectVcfQcMetrics.extra_vcf_preprocessing_commands": "| bcftools view -i 'AC > 0 | FILTER = \"MULTIALLELIC\"'",
   "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:a9d85cd",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",

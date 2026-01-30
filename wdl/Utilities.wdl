@@ -139,6 +139,7 @@ task ConcatVcfs {
     Float mem_gb = 3.5
     Int cpu_cores = 2
     Int? disk_gb
+    Int boot_disk_gb = 10
 
     String bcftools_docker
   }
@@ -208,6 +209,7 @@ task ConcatVcfs {
     memory: mem_gb + " GB"
     cpu: cpu_cores
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"
+    bootDiskSizeGb: boot_disk_gb
     preemptible: 3
   }
 }
