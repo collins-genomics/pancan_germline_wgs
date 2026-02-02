@@ -153,10 +153,26 @@ task ConcatVcfs {
 
     cat ~{write_lines(vcfs)} > vcfs.list
 
+    if ~{check_index_localization}; then
+      cat ~{write_lines(vcf_idxs)} > idxs.list
+      while read vcf; do
+        expected_tbi=$( echo $vcf | awk '{ print $1".tbi" }' )
+        if ! [ -s $expected_tbi ]; then
+          loc_idx=$( fgrep $( basename $expected_tbi ) idxs.list )
+          if [ -z $loc_idx ]; then
+            echo -e "\nUnable to find corresponding tabix index for $vcf\n"
+            exit 1
+          else
+            mv "$loc_idx" "$expected_tbi"
+          fi
+        fi
+      done < vcfs.list
+    fi
+
     # To avoid segfaults, we must ensure all VCFs are non-empty
     if [ $( cat vcfs.list | wc -l ) -gt 1 ]; then
       while read vcf; do
-        if [ $( bcftools view --no-header $vcf | sed -n '1p' | wc -l ) -gt 0 ]; then
+        if [ $( bcftools index -n $vcf ) -gt 0 ]; then
           echo $vcf
         fi
       done < vcfs.list > vcfs.list2
@@ -171,22 +187,6 @@ task ConcatVcfs {
       fi
       tabix -p vcf -f ~{out_filename}
       exit 0
-    fi
-
-    if ~{check_index_localization}; then
-      cat ~{write_lines(vcf_idxs)} > idxs.list
-      while read vcf; do
-        expected_tbi=$( echo $vcf | awk '{ print $1".tbi" }' )
-        if ! [ -s $expected_tbi ]; then
-          loc_idx=$( fgrep $( basename $expected_tbi ) idxs.list )
-          if [ -z $loc_idx ]; then
-            echo -e "\nUnable to find corresponding tabix index for $vcf\n"
-            exit 1
-          else
-            ln -s $loc_idx $expected_tbi
-          fi
-        fi
-      done < vcfs.list
     fi
 
     bcftools concat \

@@ -188,75 +188,76 @@ workflow RefineSvGenotypesWithSnvs {
       }
 
       # Scatter over SNV VCF chunks and filter SNVs
-      Int n_chunks = length(vcf_info_chunks)
-      scatter ( i in range(n_chunks) ) {
-        call QuerySnvs {
-          input:
-            snv_info_tsv = vcf_info_chunks[i],
-            query_intervals = DefineQueryIntervals.query_intervals,
-            samples_list = FindSharedSamples.intersection_file,
-            min_ac = floor(min_sv_ac / snv_freq_scalar),
-            min_an = min_an,
-            max_ncr = 1 - min_snv_call_rate,
-            output_prefix = shard_prefix + ".chunk_" + i
+      if ( DefineQueryIntervals.n_intervals > 0 ) {
+        Int n_chunks = length(vcf_info_chunks)
+        scatter ( i in range(n_chunks) ) {
+          call QuerySnvs {
+            input:
+              snv_info_tsv = vcf_info_chunks[i],
+              query_intervals = DefineQueryIntervals.query_intervals,
+              samples_list = FindSharedSamples.intersection_file,
+              min_ac = floor(min_sv_ac / snv_freq_scalar),
+              min_an = min_an,
+              max_ncr = 1 - min_snv_call_rate,
+              output_prefix = shard_prefix + ".chunk_" + i
+          }
         }
-      }
-      if ( n_chunks > 1 ) {
-        call Utils.ConcatVcfs as ConcatSnvs {
-          input:
-            vcfs = QuerySnvs.snv_vcf,
-            vcf_idxs = QuerySnvs.snv_vcf_idx,
-            out_prefix = shard_prefix + ".eligible_snvs",
-            bcftools_concat_options = "--allow-overlaps --remove-duplicates",
-            check_index_localization = false,
-            mem_gb = 1.75,
-            bcftools_docker = g2c_analysis_docker
+        if ( n_chunks > 1 ) {
+          call Utils.ConcatVcfs as ConcatSnvs {
+            input:
+              vcfs = QuerySnvs.snv_vcf,
+              vcf_idxs = QuerySnvs.snv_vcf_idx,
+              out_prefix = shard_prefix + ".eligible_snvs",
+              bcftools_concat_options = "--allow-overlaps --remove-duplicates",
+              check_index_localization = false,
+              mem_gb = 1.75,
+              bcftools_docker = g2c_analysis_docker
+          }
         }
-      }
-      File merged_snv_vcf = select_first(flatten([[ConcatSnvs.merged_vcf], QuerySnvs.snv_vcf]))
-      File merged_snv_vcf_idx = select_first(flatten([[ConcatSnvs.merged_vcf_idx], QuerySnvs.snv_vcf_idx]))
+        File merged_snv_vcf = select_first(flatten([[ConcatSnvs.merged_vcf], QuerySnvs.snv_vcf]))
+        File merged_snv_vcf_idx = select_first(flatten([[ConcatSnvs.merged_vcf_idx], QuerySnvs.snv_vcf_idx]))
 
-      # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
-      # TODO: need to update this to train on filtered SV VCF but apply to full cohort of SNV GTs
-      call ImputeSvs {
-        input:
-          sv_vcf = sv_training_vcf,
-          sv_vcf_idx = sv_training_vcf_idx,
-          snv_vcf = merged_snv_vcf,
-          snv_vcf_idx = merged_snv_vcf_idx,
-          training_samples_list = FindSharedSamples.intersection_file,
-          sample_group_labels = sample_group_labels,
-          sample_covariates = sample_covariates,
-          breakpoint_buffer_bp = breakpoint_buffer_bp,
-          breakpoint_window_bp = breakpoint_window_bp,
-          snv_freq_scalar = snv_freq_scalar,
-          min_ld_r2 = min_ld_r2,
-          min_accuracy = min_carrier_accuracy,
-          min_imputation_r2 = min_imputation_r2,
-          min_sv_ac = min_sv_ac,
-          ref_build = ref_build,
-          max_snps_per_flank = max_snps_per_flank,
-          mask_training_sv_gts = mask_training_sv_gts,
-          sv_mask_field = sv_training_mask_field,
-          output_prefix = shard_prefix,
-          g2c_analysis_docker = g2c_analysis_docker
-      }
-
-      # Update SV GTs with imputed results
-      if ( ImputeSvs.n_imputed_svs > 0 ) {
-        call UpdateGts {
+        # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
+        # TODO: need to update this to train on filtered SV VCF but apply to full cohort of SNV GTs
+        call ImputeSvs {
           input:
-            vcf = vcf_info.left,
-            vcf_idx = vcf_info.right,
-            updates_tsv = ImputeSvs.imputation_results,
+            sv_vcf = sv_training_vcf,
+            sv_vcf_idx = sv_training_vcf_idx,
+            snv_vcf = merged_snv_vcf,
+            snv_vcf_idx = merged_snv_vcf_idx,
+            training_samples_list = FindSharedSamples.intersection_file,
+            sample_group_labels = sample_group_labels,
+            sample_covariates = sample_covariates,
+            breakpoint_buffer_bp = breakpoint_buffer_bp,
+            breakpoint_window_bp = breakpoint_window_bp,
+            snv_freq_scalar = snv_freq_scalar,
+            min_ld_r2 = min_ld_r2,
+            min_accuracy = min_carrier_accuracy,
+            min_imputation_r2 = min_imputation_r2,
+            min_sv_ac = min_sv_ac,
+            ref_build = ref_build,
+            max_snps_per_flank = max_snps_per_flank,
+            mask_training_sv_gts = mask_training_sv_gts,
+            sv_mask_field = sv_training_mask_field,
+            output_prefix = shard_prefix,
             g2c_analysis_docker = g2c_analysis_docker
+        }
+
+        # Update SV GTs with imputed results
+        if ( ImputeSvs.n_imputed_svs > 0 ) {
+          call UpdateGts {
+            input:
+              vcf = vcf_info.left,
+              vcf_idx = vcf_info.right,
+              updates_tsv = ImputeSvs.imputation_results,
+              g2c_analysis_docker = g2c_analysis_docker
+          }
         }
       }
     }
 
     File imputed_vcf = select_first([UpdateGts.updated_vcf, vcf_info.left])
     File imputed_vcf_idx = select_first([UpdateGts.updated_vcf_idx, vcf_info.right])
-
   }
 
   # Concatenate all updated SV VCFs with the passthrough VCF
@@ -346,10 +347,13 @@ task DefineQueryIntervals {
     | bedtools merge -i - -d 5000 -c 4,5 -o min,max \
     | awk -v OFS="\t" '{ print NR, $0 }' \
     > ~{outfile}
+
+    cat ~{outfile} | wc -l > n_intervals.txt
   >>>
 
   output {
     File query_intervals = outfile
+    Int n_intervals = read_int("n_intervals.txt")
   }
 
   runtime {
