@@ -169,6 +169,15 @@ task ConcatVcfs {
       done < vcfs.list
     fi
 
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[ConcatVcfs] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+
     # To avoid segfaults, we must ensure all VCFs are non-empty
     if [ $( cat vcfs.list | wc -l ) -gt 1 ]; then
       while read vcf; do
@@ -197,6 +206,9 @@ task ConcatVcfs {
       --threads ~{cpu_cores}
 
     tabix -p vcf -f ~{out_filename}
+
+    kill $HEARTBEAT_PID
+    wait $HEARTBEAT_PID 2>/dev/null || true
   >>>
 
   output {
