@@ -410,6 +410,9 @@ gsutil -m cp \
 # Write template input .json for SV GT refinement
 cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
+  "RefineSvGenotypesWithSnvs.ConcatVcfs.boot_disk_gb": 25,
+  "RefineSvGenotypesWithSnvs.ConcatVcfs.disk_gb": 500,
+  "RefineSvGenotypesWithSnvs.ConcatVcfs.mem_gb": 7.5,
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 0,
   "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:a9d85cd",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
@@ -469,9 +472,6 @@ cat << EOF > $staging_dir/CollectGatksvQcPostImputation.inputs.template.json
                                                   "gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz"],
   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
   "CollectVcfQcMetrics.common_af_cutoff": 0.001,
-  "RefineSvGenotypesWithSnvs.ConcatVcfs.boot_disk_gb": 25,
-  "RefineSvGenotypesWithSnvs.ConcatVcfs.disk_gb": 500,
-  "RefineSvGenotypesWithSnvs.ConcatVcfs.mem_gb": 7.5,
   "CollectVcfQcMetrics.extra_vcf_preprocessing_commands": "| bcftools view -i 'AC > 0 | FILTER = \"MULTIALLELIC\"'",
   "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:a9d85cd",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
@@ -701,6 +701,111 @@ gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job
                   '{ print bucket_prefix$1"/**" }' ) \
 > uris_to_delete.list
 cleanup_garbage
+
+
+####################################
+# Determine final variant sharding #
+####################################
+
+# The below must be run once for each workspace
+
+# Reaffirm staging directory
+staging_dir=staging/indel_sv_integration
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+gsutil cp gs://dfci-g2c-refs/hg38/hg38.genome $staging_dir/
+
+# Download & index raw VCF QC maps
+while read contig; do
+  # Prep contig-specific directory
+  csdir=$staging_dir/$contig
+  if [ -e $csdir ]; then rm -rf $csdir; fi
+  mkdir $csdir
+
+  # Localize & index variant maps
+  for vc in snvs indels svs; do
+    key="all_${vc}_bed"
+    gsutil -m cat \
+      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/VcfQcMetrics/$contig/CollectInitialVcfQcMetrics.$contig.outputs.json \
+    | jq .\"CollectVcfQcMetrics.$key\" \
+    | tr -d '"' \
+    | gsutil -m cp -I $csdir/
+    tabix -p bed -f $csdir/dfci-g2c.v1.initial_qc.$contig.all_$vc.bed.gz
+  done
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+
+# Define final analysis shard intervals for SNVs, indels, and SVs
+# Rough logic: all chromosomes in a workspace should sum to ~2x AoU Cromwell quota (1.1k x 2 ~ 2k)
+# These 2k shards sholud be divided among chromosomes based on total variant count
+# Then, within each chromosome, they should be partitioned by variant class count
+# And along each chromosome should be segmented based on density
+# Desired end result: all VCF shards should have roughly the same number of records
+
+# First, get variant counts by class per contig
+while read contig; do
+  for wrapper in 1; do
+    echo $contig
+    for vc in snv indel sv; do
+      zcat $staging_dir/$contig/dfci-g2c.v1.initial_qc.$contig.all_${vc}s.bed.gz \
+      | grep -ve '^#' | wc -l
+    done
+  done | paste -s \
+  | awk -v FS="\t" -v OFS="\t" '{ sum=$2+$3+$4 }END{ print $0, sum }'
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
+> $staging_dir/contig.variant_counts.tsv
+
+# Second, determine shards allocated per contig
+denom=$( awk '{ sum+=$5 }END{ print sum }' $staging_dir/contig.variant_counts.tsv )
+awk -v scalar=2000 -v denom=$denom -v FS="\t" -v OFS="\t" \
+  '{ print $1, int(scalar * $5 / denom) }' \
+  $staging_dir/contig.variant_counts.tsv \
+> $staging_dir/shards_per_contig.tsv
+
+# Third, partition shards across variant classes per contig
+while read contig; do
+  # Compute number of variants to allocate per shard
+  total_var=$( awk -v FS="\t" -v contig=$contig \
+                 '{ if ($1==contig) print $5 }' \
+                 $staging_dir/contig.variant_counts.tsv )
+  total_shards=$( awk -v FS="\t" -v contig=$contig \
+                    '{ if ($1==contig) print $2 }' \
+                    $staging_dir/shards_per_contig.tsv )
+  vps=$( echo "" | awk -v n=$total_var -v d=$total_shards '{ print int(n/d) }' )
+  
+  # Shard intervals for each variant class
+  csdir=$staging_dir/$contig
+  awk -v contig=$contig -v OFS="\t" \
+    '{ if ($1==contig) print contig, 1, $2, "+", contig }' \
+    $staging_dir/hg38.genome \
+  > $csdir/$contig.full.interval_list
+  for vc in snv indel sv; do
+    code/scripts/split_intervals.py \
+      -i $csdir/$contig.full.interval_list \
+      --var-sites $csdir/dfci-g2c.v1.initial_qc.$contig.all_${vc}s.bed.gz \
+      --vars-per-shard $vps \
+      --bed-style \
+      --verbose \
+    | awk -v OFS="\t" -v prefix="dfci-g2c.v1.$vc.$contig" \
+      '{ print $0, prefix"."NR }' \
+    | bgzip -c \
+    > $staging_dir/dfci-g2c.v1.analysis_shards.$contig.$vc.bed.gz
+    tabix -p bed -f $staging_dir/dfci-g2c.v1.analysis_shards.$contig.$vc.bed.gz
+  done
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+
+# Once complete, copy all final sharded intervals to a permanent staging bucket
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.analysis_shards.chr*.*.bed.gz* \
+  $MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/
+
+
+########################################
+# Integrate small SVs and large indels #
+########################################
+
+# The below must be run once for each workspace
+
+
+
 
 
 # TODO: indel/SV integration and variant resharding

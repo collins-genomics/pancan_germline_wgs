@@ -21,7 +21,7 @@ import pandas as pd
 import pybedtools as pbt
 import re
 from g2cpy import chrom2int, determine_filetype
-from sys import stdin, stdout
+from sys import stderr, stdin, stdout
 from pysam import TabixFile
 
 
@@ -150,7 +150,7 @@ def split_by_density(int_list, var_beds, vars_per_shard, min_size=5000,
                 if verbose:
                     msg = 'Split interval {}:{:,}-{:,} at {}:{:,}-{:,} ' + \
                           '({:.0f} kb) after {:,} variants\n'
-                    stdout.write(msg.format(chrom, istart, iend, chrom, s_start, 
+                    stderr.write(msg.format(chrom, istart, iend, chrom, s_start, 
                                             cur_pos, (cur_pos - s_start) / 1000, k))
                 if not zero_based:
                     cur_pos += 1
@@ -165,7 +165,7 @@ def split_by_density(int_list, var_beds, vars_per_shard, min_size=5000,
         if verbose:
             msg = 'Yielding {}:{:,}-{:,} ({:.0f} kb) as the remainder of ' + \
                   'interval {}:{:,}-{:,} after {:,} variants\n'
-            stdout.write(msg.format(chrom, s_start, cur_pos, (cur_pos - s_start) / 1000, 
+            stderr.write(msg.format(chrom, s_start, cur_pos, (cur_pos - s_start) / 1000, 
                                     chrom, istart, iend, k))
 
 
@@ -262,15 +262,14 @@ def main():
                         type=float, default=10e10)
     parser.add_argument('--n-shards', type=int, help='Total number of desired ' +
                         'shards. Specifying this option will override ' +
-                        '--target-size, but the exact behavior depends on other ' +
-                        'options. If --vars-per-shard and --var-sites are also ' +
-                        'specified, will perform density-based splitting. ' +
-                        'Otherwise, will uniformly divide each interval the same ' +
-                        'number of times such that --n-shards in total are produced.')
+                        '--target-size by uniformly dividing each interval the ' +
+                        'same number of times such that --n-shards in total are ' +
+                        'produced. This behavior will be overridden if both ' +
+                        '--var-sites and --vars-per-shard are provided.')
     parser.add_argument('--var-sites', action='append', help='One or more BED ' +
                         'files listing known variant sites in an external ' +
                         'reference dataset, like gnomAD. May be provided ' +
-                        'multiple times. If specified with --vars-per-shard, ' +
+                        'multiple times. When specified with --vars-per-shard, ' +
                         'intervals will be divided into shards balanced by ' +
                         'number of variants per shard.')
     parser.add_argument('--vars-per-shard', type=float, help='Desired number ' +
@@ -305,20 +304,19 @@ def main():
     args = parser.parse_args()
 
     # Determine & report desired splitting mode 
-    if args.n_shards:
-        if args.vars_per_shard is not None \
-        and len(args.var_sites) > 0:
-            split_mode = 'density'
-            msg = 'Splitting intervals by variant density due to the presence of ' + \
-                  '--n-shards, --var-sites, and --vars-per-shard'
-        else:
-            split_mode = 'uniform'
-            msg = 'Uniformly splitting each interval the same number of times due ' + \
-                  'to the presence of --n-shards on its own'
+    if args.vars_per_shard is not None \
+    and len(args.var_sites) > 0:
+        split_mode = 'density'
+        msg = 'Splitting intervals by variant density due to the presence of ' + \
+              '--var-sites and --vars-per-shard'
+    elif args.n_shards:
+        split_mode = 'uniform'
+        msg = 'Uniformly splitting each interval the same number of times due ' + \
+              'to the presence of --n-shards'
     else:
         split_mode = 'size'
         msg = 'Splitting intervals by size due to the lack of other specific options'
-    print(msg + '\n')
+    stderr.write(msg + '\n')
 
     # Open connection to input file
     if args.input_intervals in '- stdin /dev/stdin'.split():
