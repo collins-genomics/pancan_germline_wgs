@@ -273,7 +273,8 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotInitialGatksvQcMetrics.i
   "PlotVcfQcMetrics.common_af_cutoff": 0.001,
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/dfci-g2c.v1.gatksv.qc_targets.tsv",
-  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:90f40f9",
+  "PlotVcfQcMetrics.deduplicate": true,
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:cd2ca89",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.initial_gatksv_qc",
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
@@ -384,7 +385,6 @@ gsutil -m cp \
   $MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/
 
 
-
 #################################################
 # Refine common SV genotypes with flanking SNVs #
 #################################################
@@ -449,6 +449,42 @@ code/scripts/manage_chromshards.py \
   --submission-gate 240 \
   --vm-gate 600 \
   --max-attempts 3
+
+
+##############################################
+# Fix typo in SV VCF header after imputation #
+##############################################
+
+# This is only necessary because there was a typo in FORMAT/IMP
+# This should not be necessary for all future cohorts (typo/bug was fixed)
+
+# This is a lightweight WDL so can easily be parallelized for all chromosomes in a single workspace
+
+# Reaffirm staging directory
+staging_dir=staging/sv_gt_cleanup
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+
+# Write template input .json for SV GT refinement
+cat << EOF > $staging_dir/FixHeaderTypo.inputs.template.json
+{
+  "FixHeaderTypo.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+  "FixHeaderTypo.vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz",
+  "FixHeaderTypo.vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz.tbi"
+}
+EOF
+
+# Submit, monitor, and stage/cleanup SV GT refinement
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/pancan_germline_wgs/FixHeaderTypo.wdl \
+  --input-json-template $staging_dir/FixHeaderTypo.inputs.template.json \
+  --dependencies-zip g2c.dependencies.zip \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix \
+  --name FixHeaderTypo \
+  --status-tsv cromshell/progress/dfci-g2c.v1.FixHeaderTypo.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 10 \
+  --submission-gate 0 \
+  --max-attempts 2
 
 
 ##########################################
@@ -631,7 +667,8 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotGatksvQcPostImputation.i
   "PlotVcfQcMetrics.common_af_cutoff": 0.001,
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/dfci-g2c.v1.gatksv.qc_targets.tsv",
-  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:64501fc",
+  "PlotVcfQcMetrics.deduplicate": true,
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:cd2ca89",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.gatksv_qc_post_imputation",
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
@@ -809,3 +846,9 @@ gsutil -m cp \
 
 
 # TODO: indel/SV integration and variant resharding
+
+
+
+
+
+

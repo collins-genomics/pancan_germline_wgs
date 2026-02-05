@@ -37,6 +37,22 @@ def apply_across_samples(record, function=None, field='GT', samples=None):
         return list(map(function, vals))
 
 
+def classify_record(record, return_varlen=False):
+    """
+    Wrapper for classify_variant designed for pysam.VariantRecord input
+    """
+
+    ref, alt = record.alleles[:2]
+    if 'SVLEN' in record.info.keys():
+        varlen = int(record.info['SVLEN'])
+    else:
+        varlen = np.abs(len(alt) - len(ref))
+    outs = list(classify_variant(ref, alt, varlen))
+    if return_varlen:
+        outs.append(varlen)
+    return tuple(outs)
+
+
 def compute_allele_freq_stats(record, keys=['AC', 'AN', 'AF']):
     """
     Helper wrapper around apply_across_samples() to compute common frequency 
@@ -89,19 +105,6 @@ def convert_gt(gt):
         conv = tuple(sorted(res, key=lambda x: (x, x is None)))
 
     return conv
-
-
-def parse_gt(gt):
-    """
-    Digests a pysam GT-style tuple into a dict keyed by AC, AN, and N_missing
-    """
-
-    an = len(gt)
-    gt_def = [a for a in gt if a is not None]
-    n_missing = an - len(gt_def)
-    ac = len([a for a in gt_def if a > 0])
-
-    return {'AC' : ac, 'AN' : an, 'N_missing' : n_missing}
 
 
 def integrate_gts(target_record, records, sort_key='GQ'):
@@ -260,6 +263,19 @@ def integrate_infos(records, do_cpx_intervals=False):
     return newinfo
 
 
+def is_multiallelic(record):
+    """
+    Check if pysam.VariantRecord is multiallelic (including mCNVs)
+    """
+
+    if 'MULTIALLELIC' in record.filter \
+    or len(record.alleles) > 2 \
+    or record.info.get('SVTYPE', '') in 'CNV MCNV'.split():
+        return True
+    else:
+        return False
+
+
 def name_record(record, suffix_length=10):
     """
     Wrapper for name_variant designed for pysam.VariantRecord input
@@ -274,16 +290,16 @@ def name_record(record, suffix_length=10):
     return name_variant(record.chrom, record.pos, ref, alt, vc, vsc, varlen)
 
 
-def is_multiallelic(record):
+def parse_gt(gt):
     """
-    Check if pysam.VariantRecord is multiallelic (including mCNVs)
+    Digests a pysam GT-style tuple into a dict keyed by AC, AN, and N_missing
     """
 
-    if 'MULTIALLELIC' in record.filter \
-    or len(record.alleles) > 2 \
-    or record.info.get('SVTYPE', '') in 'CNV MCNV'.split():
-        return True
-    else:
-        return False
+    an = len(gt)
+    gt_def = [a for a in gt if a is not None]
+    n_missing = an - len(gt_def)
+    ac = len([a for a in gt_def if a > 0])
+
+    return {'AC' : ac, 'AN' : an, 'N_missing' : n_missing}
 
 

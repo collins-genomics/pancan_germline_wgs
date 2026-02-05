@@ -125,7 +125,7 @@ def main():
                    'IQ' : 'Number=1,Type=Float,Description="Imputation quality; ' +
                           'scaled the same as GATK GQ.">',
                    'IAD' : 'Number=1,Type=Float,Description="Imputed allele dosage">',
-                   'IMP' : 'Number=1,Type=Integer,Decription="Binary indicator ' +
+                   'IMP' : 'Number=1,Type=Integer,Description="Binary indicator ' +
                            'whether GT was imputed">'}
     for key, bline in new_formats.items():
         if key not in header.formats.keys():
