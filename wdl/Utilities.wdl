@@ -270,7 +270,7 @@ task CountRecordsInVcf {
       tabix -p vcf -f ~{vcf}
     fi
 
-    bcftools query -f '%CHROM\n' ~{vcf} | wc -l > record_count.txt
+    bcftools index -n ~{vcf} > record_count.txt
   >>>
 
   output {

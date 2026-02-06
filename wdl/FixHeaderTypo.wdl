@@ -47,9 +47,7 @@ task FixTypo {
     | sed 's/Decription/Description/g' \
     > header.vcf
 
-    bcftools reheader -h header.vcf ~{vcf} \
-    | bgzip -c \
-    > ~{outfile}
+    bcftools reheader -h header.vcf -o ~{outfile} ~{vcf}
     tabix -p vcf -f ~{outfile}
   >>>
 

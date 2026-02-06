@@ -464,7 +464,7 @@ code/scripts/manage_chromshards.py \
 staging_dir=staging/sv_gt_cleanup
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
-# Write template input .json for SV GT refinement
+# Write template input .json
 cat << EOF > $staging_dir/FixHeaderTypo.inputs.template.json
 {
   "FixHeaderTypo.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
@@ -473,13 +473,12 @@ cat << EOF > $staging_dir/FixHeaderTypo.inputs.template.json
 }
 EOF
 
-# Submit, monitor, and stage/cleanup SV GT refinement
+# Submit, monitor, and stage/cleanup
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/pancan_germline_wgs/FixHeaderTypo.wdl \
   --input-json-template $staging_dir/FixHeaderTypo.inputs.template.json \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix \
-  --name FixHeaderTypo \
   --status-tsv cromshell/progress/dfci-g2c.v1.FixHeaderTypo.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 10 \
@@ -539,8 +538,8 @@ cat << EOF > $staging_dir/CollectGatksvQcPostImputation.inputs.template.json
   "CollectVcfQcMetrics.sv_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.gatksv.\$CONTIG.sv.sites.bed.gz"],
   "CollectVcfQcMetrics.trios_fam_file": "$MAIN_WORKSPACE_BUCKET/data/sample_info/relatedness/dfci-g2c.reported_families.fam",
   "CollectVcfQcMetrics.twins_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/InferTwins/dfci-g2c.v1.cleaned.tsv",
-  "CollectVcfQcMetrics.vcfs_array": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz"],
-  "CollectVcfQcMetrics.vcf_idxs_array": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz.tbi"]
+  "CollectVcfQcMetrics.vcfs_array": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz"],
+  "CollectVcfQcMetrics.vcf_idxs_array": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz.tbi"]
 }
 EOF
 
@@ -839,16 +838,51 @@ gsutil -m cp \
 # Integrate small SVs and large indels #
 ########################################
 
-# The below must be run once for each workspace
+# Reaffirm staging directory
+staging_dir=staging/indel_sv_integration
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
+# Curate reference data required for this workflow
+# This only need to be run once for the project
+# This should be run locally so it can be staged in a public bucket
+wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/gap.txt.gz
+zcat gap.txt.gz \
+| cut -f2-4 \
+| sort -Vk1,1 -k2,2n -k3,3n \
+| bedtools merge -i - \
+| fgrep -v "_" \
+| grep -e '^chr' \
+| bgzip -c \
+> hg38.gaps.bed.gz
+gsutil -m cp hg38.gaps.bed.gz gs://dfci-g2c-refs/hg38/
 
+# All of the below must be run once for each workspace
 
+# Write template input .json 
+cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
+{
+  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:cd2ca89",
+  "UnifyGatkCallsets.gatkhc_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
+  "UnifyGatkCallsets.gatksv_vcfs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz"],
+  "UnifyGatkCallsets.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
+  "UnifyGatkCallsets.nmask_bed": "gs://dfci-g2c-refs/hg38/hg38.gaps.bed.gz",
+  "UnifyGatkCallsets.snv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.snv.bed.gz",
+  "UnifyGatkCallsets.indel_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.indel.bed.gz",
+  "UnifyGatkCallsets.sv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.sv.bed.gz"
+}
+EOF
 
-
-# TODO: indel/SV integration and variant resharding
-
-
-
-
+# Submit, monitor, and stage/cleanup SV GT refinement
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/pancan_germline_wgs/UnifyGatkCallsets.wdl \
+  --input-json-template $staging_dir/UnifyGatkCallsets.inputs.template.json \
+  --dependencies-zip g2c.dependencies.zip \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration \
+  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
+  --status-tsv cromshell/progress/dfci-g2c.v1.UnifyGatkCallsets.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 10 \
+  --submission-gate 0.1 \
+  --max-attempts 3
 
 

@@ -6,7 +6,7 @@ import argparse
 import sys
 import pysam
 import math
-from numpy import median
+from numpy import nanmedian
 from typing import List, Text, Dict, Optional
 
 _gt_no_call_map = dict()
@@ -93,10 +93,12 @@ def recal_qual_score(record):
         elif _is_hom_var(gt):
             quals.append(99)
         else:
-            quals.append(record.samples[s]['GQ'])
+            gq = record.samples[s]['GQ']
+            if gq is not None:
+                quals.append(gq)
 
     if len(quals) > 0:
-        return int(median(quals))
+        return int(nanmedian(quals))
 
 
 def _apply_filter(record, sl_threshold, ploidy_dict, apply_hom_ref, ncr_threshold,
@@ -115,8 +117,10 @@ def _apply_filter(record, sl_threshold, ploidy_dict, apply_hom_ref, ncr_threshol
         # Count every sample where ploidy > 0 for NCR
         n_samples += 1
         # Skip genotypes that were imputed (custom for G2C)
-        if gt.get('IMP', 0) > 0:
-            continue
+        imp = gt.get('IMP', 0)
+        if imp is not None:
+            if imp > 0:
+                continue
         sl = gt.get('SL', None)
         if sl is None:
             continue
