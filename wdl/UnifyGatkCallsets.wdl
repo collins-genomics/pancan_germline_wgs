@@ -79,7 +79,7 @@ workflow UnifyGatkCallsets {
   }
 
   # Pre-filter SVs to only those eligible for possible indel clustering
-  Array[Pair[File, File]] sv_vcf_infos = zip(gatksv_vcfs, gatkhc_vcf_idxs)
+  Array[Pair[File, File]] sv_vcf_infos = zip(gatksv_vcfs, gatksv_vcf_idxs)
   scatter ( sv_vcf_info in sv_vcf_infos ) {
     call PrepareSvs {
       input:
