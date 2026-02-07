@@ -15,7 +15,7 @@ import argparse
 import numpy as np
 import pysam
 from g2cpy import classify_record
-from sys import stdin
+from sys import stdin, stdout
 
 
 def main():
@@ -32,6 +32,9 @@ def main():
                         default='gatkhc', metavar='string', type=str)
     parser.add_argument('--large-indel-min-size', default=10, type=int, metavar='Int',
                         help='Minimum size for "large" indels [default: 10]')
+    parser.add_argument('--largest-indel-log', default='stdout', type=str, 
+                        metavar='txt', help='Output file for reporting the ' +
+                        'length of the longest indel [default: stdout]')
     args = parser.parse_args()
 
     # Open connection to input VCF
@@ -48,6 +51,7 @@ def main():
                 for vc, fn in out_vcf_fnames.items()}
 
     # Iterate over input VCF and route each SV to the correct output VCF
+    longest = 0
     for record in invcf:
 
         # Determine record routing
@@ -57,6 +61,11 @@ def main():
                 vc = 'large_indel'
             else:
                 vc = 'small_indel'
+            
+            # Update longest indel
+            varlen = np.abs(varlen)
+            if varlen > longest:
+                longest = varlen
 
         # Write record to appropriate VCF
         out_vcfs[vc].write(record)
@@ -64,6 +73,14 @@ def main():
     # Close connections to output VCFs
     for fh in out_vcfs.values():
         fh.close()
+
+    # Report longest indel
+    longest_line = '{}\n'.format(longest)
+    if args.largest_indel_log in 'stdout /dev/stdout -'.split():
+        stdout.write(longest_line)
+    else:
+        with open(args.largest_indel_log, 'w') as log_out:
+            log_out.write(longest_line)
 
 
 if __name__ == '__main__':

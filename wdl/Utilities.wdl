@@ -554,6 +554,31 @@ task MakeTabixIndex {
 }
 
 
+task Max {
+  input {
+    Array[Float] values
+  }
+
+  command <<<
+    cat ~{write_lines(values)} \
+    | sort -nrk1,1 | head -n1
+  >>>
+
+  output {
+    Float max = read_float(stdout())
+  }
+
+  runtime {
+    docker: "ubuntu:plucky-20251001"
+    memory: "1.7 GB"
+    cpu: 1
+    disks: "local-disk 10 HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
 task ShardTextFile {
   input {
     File input_file
@@ -773,6 +798,30 @@ task StreamSamplesFromVcfHeader {
     cpu: 1
     disks: "local-disk 20 HDD"
     preemptible: 3
+  }
+}
+
+
+task Sum {
+  input {
+    Array[Float] values
+  }
+
+  command <<<
+    python -c "print(~{sep="+" values})"
+  >>>
+
+  output {
+    Float sum = read_float(stdout())
+  }
+
+  runtime {
+    docker: "python:3.11.14-alpine3.23"
+    memory: "1.7 GB"
+    cpu: 1
+    disks: "local-disk 10 HDD"
+    preemptible: 3
+    maxRetries: 1
   }
 }
 

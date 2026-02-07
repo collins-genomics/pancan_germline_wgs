@@ -855,16 +855,25 @@ zcat gap.txt.gz \
 | bgzip -c \
 > hg38.gaps.bed.gz
 gsutil -m cp hg38.gaps.bed.gz gs://dfci-g2c-refs/hg38/
+gsutil -m cp gs://dfci-g2c-refs/hg38/hg38.genome ./
+mkdir contig_genome_files
+for k in $( seq 1 22 ) X Y; do
+  contig="chr$k"
+  awk -v contig=$contig '{ if ($1==contig) print }' hg38.genome \
+  > contig_genome_files/hg38.$contig.genome
+done
+gsutil -m cp -r contig_genome_files gs://dfci-g2c-refs/hg38/
 
 # All of the below must be run once for each workspace
 
 # Write template input .json 
 cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
 {
-  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:cd2ca89",
+  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:cbb6d5f",
   "UnifyGatkCallsets.gatkhc_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
   "UnifyGatkCallsets.gatksv_vcfs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz"],
-  "UnifyGatkCallsets.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
+  "UnifyGatkCallsets.gatksv_vcf_idxs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz.tbi"],
+  "UnifyGatkCallsets.genome_file": "gs://dfci-g2c-refs/hg38/contig_genome_files/hg38.\$CONTIG.genome",
   "UnifyGatkCallsets.nmask_bed": "gs://dfci-g2c-refs/hg38/hg38.gaps.bed.gz",
   "UnifyGatkCallsets.snv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.snv.bed.gz",
   "UnifyGatkCallsets.indel_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.indel.bed.gz",
@@ -872,17 +881,32 @@ cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
 }
 EOF
 
+# DEV NOTE: ONLY CHR22 FOR NOW
+
 # Submit, monitor, and stage/cleanup SV GT refinement
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/pancan_germline_wgs/UnifyGatkCallsets.wdl \
   --input-json-template $staging_dir/UnifyGatkCallsets.inputs.template.json \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration \
-  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
+  --contig-list <( echo "chr22" ) \
   --status-tsv cromshell/progress/dfci-g2c.v1.UnifyGatkCallsets.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 10 \
   --submission-gate 0.1 \
-  --max-attempts 3
+  --max-attempts 3 \
+  --dry-run --hard-reset
+
+# DEV: submit
+cromshell --no_turtle -t 120 -mc submit \
+  --options-json code/refs/json/aou.cromwell_options.default.json \
+  --dependencies-zip g2c.dependencies.zip --no-validation \
+  code/wdl/pancan_germline_wgs/UnifyGatkCallsets.wdl \
+  /home/jupyter/cromshell/inputs/UnifyGatkCallsets.inputs.chr22.json \
+| jq .id | tr -d '"' \
+>> scratch/dev.wid.list
+
+# Monitor QC visualization workflow
+monitor_workflow $( tail -n1 scratch/dev.wid.list ) 2
 
 
