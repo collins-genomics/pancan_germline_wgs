@@ -805,21 +805,24 @@ task StreamSamplesFromVcfHeader {
 task Sum {
   input {
     Array[Float] values
+    String linux_docker = "ubuntu:plucky-20251001"
   }
 
   command <<<
-    python -c "print(~{sep="+" values})"
+    set -eu -o pipefail
+    values_file="~{write_lines(values)}"
+    awk '{ sum+=$1 }END{ print sum }' "$values_file" > sum.txt
   >>>
 
   output {
-    Float sum = read_float(stdout())
+    Float sum = read_float("sum.txt")
   }
 
   runtime {
-    docker: "python:3.11.14-alpine3.23"
+    docker: linux_docker
     memory: "1.7 GB"
     cpu: 1
-    disks: "local-disk 10 HDD"
+    disks: "local-disk 20 HDD"
     preemptible: 3
     maxRetries: 1
   }
