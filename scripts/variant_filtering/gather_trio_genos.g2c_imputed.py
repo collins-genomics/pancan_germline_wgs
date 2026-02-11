@@ -1,15 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
+# Copyright © 2018 Ryan Collins <rlcollins@g.harvard.edu>
+# Distributed under terms of the MIT license.
 
 """
-Extract trio allele counts & GQs for all variants in a vcf
+Extract trio allele counts & GQs (or another FORMAT field) for all variants in a vcf
 """
 
 import argparse
 import sys
 import csv
+from collections import defaultdict
 import pysam
+from numpy import round
 
 
 def read_ac_adj(infile, pro, fa, mo):
@@ -30,14 +34,17 @@ def read_ac_adj(infile, pro, fa, mo):
     return ac_adj
 
 
-def gather_info(vcf, fout, pro, fa, mo, ac_adj=None, no_header=False):
+def gather_info(vcf, fout, pro, fa, mo, ac_adj = None, metric = 'GQ', 
+                fill_incomplete = False, default_value_homref = 999, 
+                default_value_other = 999, no_header = False):
     GTs_to_skip = './. None/None 0/None None/0'.split()
     sex_chroms = 'X Y chrX chrY'.split()
 
-    # Write header to output file
+    #Write header to output file
     if not no_header:
-        header = '#VID\tSVLEN\tAF\tSVTYPE\tFILTER\tpro_EV\tpro_AC\tfa_AC\tmo_AC\tpro_GQ\tfa_GQ\tmo_GQ\n'
-        fout.write(header)
+        header_cols = '#VID SVLEN AF SVTYPE FILTER pro_EV pro_AC fa_AC mo_AC pro_{0} fa_{0} mo_{0}'
+        header = '\t'.join(header_cols.format(metric).split())
+        fout.write(header + '\n')
 
     trio_samples = [pro, fa, mo]
 
@@ -47,20 +54,14 @@ def gather_info(vcf, fout, pro, fa, mo, ac_adj=None, no_header=False):
         vids_to_correct = []
 
     for record in vcf:
-        # #Do not include UNRESOLVED variants
-        # if 'UNRESOLVED' in record.info.keys() \
-        # or 'UNRESOLVED_TYPE' in record.info.keys() \
-        # or 'UNRESOLVED' in record.filter:
-        #     continue
-
-        # Do not include variants from sex chromosomes
+        #Do not include variants from sex chromosomes
         if record.chrom in sex_chroms:
             continue
 
-        # Do not include multiallelic variants
+        #Do not include multiallelic variants
         if 'MULTIALLELIC' in record.info.keys() \
-                or 'MULTIALLELIC' in record.filter \
-                or len(record.alts) > 1:
+        or 'MULTIALLELIC' in record.filter \
+        or len(record.alts) > 1:
             continue
 
         # Do not include variants where at least one member of the trio was imputed
@@ -71,53 +72,56 @@ def gather_info(vcf, fout, pro, fa, mo, ac_adj=None, no_header=False):
                 if imp > 0:
                     continue
 
-        # Get GTs for trio
+        #Get GTs for trio
         GTs = [get_GT(record, ID) for ID in trio_samples]
 
-        # Skip sites that aren't het in proband
+        #Skip sites that aren't het in proband
         if GTs[0] != '0/1':
             continue
-
-        # Skip sites that are reference in all three samples
+        
+        #Skip sites that are reference in all three samples
         if len([g for g in GTs if g == '0/0']) == 3:
             continue
 
-        # Skip sites that are reference or missing in the proband, as these are
+        #Skip sites that are reference or missing in the proband, as these are
         # uninformative for the purposes of assessing de novo rate
         if GTs[0] in GTs_to_skip or GTs[0] == '0/0':
             continue
-
-        # Skip sites that are missing in any sample
+        
+        #Skip sites that are missing in any sample
         if len([g for g in GTs if g in GTs_to_skip]) > 0:
             continue
 
-        # Convert to ACs
+        #Convert to ACs
         ACs = [get_AC(g) for g in GTs]
 
         # Overwrite ACs, if optioned
         if record.id in vids_to_correct:
-            # oldACs = ACs
+            oldACs = ACs
             newACs = ac_adj[record.id]
             for i in [0, 1, 2]:
                 ACs[i] = str(max([int(ACs[i]), int(newACs[i])]))
-            # oldACs_str = '(' + ', '.join(oldACs) + ')'
-            # newACs_str = '(' + ', '.join(ACs) + ')'
-            # print('Overwriting ACs for {0} from {1} to {2}\n'.format(record.id,
-            #                                                          oldACs_str,
-            #                                                          newACs_str))
 
-        # Get genotype qualities for trio
-        GQs = [record.samples[ID]['GQ'] for ID in trio_samples]
+        #Get genotype metrics for trio
+        GQs = [record.samples[ID][metric] for ID in trio_samples]
 
-        # Skip sites that are missing integer GQs in any member of the trio
-        # This shouldn't occur in theory, but somtimes does. Cause unclear.
-        if len([g for g in GQs if g is None]) > 0:
-            continue
-        # Otherwise, convert GQs to string for writing to file
-        else:
-            GQs = [str(g) for g in GQs]
+        # Fill missing quality metrics in any member of the trio with a default value
+        missing_GQs = [i for i, g in enumerate(GQs) if g is None]
+        if len(missing_GQs) > 0:
+            if not fill_incomplete:
+                continue
+            else:
+                for i in missing_GQs:
+                    if GTs[i] == '0/0':
+                        GQs[i] = default_value_homref
+                    else:
+                        GQs[i] = default_value_other
 
-        # Get minimal variant info
+        if isinstance(GQs[0], float):
+            GQs = [round(g, 4) for g in GQs]
+        GQs = [str(g) for g in GQs]
+
+        #Get minimal variant info
         vid = record.id
         size = str(record.info['SVLEN'])
         if 'AF' in record.info.keys():
@@ -129,9 +133,9 @@ def gather_info(vcf, fout, pro, fa, mo, ac_adj=None, no_header=False):
         pro_ev = record.samples[trio_samples[0]]['EV']
         if isinstance(pro_ev, tuple):
             pro_ev = ','.join(list(pro_ev))
-        vinfo = '{0}\t{1}\t{2}\t{3}\t{4}\t{5}'.format(vid, size, freq,
-                                                      svtype, filt, pro_ev)
-
+        vinfo = '{0}\t{1}\t{2}\t{3}\t{4}\t{5}'.format(vid, size, freq, 
+                                                           svtype, filt, pro_ev)
+        
         # Write record to file
         newline = '{0}\t{1}\t{2}'.format(vinfo, '\t'.join(ACs), '\t'.join(GQs))
         fout.write(newline + '\n')
@@ -162,13 +166,27 @@ def main():
     parser.add_argument('mo', help='Mother sample ID.')
     parser.add_argument('--ac-adj', help='tsv with variant IDs and ' +
                         'pro/fa/mo AC to be manually overwritten.')
+    parser.add_argument('--metric', default='GQ', type=str, help='Quality metric ' +
+                        'to extract from FORMAT for each GT.')
+    parser.add_argument('--fill-incomplete', default=False, action='store_true',
+                        help='Fill GT quality metrics with --default-metric-value ' +
+                        'for samples missing quality metrics. Default: skip ' +
+                        'sites with incomplete quality metrics.')
+    parser.add_argument('--default-value-homref', default=999, type=float, help='Default ' +
+                        'value to fill missing homozygous reference GT quality ' +
+                        'metrics. Only used if --fill-incomplete is provided. '
+                        'Default: 999.')
+    parser.add_argument('--default-value-other', default=999, type=float, help='Default ' +
+                        'value to fill missing GT quality metrics for all GTs ' +
+                        'other than homozygous reference. Only used if ' +
+                        '--fill-incomplete is provided. Default: 999.')
     parser.add_argument('--no-header', help='Do not write header line.',
                         action='store_true', default=False)
 
     args = parser.parse_args()
 
     if args.vcf in '- stdin'.split():
-        vcf = pysam.VariantFile(sys.stdin)
+        vcf = pysam.VariantFile(sys.stdin) 
     else:
         vcf = pysam.VariantFile(args.vcf)
 
@@ -182,10 +200,11 @@ def main():
     else:
         ac_adj = None
 
-    gather_info(vcf, fout, args.pro, args.fa, args.mo, ac_adj, args.no_header)
+    gather_info(vcf, fout, args.pro, args.fa, args.mo, ac_adj, args.metric, 
+                args.fill_incomplete, args.default_value_homref, 
+                args.default_value_other, args.no_header)
 
     fout.close()
-
 
 if __name__ == '__main__':
     main()
