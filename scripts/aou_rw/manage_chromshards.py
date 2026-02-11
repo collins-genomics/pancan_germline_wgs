@@ -320,7 +320,7 @@ def main():
     parser.add_argument('--vm-gate', type=int, default=1100, help='Maximum ' +
                         'number of active GCP VMs before skipping submission; ' +
                         'useful for throttling Cromwell server load')
-    parser.add_argument('--contig-gate', type=int, default=len(hg38_primary_contigs), 
+    parser.add_argument('--contig-gate', type=int, default=len(hg38_primary_contigs) + 1, 
                         help='Maximum number of active contigs before skipping ' +
                         'submission; useful for throttling Cromwell server load')
     parser.add_argument('--submission-gate', type=float, default=0.5, help='Number ' +

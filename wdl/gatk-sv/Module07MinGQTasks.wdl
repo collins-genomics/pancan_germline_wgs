@@ -766,7 +766,7 @@ task FilterGTs {
   command <<<
     set -eu -o pipefail
 
-    cmd=~{default="/opt/sv-pipeline/scripts/downstream_analysis_and_filtering/filter_GTs_by_metric.py" script}
+    cmd="python ~{default='/opt/sv-pipeline/scripts/downstream_analysis_and_filtering/filter_GTs_by_metric.py' script}"
     cmd="$cmd ~{sep=' ' filter_GT_options} "
     cmd="$cmd --max-ncr ~{maxNCR} --simplify-INS-SVTYPEs --cleanAFinfo "
     cmd="$cmd --prefix \"~{PCR_status}\" ~{vcf} ~{minMetric_lookup_table} stdout"
