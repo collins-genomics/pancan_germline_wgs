@@ -103,6 +103,7 @@ workflow UnifyGatkCallsets {
     input:
       vcfs = select_all(SplitGatkHcBySize.large_indel_vcf),
       intervals_bed = MakeClusteringIntervals.intervals_bed,
+      interval_suffix = "large_indels",
       disk_gb = ceil(2.2 * EstimateLargeIndelFileSize.sum) + 10,
       g2c_analysis_docker = g2c_analysis_docker
   }
@@ -112,6 +113,7 @@ workflow UnifyGatkCallsets {
     input:
       vcfs = PrepareSvs.eligible_sv_vcf,
       intervals_bed = MakeClusteringIntervals.intervals_bed,
+      interval_suffix = "svs",
       g2c_analysis_docker = g2c_analysis_docker
   }
 
@@ -359,6 +361,7 @@ task ReshardVcfs {
     Array[File] vcfs
     File intervals_bed
     Boolean intervals_are_compressed = true
+    String? interval_suffix
 
     Boolean rename = false
     Boolean delete_empty = false
@@ -373,7 +376,9 @@ task ReshardVcfs {
   }
 
   String rename_cmd = if rename then "| /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py" else ""
-  String int_while_cmd = if intervals_are_compressed then "<( zcat " + basename(intervals_bed) + " )" else basename(intervals_bed)
+  String int_cat_cmd = if intervals_are_compressed then "zcat" else "cat"
+  String int_bgzip_cmd = if intervals_are_compressed then "| bgzip -c" else ""
+  String int_bed_loc = basename(intervals_bed)
 
   Int sort_mem_mb = floor(1000 * (mem_gb - 1))
 
@@ -396,14 +401,22 @@ task ReshardVcfs {
     ) &
     HEARTBEAT_PID=$!
 
-    # Relocate intervals to pwd
-    cp ~{intervals_bed} ./
+    # Relocate intervals to pwd, adding a suffix if optioned
+    if ~{defined(interval_suffix)}; then
+      ~{int_cat_cmd} ~{intervals_bed} \
+      | awk -v suf="~{interval_suffix}" -v FS="\t" -v OFS="\t" \
+        '{ print $1, $2, $3, $4"."suf }' \
+      ~{int_bgzip_cmd} \
+      > ~{int_bed_loc}
+    else
+      cp ~{intervals_bed} ~{int_bed_loc}
+    fi
 
     # Reshard variants
     cat ~{write_lines(vcfs)} > vcf.inputs.list
     /opt/pancan_germline_wgs/scripts/utilities/reshard_vcfs.py \
       --vcf-list vcf.inputs.list \
-      --intervals ~{intervals_bed}
+      --intervals ~{int_bed_loc}
 
     # To reduce disk pressure, we delete the localized copies of raw VCFs
     cat vcf.inputs.list | xargs -I {} rm {}
@@ -428,7 +441,8 @@ task ReshardVcfs {
         $vcf \
       ~{rename_cmd} \
       | bcftools norm \
-        -D --threads ~{n_cpu} \
+        -d exact \
+        --threads ~{n_cpu} \
         -Oz -o $iid.clean.vcf.gz
       mv $iid.clean.vcf.gz $vcf
 
@@ -436,7 +450,7 @@ task ReshardVcfs {
 
       mv $vcf clean_outputs/
       mv $vcf.tbi clean_outputs/
-    done < ~{int_while_cmd}
+    done < <( ~{int_cat_cmd} ~{int_bed_loc} )
 
     kill $HEARTBEAT_PID
     wait $HEARTBEAT_PID 2>/dev/null || true
