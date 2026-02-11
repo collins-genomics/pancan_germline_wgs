@@ -749,6 +749,7 @@ task FilterGTs {
     String PCR_status
     Float maxNCR
     Array[String] filter_GT_options = []
+    String? script
     String sv_pipeline_base_docker
     RuntimeAttr? runtime_attr_override    
   }
@@ -765,7 +766,7 @@ task FilterGTs {
   command <<<
     set -eu -o pipefail
 
-    cmd="/opt/sv-pipeline/scripts/downstream_analysis_and_filtering/filter_GTs_by_metric.py "
+    cmd=~{default="/opt/sv-pipeline/scripts/downstream_analysis_and_filtering/filter_GTs_by_metric.py" script}
     cmd="$cmd ~{sep=' ' filter_GT_options} "
     cmd="$cmd --max-ncr ~{maxNCR} --simplify-INS-SVTYPEs --cleanAFinfo "
     cmd="$cmd --prefix \"~{PCR_status}\" ~{vcf} ~{minMetric_lookup_table} stdout"
