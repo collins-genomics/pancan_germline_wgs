@@ -749,7 +749,7 @@ task FilterGTs {
     String PCR_status
     Float maxNCR
     Array[String] filter_GT_options = []
-    String? script
+    File? script
     String sv_pipeline_base_docker
     RuntimeAttr? runtime_attr_override    
   }
