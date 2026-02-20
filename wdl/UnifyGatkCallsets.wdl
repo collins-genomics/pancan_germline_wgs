@@ -373,8 +373,8 @@ task ReshardVcfs {
     String g2c_analysis_docker
 
     Int disk_gb = 50
-    Float mem_gb = 3.5
-    Int n_cpu = 2
+    Float mem_gb = 7.5
+    Int n_cpu = 4
     Int boot_gb = 25
     Int n_preemptible = 1
     Int ulimit = 4096
@@ -385,7 +385,7 @@ task ReshardVcfs {
   String int_bgzip_cmd = if intervals_are_compressed then "| bgzip -c" else ""
   String int_bed_loc = basename(intervals_bed)
 
-  Int sort_mem_mb = floor(1000 * (mem_gb - 1))
+  Int sort_mem_mb = floor(1000 * (mem_gb - 2))
 
   command <<<
     set -eu -o pipefail
