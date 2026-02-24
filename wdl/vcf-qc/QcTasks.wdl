@@ -290,7 +290,7 @@ task CollectSiteMetrics {
     > ~{out_prefix}.all.sites.bed.gz || true
     tabix -p bed -f ~{out_prefix}.all.sites.bed.gz
 
-    # Concatenate all common variant IDs for downstrea
+    # Concatenate all common variant IDs for downstream
     # compatability with LD-based analyses
     find ./ -name "~{out_prefix}.*.sites.common.bed.gz" \
     | xargs -I {} zcat {} \

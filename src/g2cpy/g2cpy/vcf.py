@@ -158,7 +158,7 @@ def integrate_gts(target_record, records, sort_key='GQ'):
     return target_record
 
 
-def integrate_infos(records, do_cpx_intervals=False):
+def integrate_infos(records, do_cpx_intervals=False, header=None):
     """
     Integrate the INFO fields of two or more pysam.VariantRecords
     Takes the union for all non-numeric fields
@@ -172,6 +172,9 @@ def integrate_infos(records, do_cpx_intervals=False):
     if len(records) == 1:
         return records[0].info
 
+    if header is not None:
+        records = [r.copy().translate(header) for r in records]
+
     # Arbitrarily initialize new info as a cleared copy of the first record
     rtemp = records[0].copy()
     newinfo = rtemp.info
@@ -181,7 +184,7 @@ def integrate_infos(records, do_cpx_intervals=False):
     keys = set(recursive_flatten([r.info.keys() for r in records]))
 
     # Exclude protected keys
-    protected_keys = 'END AC AN AF'.split()
+    protected_keys = 'END AC AN AF SVLEN'.split()
     for pk in protected_keys:
         keys = [k for k in keys if not k.startswith(pk) and not k.endswith(pk)]
 

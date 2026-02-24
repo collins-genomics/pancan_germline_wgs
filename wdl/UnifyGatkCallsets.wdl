@@ -105,6 +105,7 @@ workflow UnifyGatkCallsets {
       vcf_idxs = select_all(SplitGatkHcBySize.large_indel_vcf_idx),
       intervals_bed = MakeClusteringIntervals.intervals_bed,
       interval_suffix = "large_indels",
+      rename = true,
       disk_gb = ceil(2.5 * EstimateLargeIndelFileSize.sum) + 10,
       g2c_analysis_docker = g2c_analysis_docker
   }
@@ -116,26 +117,33 @@ workflow UnifyGatkCallsets {
       vcf_idxs = PrepareSvs.eligible_sv_vcf_idx,
       intervals_bed = MakeClusteringIntervals.intervals_bed,
       interval_suffix = "svs",
+      rename = true,
       g2c_analysis_docker = g2c_analysis_docker
   }
 
-  # # Cluster large indels and SVs
-  # Int n_cluster_shards = length(SplitIndelsForClustering.sharded_vcfs)
-  # scatter ( i in range(n_cluster_shards) ) {
+  # Cluster large indels and SVs
+  Int n_cluster_shards = length(SplitIndelsForClustering.sharded_vcfs)
+  scatter ( i in range(n_cluster_shards) ) {
 
-  #   File sv_vcf = SplitSvsForClustering.sharded_vcfs[i]
-  #   File sv_vcf_idx = SplitSvsForClustering.sharded_vcf_idxs[i]
-  #   File indel_vcf = SplitIndelsForClustering.sharded_vcfs[i]
-  #   File indel_vcf_idx = SplitIndelsForClustering.sharded_vcf_idxs[i]
+    File sv_vcf = SplitSvsForClustering.sharded_vcfs[i]
+    File sv_vcf_idx = SplitSvsForClustering.sharded_vcf_idxs[i]
+    File indel_vcf = SplitIndelsForClustering.sharded_vcfs[i]
+    File indel_vcf_idx = SplitIndelsForClustering.sharded_vcf_idxs[i]
 
-  #   # TODO: implement this
-  #   # Steps:
-  #   # - Get all candidate overlaps with benchmarking script
-  #   # - Subset indel and SV VCFs to IDs in candidate overlaps list and concatenate into single VCF
-  #   # - Compute LD for all pairs of variants (within ± 3 * max_indel_size window) from subsetted VCF
-  #   # - Prune candidate clusters based on LD information
-  #   # - Python script to ingest pruned cluster assignments, indel VCF, and SV VCF, and write out "final" indel and SV VCFs
-  # }
+    # TODO: implement this
+    # Steps:
+    # - Get all candidate overlaps with benchmarking script
+    # - Subset indel and SV VCFs to IDs in candidate overlaps list and concatenate into single VCF
+    # - Compute LD for all pairs of variants (within ± 3 * max_indel_size window) from subsetted VCF
+    # - Prune candidate clusters based on LD information
+
+    # Variant integration is VERY SLOW in pysam
+    # Probably need to shard this task separately
+    # Maybe take all variants involved in mixed clusters into one shard,
+    # Then shard all other SVs or indels separately?
+    # Can do this depending on total number of records
+    # - Python script to ingest pruned cluster assignments, indel VCF, and SV VCF, and write out "final" indel and SV VCFs
+  }
 
   # Postprocess SNVs
   call Utils.Sum as EstimateSnvFileSize {
