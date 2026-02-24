@@ -107,10 +107,12 @@ def convert_gt(gt):
     return conv
 
 
-def integrate_gts(target_record, records, sort_key='GQ'):
+def integrate_gts(target_record, records, sort_key='GQ', 
+                  nocalls_first=True, ref_second=True,
+                  header=None):
     """
     Merge genotypes across pysam.VariantRecords
-    GT selection is prioritized as:
+    By default, GT selection is prioritized as:
     1. Null / no-call (./.)
     2. All non-ref GTs
     3. All ref GTs
@@ -120,6 +122,11 @@ def integrate_gts(target_record, records, sort_key='GQ'):
 
     if len(records) < 2:
         return target_record
+
+    if header is not None:
+        records = [r.copy() for r in records]
+        for r in records:
+            r.translate(header)
 
     # Check to ensure all samples are the same across all records
     sids_per_rec = [set(r.samples.keys()) for r in records]
@@ -132,7 +139,7 @@ def integrate_gts(target_record, records, sort_key='GQ'):
     # Direct access to target GT fields
     newgts = target_record.samples
 
-    def __sort_gts(gt, tiebreak='GQ'):
+    def __sort_gts(gt, tiebreak='GQ', nocalls_first=nocalls_first, ref_second=ref_second):
         """
         Custom sorting key function for a list of genotypes according to desired
         genotype retention priority
@@ -146,14 +153,38 @@ def integrate_gts(target_record, records, sort_key='GQ'):
         tb = gt.get(tiebreak, -10e10)
         if tb is None:
             tb = -10e10
+        sort_vals = []
+        if nocalls_first:
+            sort_vals.append(is_nocall)
+        if ref_second:
+            sort_vals.append(is_nonref)
+        sort_vals.append(tb)
 
-        return is_nocall, is_nonref, tb
+        return tuple(sort_vals)
 
     # Integrate each sample's genotypes across records
     for sid in all_sids:
         gts = [r.samples[sid] for r in records]
+        keep_gt = sorted(gts, key=__sort_gts, reverse=True)[0]
         newgts[sid].clear()
-        newgts[sid].update(sorted(gts, key=__sort_gts, reverse=True)[0])
+        # Missing multi-value FORMAT entries can break mapping to a new header
+        # We need to catch these as follows
+        try:
+            newgts[sid].update(keep_gt)
+        except:
+            for fk, fv in keep_gt.items():
+                try:
+                    newgts[sid][fk] = fv
+                except:
+                    # If value assignment fails, we can just leave this FORMAT 
+                    # unset and pysam will fill with '.'
+                    if fv == (None, ):
+                        pass
+                    else:
+                        ef = 'Unable to set FORMAT {} for {} at {}:{} ({})'
+                        raise ValueError(ef.format(fk, sid, target_record.chrom,
+                                                   target_record.pos,
+                                                   target_record.id))
 
     return target_record
 
@@ -173,7 +204,9 @@ def integrate_infos(records, do_cpx_intervals=False, header=None):
         return records[0].info
 
     if header is not None:
-        records = [r.copy().translate(header) for r in records]
+        records = [r.copy() for r in records]
+        for r in records:
+            r.translate(header)
 
     # Arbitrarily initialize new info as a cleared copy of the first record
     rtemp = records[0].copy()

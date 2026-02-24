@@ -19,6 +19,9 @@ import pysam
 
 
 vcs = 'indel sv'.split()
+newflag = '##INFO=<ID=INTEGRATED_INDEL_SV,Number=0,Type=Flag,Description=' + \
+          '"Variant represents the integration of a large indel from GATK-HC ' + \
+          'and small SV from GATK-SV">'
 
 
 def next_record(vcf):
@@ -74,31 +77,41 @@ def integrate_records(indels, svs, header):
 
     # Retain the union of all FILTERs
     for other in indels + svs:
-        for f in other.filters.keys():
-            new_rec.filters.add(f)
+        for f in other.filter.keys():
+            new_rec.filter.add(f)
 
     # Update INFO
     vc, vsc, varlen = g2cpy.classify_record(new_rec, return_varlen=True)
-    new_rec.info = g2cpy.integrate_infos(indels + svs)
+    new_info = g2cpy.integrate_infos(indels + svs, header=header)
+    new_rec.info.clear()
+    new_rec.info.update(new_info)
+    new_rec.info['INTEGRATED_INDEL_SV'] = True
 
     # Selectively update certain features depending on final variant class
+    new_rec.info['ALGORITHMS'] += ('gatkhc', )
     if vc == 'sv':
         new_rec.info['SVLEN'] = int(varlen)
-        new_rec.info['SVTYPE'] = vc
-        import pdb; pdb.set_trace()
-        new_rec.info['ALGORITHMS']
+        new_rec.info['SVTYPE'] = vsc.upper()
+        # We treat all GATK-HC variants as SR evidence due to GATK-HC local realignments
+        if 'SR' not in new_rec.info.get('EVIDENCE', tuple()):
+            new_rec.info['EVIDENCE'] += ('SR', )
     else:
-        for k in 'SVLEN SVTYPE END':
+        for k in 'SVLEN SVTYPE END ALGORITHMS EVIDENCE':
             new_rec.info.pop(k)
 
     # Integrate genotypes
-    new_rec = g2cpy.integrate_gts(new_rec, indels + svs)
+    new_rec = g2cpy.integrate_gts(new_rec, indels + svs, 
+                                  nocalls_first=False, ref_second=False,
+                                  header=header)
 
     # Update frequency annotations
-    for k, v in g2cpy.compute_allele_freq_stats(new_rec).items():
-        new_rec.info[k] = v
+    af_stats = g2cpy.compute_allele_freq_stats(new_rec)
+    new_rec.info['AC'] = int(af_stats['AC'])
+    new_rec.info['AN'] = int(af_stats['AN'])
+    new_rec.info['AF'] = float(af_stats['AF'])
 
-    import pdb; pdb.set_trace()
+    # Assign new record ID
+    new_rec.id = g2cpy.name_record(new_rec)
 
     return new_rec, vc
 
@@ -138,6 +151,7 @@ def main():
 
     # Load header for output VCFs
     header = pysam.VariantFile(args.out_vcf_header).header
+    header.add_line(newflag)
 
     # Open connections to indel and SV VCFs
     in_vcfs = {'indel' : pysam.VariantFile(args.indel_vcf),
@@ -196,7 +210,8 @@ def main():
                 new_rec, out_vc = integrate_records(clusters[i]['indel']['records'],
                                                     clusters[i]['sv']['records'],
                                                     header)
-                out_vcfs[out_vc].write(new_rec)
+                if new_rec.info['AC'][0] > 0:
+                    out_vcfs[out_vc].write(new_rec)
 
                 # Clear this cluster to relieve memory pressure
                 clusters.pop(i)

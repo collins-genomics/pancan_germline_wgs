@@ -124,25 +124,17 @@ workflow UnifyGatkCallsets {
   # Cluster large indels and SVs
   Int n_cluster_shards = length(SplitIndelsForClustering.sharded_vcfs)
   scatter ( i in range(n_cluster_shards) ) {
-
-    File sv_vcf = SplitSvsForClustering.sharded_vcfs[i]
-    File sv_vcf_idx = SplitSvsForClustering.sharded_vcf_idxs[i]
-    File indel_vcf = SplitIndelsForClustering.sharded_vcfs[i]
-    File indel_vcf_idx = SplitIndelsForClustering.sharded_vcf_idxs[i]
-
-    # TODO: implement this
-    # Steps:
-    # - Get all candidate overlaps with benchmarking script
-    # - Subset indel and SV VCFs to IDs in candidate overlaps list and concatenate into single VCF
-    # - Compute LD for all pairs of variants (within ± 3 * max_indel_size window) from subsetted VCF
-    # - Prune candidate clusters based on LD information
-
-    # Variant integration is VERY SLOW in pysam
-    # Probably need to shard this task separately
-    # Maybe take all variants involved in mixed clusters into one shard,
-    # Then shard all other SVs or indels separately?
-    # Can do this depending on total number of records
-    # - Python script to ingest pruned cluster assignments, indel VCF, and SV VCF, and write out "final" indel and SV VCFs
+    call IntegrateIndelsAndSvs {
+      input:
+        indel_vcf = select_first(select_all([SplitIndelsForClustering.sharded_vcfs[i]])),
+        indel_vcf_idx = select_first(select_all([SplitIndelsForClustering.sharded_vcf_idxs[i]])),
+        sv_vcf = select_first(select_all([SplitSvsForClustering.sharded_vcfs[i]])),
+        sv_vcf_idx = select_first(select_all([SplitSvsForClustering.sharded_vcf_idxs[i]])),
+        genome_file = genome_file,
+        size_scalar = size_scalar,
+        output_prefix = "clustering_interval_~{i}",
+        g2c_analysis_docker = g2c_analysis_docker
+    }
   }
 
   # Postprocess SNVs
@@ -171,16 +163,75 @@ workflow UnifyGatkCallsets {
   }
 
   # Postprocess indels
-  # TODO: implement this
-  # Don't forget: need to add short indels
+  Array[File] all_indel_vcfs = select_all(flatten([SplitGatkHcBySize.small_indel_vcf,
+                                                   IntegrateIndelsAndSvs.integrated_indel_vcf]))
+  Array[File] all_indel_vcf_idxs = select_all(flatten([SplitGatkHcBySize.small_indel_vcf_idx,
+                                                       IntegrateIndelsAndSvs.integrated_indel_vcf_idx]))
+  call Utils.Sum as EstimateIndelFileSize {
+    input:
+      values = select_all(flatten([SplitGatkHcBySize.small_indel_vcf_size,
+                                   IntegrateIndelsAndSvs.integrated_indel_vcf_size]))
+  }
+  call Utils.ShardTextFile as ShardIndelIntervals {
+    input:
+      input_file = indel_partition_intervals,
+      lines_per_split = final_intervals_per_shard,
+      out_prefix = "indel_output_partitions",
+      g2c_analysis_docker = g2c_analysis_docker
+  }
+  scatter ( interval_shard in ShardIndelIntervals.shards ) {
+    call ReshardVcfs as PartitionIndelOutputs {
+      input:
+        vcfs = all_indel_vcfs,
+        vcf_idxs = all_indel_vcf_idxs,
+        intervals_bed = interval_shard,
+        rename = true,
+        delete_empty = true,
+        disk_gb = ceil(final_partition_disk_scalar * EstimateIndelFileSize.sum) + 10,
+        g2c_analysis_docker = g2c_analysis_docker
+    }
+  }
 
   # Postprocess SVs
-  # TODO: implement this
   # Don't forget: need to add passthrough SVs
+  Array[File] all_sv_vcfs = select_all(flatten([PrepareSvs.passthrough_sv_vcf,
+                                                IntegrateIndelsAndSvs.integrated_sv_vcf]))
+  Array[File] all_sv_vcf_idxs = select_all(flatten([PrepareSvs.passthrough_sv_vcf_idx,
+                                                    IntegrateIndelsAndSvs.integrated_sv_vcf_idx]))
+  call Utils.Sum as EstimateSvFileSize {
+    input:
+      values = select_all(flatten([PrepareSvs.passthrough_sv_vcf_size,
+                                   IntegrateIndelsAndSvs.integrated_sv_vcf_size]))
+  }
+  call Utils.ShardTextFile as ShardSvIntervals {
+    input:
+      input_file = sv_partition_intervals,
+      lines_per_split = final_intervals_per_shard,
+      out_prefix = "sv_output_partitions",
+      g2c_analysis_docker = g2c_analysis_docker
+  }
+  scatter ( interval_shard in ShardSvIntervals.shards ) {
+    call ReshardVcfs as PartitionSvOutputs {
+      input:
+        vcfs = all_sv_vcfs,
+        vcf_idxs = all_sv_vcf_idxs,
+        intervals_bed = interval_shard,
+        rename = true,
+        delete_empty = true,
+        disk_gb = ceil(final_partition_disk_scalar * EstimateSvFileSize.sum) + 10,
+        g2c_analysis_docker = g2c_analysis_docker
+    }
+  }
 
   output {
     Array[File?] cleaned_snv_vcfs = select_all(flatten(PartitionSnvOutputs.sharded_vcfs))
     Array[File?] cleaned_snv_vcf_idxs = select_all(flatten(PartitionSnvOutputs.sharded_vcf_idxs))
+
+    Array[File?] cleaned_indel_vcfs = select_all(flatten(PartitionIndelOutputs.sharded_vcfs))
+    Array[File?] cleaned_indel_vcf_idxs = select_all(flatten(PartitionIndelOutputs.sharded_vcf_idxs))
+
+    Array[File?] cleaned_sv_vcfs = select_all(flatten(PartitionSvOutputs.sharded_vcfs))
+    Array[File?] cleaned_sv_vcf_idxs = select_all(flatten(PartitionSvOutputs.sharded_vcf_idxs))
   }
 }
 
@@ -351,8 +402,10 @@ task PrepareSvs {
   output {
     File eligible_sv_vcf = "~{elig_outfile}"
     File eligible_sv_vcf_idx = "~{elig_outfile}.tbi"
+
     File passthrough_sv_vcf = "~{pt_outfile}"
     File passthrough_sv_vcf_idx = "~{pt_outfile}.tbi"
+    Int passthrough_sv_vcf_size = size(passthrough_sv_vcf, "GB")
   }
 
   runtime {
@@ -498,5 +551,199 @@ task ReshardVcfs {
     preemptible: n_preemptible
     maxRetries: 1
   }
+}
+
+
+# Core task to integrate large indels and small SVs
+task IntegrateIndelsAndSvs {
+  input {
+    File indel_vcf
+    File indel_vcf_idx
+    
+    File sv_vcf
+    File sv_vcf_idx
+
+    File genome_file
+    Float size_scalar
+    Float min_nonref_jaccard = 0.1
+
+    String output_prefix
+
+    String g2c_analysis_docker
+
+    Float mem_gb = 7.5
+    Int n_cpu = 4
+  }
+
+  Int sort_mem_mb = floor(1000 * (mem_gb - 2))
+  Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 20
+
+  command <<<
+    set -eu -o pipefail
+
+    # Ensure VCF indexes localize to same directory as VCFs
+    if [ "~{indel_vcf}.tbi" != "~{indel_vcf_idx}" ]; then
+      cp "~{indel_vcf_idx}" "~{indel_vcf}.tbi"
+    fi
+    if [ "~{sv_vcf}.tbi" != "~{sv_vcf_idx}" ]; then
+      cp "~{sv_vcf_idx}" "~{sv_vcf}.tbi"
+    fi
+
+    # Step 1: Extract BED info for indels and SVs
+    echo "##INFO=<ID=SVLEN,Number=1,Type=Integer,Description=\"Length\">" > header.supp.vcf
+    for vc in indel sv; do
+      case "$vc" in
+        "indel")
+          invcf="~{indel_vcf}"
+          ;;
+        "sv")
+          invcf="~{sv_vcf}"
+          ;;
+      esac
+      bcftools view -G $invcf \
+      | bcftools annotate -h header.supp.vcf \
+      | bcftools +fill-tags -- -t AC,AN,AF \
+      | bcftools query \
+        -f '%CHROM\t%POS\t%END\t%REF\t%ALT\t%INFO/SVLEN\t%INFO/AN\t%INFO/AC\t%INFO/AF\t.\t.\t.\t.\t.\t.\n' \
+      | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/clean_site_metrics.py \
+        -o input.$vc \
+        --gzip \
+        -N 100
+      find ./ -name "input.$vc.*.sites.bed.gz" > $vc.partitioned.sites.list
+      if [ $( cat $vc.partitioned.sites.list | wc -l ) -gt 1 ]; then
+        cat \
+          <( zcat $( sed -n '1p' $vc.partitioned.sites.list ) | sed -n '1p' ) \
+          <( cat $vc.partitioned.sites.list | xargs -I {} zcat {} \
+             | grep -ve '^#' | sort -Vk1,1 -k2,2n -k3,3n -k4,4V ) \
+        | bgzip -c \
+        > input.$vc.sites.bed.gz
+      else
+        cp $( sed -n '1p' $vc.partitioned.sites.list ) input.$vc.sites.bed.gz
+      fi
+      tabix -p bed -f input.$vc.sites.bed.gz
+    done
+
+    # Step 2: find candidate overlapping indels & SVs
+    /opt/pancan_germline_wgs/scripts/qc/vcf_qc/compare_sites.py \
+      -a input.sv.sites.bed.gz \
+      -b input.indel.sites.bed.gz \
+      -g ~{genome_file} \
+      -o candidate_hits \
+      --mode both \
+      --max-overlap-size-diff ~{size_scalar} \
+      --overlap-pad 1 \
+      --one-to-many \
+      --no-reverse \
+      --gzip
+    zcat candidate_hits.loj.sites.bed.gz \
+    | grep -ve '^#' \
+    | awk -v FS="\t" -v OFS="\t" '{ if ($9!="NA") print "sv_"$4, "indel_"$9, $NF }' \
+    | sort -Vk1,1 -k3,3n -k2,2V \
+    | uniq \
+    | gzip -c \
+    > candidate_hits.pairs.tsv.gz
+    zcat candidate_hits.pairs.tsv.gz \
+    | awk -v OFS="\n" '{ print $1, $2 }' \
+    | sort -V \
+    | uniq \
+    > candidate_hits.vids.list
+
+    # Step 3: Compute non-ref GT Jaccard indexes for all candidate pairs
+    bcftools query -l ~{indel_vcf} > indel.samples.list
+    bcftools query -l ~{sv_vcf} > sv.samples.list
+    cat indel.samples.list sv.samples.list | sort -V | uniq > union.samples.list
+    for vc in indel sv; do
+      case "$vc" in
+        "indel")
+          invcf="~{indel_vcf}"
+          ;;
+        "sv")
+          invcf="~{sv_vcf}"
+          ;;
+      esac
+      bcftools view \
+        --samples-file union.samples.list \
+        $invcf \
+      | bcftools annotate \
+        --set-id "$vc""_%ID" \
+      | bcftools view \
+        --include 'ID=@candidate_hits.vids.list' \
+        -Oz -o $vc.for_jaccard.vcf.gz
+      tabix -p vcf -f $vc.for_jaccard.vcf.gz
+    done
+    cat \
+      <( echo "#vid" ) \
+      union.samples.list \
+    | paste -s \
+    > jaccard.header
+    bcftools concat -a \
+      -Oz -o all.for_jaccard.vcf.gz \
+      indel.for_jaccard.vcf.gz \
+      sv.for_jaccard.vcf.gz
+    tabix -p vcf -f all.for_jaccard.vcf.gz
+    bcftools query \
+      -f '%ID[\t%GT]\n' \
+      all.for_jaccard.vcf.gz \
+    | cat jaccard.header - \
+    | gzip -c \
+    > jaccard.input.tsv.gz
+    /opt/pancan_germline_wgs/scripts/variant_filtering/calc_nonref_jaccards.R \
+      --genotype-matrix jaccard.input.tsv.gz \
+      --pairs-tsv candidate_hits.pairs.tsv.gz \
+    | gzip -c \
+    > jaccard.output.tsv.gz
+
+    # Step 4: Resolve clusters to assign final variant integrations
+    /opt/pancan_germline_wgs/scripts/variant_filtering/filter_indel_sv_clusters.py \
+      --pair-distance candidate_hits.pairs.tsv.gz \
+      --pair-jaccard jaccard.output.tsv.gz \
+      --minimum-jaccard ~{min_nonref_jaccard} \
+    | gzip -c \
+    > "~{output_prefix}.final_clusters.tsv.gz"
+
+    # Make integrated header for indel & SV VCFs
+    tabix -H ~{indel_vcf} | sort -V > indel.header.vcf
+    tabix -H ~{sv_vcf} | sort -V > sv.header.vcf
+    fgrep "##file" sv.header.vcf > header.vcf
+    fgrep "##contig" sv.header.vcf >> header.vcf
+    for tag in ALT FILTER INFO FORMAT; do
+      cat indel.header.vcf sv.header.vcf | fgrep "##$tag" | sort -V | uniq >> header.vcf
+    done
+    fgrep "##CPX" sv.header.vcf >> header.vcf
+    tabix -H all.for_jaccard.vcf.gz | fgrep -v "##" >> header.vcf
+
+    # Step 5: Integrate indel and SV VCFs
+    /opt/pancan_germline_wgs/scripts/variant_filtering/integrate_gatk_vcfs.py \
+      --indel-vcf ~{indel_vcf} \
+      --sv-vcf ~{sv_vcf} \
+      --clusters "~{output_prefix}.final_clusters.tsv.gz" \
+      --out-vcf-header header.vcf \
+      --out-prefix ~{output_prefix}
+    for vc in indel sv; do
+      bcftools sort \
+        --max-mem "~{sort_mem_mb}M" \
+        "~{output_prefix}.$vcf.vcf.gz"
+      tabix -p vcf -f "~{output_prefix}.$vcf.vcf.gz"
+    done
+  >>>
+
+  output {
+    File integrated_indel_vcf = "~{output_prefix}.indel.vcf.gz"
+    File integrated_indel_vcf_idx = "~{output_prefix}.indel.vcf.gz.tbi"
+    Float integrated_indel_vcf_size = size(integrated_indel_vcf, "GB")
+
+    File integrated_sv_vcf = "~{output_prefix}.sv.vcf.gz"
+    File integrated_sv_vcf_idx = "~{output_prefix}.sv.vcf.gz.tbi"
+    Float integrated_sv_vcf_size = size(integrated_sv_vcf, "GB")
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 1
+    maxRetries: 1
+  }  
 }
 
