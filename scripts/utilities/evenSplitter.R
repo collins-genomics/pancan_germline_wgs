@@ -92,7 +92,7 @@ if(shuf){
 #Perform different operations based on input mode
 if(!is.null(target.lines)){
   #Determine optimum number of splits
-  target.splits <- round(nlines / target.lines)
+  target.splits <- max(c(1, round(nlines / target.lines)))
 }
 
 # Cannot have more splits than lines in the input file

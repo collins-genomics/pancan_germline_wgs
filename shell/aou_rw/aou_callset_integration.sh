@@ -869,7 +869,7 @@ gsutil -m cp -r contig_genome_files gs://dfci-g2c-refs/hg38/
 # Write template input .json 
 cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
 {
-  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:9e19555",
+  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:c032419",
   "UnifyGatkCallsets.gatkhc_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
   "UnifyGatkCallsets.gatksv_vcfs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz"],
   "UnifyGatkCallsets.gatksv_vcf_idxs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz.tbi"],

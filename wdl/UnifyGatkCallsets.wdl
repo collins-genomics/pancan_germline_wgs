@@ -136,6 +136,14 @@ workflow UnifyGatkCallsets {
         g2c_analysis_docker = g2c_analysis_docker
     }
   }
+  call Utils.ConcatTextFiles as ConcatClusterLogs {
+    input:
+      shards = IntegrateIndelsAndSvs.indel_sv_clusters,
+      concat_command = "zcat",
+      compression_command = "gzip -c",
+      input_has_header = true,
+      output_filename = "indel_sv_cluster_assignments.tsv.gz"
+  }
 
   # Postprocess SNVs
   call Utils.Sum as EstimateSnvFileSize {
@@ -232,6 +240,8 @@ workflow UnifyGatkCallsets {
 
     Array[File?] cleaned_sv_vcfs = select_all(flatten(PartitionSvOutputs.sharded_vcfs))
     Array[File?] cleaned_sv_vcf_idxs = select_all(flatten(PartitionSvOutputs.sharded_vcf_idxs))
+
+    File cluster_assignment_log = ConcatClusterLogs.merged_file
   }
 }
 
@@ -735,6 +745,8 @@ task IntegrateIndelsAndSvs {
     File integrated_sv_vcf = "~{output_prefix}.sv.vcf.gz"
     File integrated_sv_vcf_idx = "~{output_prefix}.sv.vcf.gz.tbi"
     Float integrated_sv_vcf_size = size(integrated_sv_vcf, "GB")
+
+    File indel_sv_clusters = "~{output_prefix}.final_clusters.tsv.gz"
   }
 
   runtime {
