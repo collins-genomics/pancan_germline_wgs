@@ -40,6 +40,7 @@ workflow UnifyGatkCallsets {
     Float final_partition_disk_scalar = 1.5 # Disk sizing parameter for final partitioning task
 
     String g2c_analysis_docker
+    String g2c_analysis_docker_dev_tmp      # REMOVE THIS ONCE SUCCESSFUL
     String linux_docker = "ubuntu:plucky-20251001"
   }
 
@@ -133,7 +134,7 @@ workflow UnifyGatkCallsets {
         genome_file = genome_file,
         size_scalar = size_scalar,
         output_prefix = "clustering_interval_~{i}",
-        g2c_analysis_docker = g2c_analysis_docker
+        g2c_analysis_docker = g2c_analysis_docker_dev_tmp
     }
   }
   call Utils.ConcatTextFiles as ConcatClusterLogs {
@@ -142,7 +143,8 @@ workflow UnifyGatkCallsets {
       concat_command = "zcat",
       compression_command = "gzip -c",
       input_has_header = true,
-      output_filename = "indel_sv_cluster_assignments.tsv.gz"
+      output_filename = "indel_sv_cluster_assignments.tsv.gz",
+      docker = linux_docker
   }
 
   # Postprocess SNVs
@@ -155,7 +157,7 @@ workflow UnifyGatkCallsets {
       input_file = snv_partition_intervals,
       lines_per_split = final_intervals_per_shard,
       out_prefix = "snv_output_partitions",
-      g2c_analysis_docker = g2c_analysis_docker
+      g2c_analysis_docker = g2c_analysis_docker_dev_tmp
   }
   scatter ( interval_shard in ShardSnvIntervals.shards ) {
     call ReshardVcfs as PartitionSnvOutputs {
@@ -166,7 +168,7 @@ workflow UnifyGatkCallsets {
         rename = true,
         delete_empty = true,
         disk_gb = ceil(final_partition_disk_scalar * EstimateSnvFileSize.sum) + 10,
-        g2c_analysis_docker = g2c_analysis_docker
+        g2c_analysis_docker = g2c_analysis_docker_dev_tmp
     }
   }
 
@@ -185,7 +187,7 @@ workflow UnifyGatkCallsets {
       input_file = indel_partition_intervals,
       lines_per_split = final_intervals_per_shard,
       out_prefix = "indel_output_partitions",
-      g2c_analysis_docker = g2c_analysis_docker
+      g2c_analysis_docker = g2c_analysis_docker_dev_tmp
   }
   scatter ( interval_shard in ShardIndelIntervals.shards ) {
     call ReshardVcfs as PartitionIndelOutputs {
@@ -196,7 +198,7 @@ workflow UnifyGatkCallsets {
         rename = true,
         delete_empty = true,
         disk_gb = ceil(final_partition_disk_scalar * EstimateIndelFileSize.sum) + 10,
-        g2c_analysis_docker = g2c_analysis_docker
+        g2c_analysis_docker = g2c_analysis_docker_dev_tmp
     }
   }
 
@@ -216,7 +218,7 @@ workflow UnifyGatkCallsets {
       input_file = sv_partition_intervals,
       lines_per_split = final_intervals_per_shard,
       out_prefix = "sv_output_partitions",
-      g2c_analysis_docker = g2c_analysis_docker
+      g2c_analysis_docker = g2c_analysis_docker_dev_tmp
   }
   scatter ( interval_shard in ShardSvIntervals.shards ) {
     call ReshardVcfs as PartitionSvOutputs {
@@ -227,7 +229,7 @@ workflow UnifyGatkCallsets {
         rename = true,
         delete_empty = true,
         disk_gb = ceil(final_partition_disk_scalar * EstimateSvFileSize.sum) + 10,
-        g2c_analysis_docker = g2c_analysis_docker
+        g2c_analysis_docker = g2c_analysis_docker_dev_tmp
     }
   }
 
@@ -415,7 +417,7 @@ task PrepareSvs {
 
     File passthrough_sv_vcf = "~{pt_outfile}"
     File passthrough_sv_vcf_idx = "~{pt_outfile}.tbi"
-    Int passthrough_sv_vcf_size = size(passthrough_sv_vcf, "GB")
+    Float passthrough_sv_vcf_size = size(passthrough_sv_vcf, "GB")
   }
 
   runtime {
