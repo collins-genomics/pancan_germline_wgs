@@ -32,9 +32,16 @@ load.gt.matrix <- function(tsv.in){
 # Compute non-ref sample Jaccard index for a pair of variants
 nonref.jaccard <- function(gt, vids){
   x1 <- as.integer(RLCtools::parse.gt(gt[vids[1], ]) > 0)
+  if(sum(x1, na.rm=T) == 0){
+    return(0)
+  }
   x2 <- as.integer(RLCtools::parse.gt(gt[vids[2], ]) > 0)
-  conf <- table(data.frame(x1, x2))
-  conf[2, 2] / (sum(conf) - conf[1, 1])
+  if(sum(x2, na.rm=T) == 0){
+    return(0)
+  }
+  num <- sum(x1 == 1 & x2 == 1, na.rm=T)
+  denom <- sum(x1 == 1 | x2 == 1, na.rm=T)
+  return(num / denom)
 }
 
 
@@ -57,7 +64,7 @@ args <- parser$parse_args()
 
 # # DEV:
 # args <- list("genotype_matrix" = "~/Downloads/jaccard.input.tsv.gz",
-#              "pairs_tsv" = "~/Downloads/candidate_hits.pairs.tsv",
+#              "pairs_tsv" = "~/Downloads/candidate_hits.pairs.tsv.gz",
 #              "out_tsv" = "~/scratch/jaccard.test.tsv")
 
 # Read variant pairs to process

@@ -127,7 +127,8 @@ workflow UnifyGatkCallsets {
   scatter ( i in range(n_cluster_shards) ) {
     
     Int shard_suffix = i + 1
-    call IntegrateIndelsAndSvs {
+
+    call DefineClusters {
       input:
         indel_vcf = select_first(select_all([SplitIndelsForClustering.sharded_vcfs[i]])),
         indel_vcf_idx = select_first(select_all([SplitIndelsForClustering.sharded_vcf_idxs[i]])),
@@ -139,13 +140,24 @@ workflow UnifyGatkCallsets {
         g2c_analysis_docker = g2c_analysis_docker_dev_tmp
     }
 
+    call ResolveClusters {
+      input:
+        indel_vcf = select_first(select_all([SplitIndelsForClustering.sharded_vcfs[i]])),
+        indel_vcf_idx = select_first(select_all([SplitIndelsForClustering.sharded_vcf_idxs[i]])),
+        sv_vcf = select_first(select_all([SplitSvsForClustering.sharded_vcfs[i]])),
+        sv_vcf_idx = select_first(select_all([SplitSvsForClustering.sharded_vcf_idxs[i]])),
+        clusters = DefineClusters.final_clusters,
+        output_prefix = "clustering_interval_~{shard_suffix}",
+        g2c_analysis_docker = g2c_analysis_docker_dev_tmp
+    }
+
     # Possible TODO: could extract records matching clusters here and integrate them in a separate task
     # This would improve speed because the vast majority of indel records could simply be written out
 
   }
   call Utils.ConcatTextFiles as ConcatClusterLogs {
     input:
-      shards = select_all(IntegrateIndelsAndSvs.indel_sv_clusters),
+      shards = DefineClusters.final_clusters,
       concat_command = "zcat",
       compression_command = "gzip -c",
       input_has_header = true,
@@ -180,13 +192,13 @@ workflow UnifyGatkCallsets {
 
   # Postprocess indels
   Array[File] all_indel_vcfs = select_all(flatten([SplitGatkHcBySize.small_indel_vcf,
-                                                   IntegrateIndelsAndSvs.integrated_indel_vcf]))
+                                                   ResolveClusters.integrated_indel_vcf]))
   Array[File] all_indel_vcf_idxs = select_all(flatten([SplitGatkHcBySize.small_indel_vcf_idx,
-                                                       IntegrateIndelsAndSvs.integrated_indel_vcf_idx]))
+                                                       ResolveClusters.integrated_indel_vcf_idx]))
   call Utils.Sum as EstimateIndelFileSize {
     input:
       values = select_all(flatten([SplitGatkHcBySize.small_indel_vcf_size,
-                                   IntegrateIndelsAndSvs.integrated_indel_vcf_size]))
+                                   ResolveClusters.integrated_indel_vcf_size]))
   }
   call Utils.ShardTextFile as ShardIndelIntervals {
     input:
@@ -211,13 +223,13 @@ workflow UnifyGatkCallsets {
   # Postprocess SVs
   # Don't forget: need to add passthrough SVs
   Array[File] all_sv_vcfs = select_all(flatten([PrepareSvs.passthrough_sv_vcf,
-                                                IntegrateIndelsAndSvs.integrated_sv_vcf]))
+                                                ResolveClusters.integrated_sv_vcf]))
   Array[File] all_sv_vcf_idxs = select_all(flatten([PrepareSvs.passthrough_sv_vcf_idx,
-                                                    IntegrateIndelsAndSvs.integrated_sv_vcf_idx]))
+                                                    ResolveClusters.integrated_sv_vcf_idx]))
   call Utils.Sum as EstimateSvFileSize {
     input:
       values = select_all(flatten([PrepareSvs.passthrough_sv_vcf_size,
-                                   IntegrateIndelsAndSvs.integrated_sv_vcf_size]))
+                                   ResolveClusters.integrated_sv_vcf_size]))
   }
   call Utils.ShardTextFile as ShardSvIntervals {
     input:
@@ -572,8 +584,8 @@ task ReshardVcfs {
 }
 
 
-# Core task to integrate large indels and small SVs
-task IntegrateIndelsAndSvs {
+# Define clusters of indels and SVs to be integrated
+task DefineClusters {
   input {
     File indel_vcf
     File indel_vcf_idx
@@ -589,12 +601,12 @@ task IntegrateIndelsAndSvs {
 
     String g2c_analysis_docker
 
-    Float mem_gb = 7.5
-    Int n_cpu = 4
+    Float mem_gb = 3.5
+    Int n_cpu = 2
   }
 
-  Int sort_mem_mb = floor(1000 * (mem_gb - 2))
   Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 20
+  String out_fname = "~{output_prefix}.final_clusters.tsv.gz"
 
   command <<<
     set -eu -o pipefail
@@ -608,13 +620,10 @@ task IntegrateIndelsAndSvs {
     fi
 
     # Step 0: if zero indels or SVs are present, there's nothing to do
-    n_indel=$( bcftools query -n ~{indel_vcf} )
-    n_sv=$( bcftools query -n ~{sv_vcf} )
+    n_indel=$( bcftools index -n ~{indel_vcf} )
+    n_sv=$( bcftools index -n ~{sv_vcf} )
     if [ $n_indel -eq 0 ] || [ $n_sv -eq 0 ]; then
-      cp ~{indel_vcf} "~{output_prefix}.indel.vcf.gz"
-      cp ~{indel_vcf_idx} "~{output_prefix}.indel.vcf.gz.tbi"
-      cp ~{sv_vcf} "~{output_prefix}.sv.vcf.gz"
-      cp ~{sv_vcf_idx} "~{output_prefix}.sv.vcf.gz.tbi"
+      echo -e "#SVs\tindels" | gzip -c > "~{out_fname}"
       exit 0
     fi
 
@@ -728,7 +737,56 @@ task IntegrateIndelsAndSvs {
       --pair-jaccard jaccard.output.tsv.gz \
       --minimum-jaccard ~{min_nonref_jaccard} \
     | gzip -c \
-    > "~{output_prefix}.final_clusters.tsv.gz"
+    > "~{out_fname}"
+  >>>
+
+  output {
+    File final_clusters = "~{out_fname}"
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }  
+}
+
+
+# Disambiguate large indels from small SVs and collapse clustered variants
+task ResolveClusters {
+  input {
+    File indel_vcf
+    File indel_vcf_idx
+    
+    File sv_vcf
+    File sv_vcf_idx
+
+    File clusters
+
+    String output_prefix
+
+    String g2c_analysis_docker
+
+    Float mem_gb = 7.5
+    Int n_cpu = 4
+  }
+
+  Int sort_mem_mb = floor(1000 * (mem_gb - 2))
+  Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 20
+
+  command <<<
+    set -eu -o pipefail
+
+    # Ensure VCF indexes localize to same directory as VCFs
+    if [ "~{indel_vcf}.tbi" != "~{indel_vcf_idx}" ]; then
+      cp "~{indel_vcf_idx}" "~{indel_vcf}.tbi"
+    fi
+    if [ "~{sv_vcf}.tbi" != "~{sv_vcf_idx}" ]; then
+      cp "~{sv_vcf_idx}" "~{sv_vcf}.tbi"
+    fi
 
     # Make integrated header for indel & SV VCFs
     tabix -H ~{indel_vcf} | sort -V > indel.header.vcf
@@ -745,7 +803,7 @@ task IntegrateIndelsAndSvs {
     /opt/pancan_germline_wgs/scripts/variant_filtering/integrate_gatk_vcfs.py \
       --indel-vcf ~{indel_vcf} \
       --sv-vcf ~{sv_vcf} \
-      --clusters "~{output_prefix}.final_clusters.tsv.gz" \
+      --clusters "~{clusters}" \
       --out-vcf-header header.vcf \
       --out-prefix "~{output_prefix}.unsorted"
     for vc in indel sv; do
@@ -765,8 +823,6 @@ task IntegrateIndelsAndSvs {
     File integrated_sv_vcf = "~{output_prefix}.sv.vcf.gz"
     File integrated_sv_vcf_idx = "~{output_prefix}.sv.vcf.gz.tbi"
     Float integrated_sv_vcf_size = size(integrated_sv_vcf, "GB")
-
-    File? indel_sv_clusters = "~{output_prefix}.final_clusters.tsv.gz"
   }
 
   runtime {
