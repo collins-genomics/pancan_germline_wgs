@@ -82,10 +82,7 @@ def integrate_records(indels, svs, header):
 
     # Update INFO
     vc, vsc, varlen = g2cpy.classify_record(new_rec, return_varlen=True)
-    try:
-        new_info = g2cpy.integrate_infos(indels + svs, header=header)
-    except:
-        import pdb; pdb.set_trace()
+    new_info = g2cpy.integrate_infos(indels + svs, header=header)
     new_rec.info.clear()
     new_rec.info.update(new_info)
     new_rec.info['INTEGRATED_INDEL_SV'] = True
@@ -99,8 +96,9 @@ def integrate_records(indels, svs, header):
         if 'SR' not in new_rec.info.get('EVIDENCE', tuple()):
             new_rec.info['EVIDENCE'] += ('SR', )
     else:
-        for k in 'SVLEN SVTYPE END ALGORITHMS EVIDENCE':
-            new_rec.info.pop(k)
+        for k in 'SVLEN SVTYPE END ALGORITHMS EVIDENCE'.split():
+            if k in new_rec.info.keys():
+                new_rec.info.pop(k)
 
     # Integrate genotypes
     new_rec = g2cpy.integrate_gts(new_rec, indels + svs, 
@@ -150,6 +148,8 @@ def main():
                         help='Header-only VCF for output VCFs. Required.')
     parser.add_argument('--out-prefix', metavar='path', default='./integrated',
                         help='Path and file prefix for output VCFs.')
+    parser.add_argument('--quiet', action='store_true',
+                        help='Suppress progress logging')
     args = parser.parse_args()
 
     # Load header for output VCFs
@@ -177,8 +177,8 @@ def main():
             clusters[i] = {'indel' : {'vids': indel_ids, 
                                       'n' : len(indel_ids),
                                       'records' : []},
-                           'sv' : {'vids': indel_ids, 
-                                   'n' : len(indel_ids),
+                           'sv' : {'vids': sv_ids, 
+                                   'n' : len(sv_ids),
                                    'records' : []},}
             for vid in sv_ids:
                 vid_lookups['sv'][vid] = i
@@ -217,6 +217,8 @@ def main():
                     out_vcfs[out_vc].write(new_rec)
 
                 # Clear this cluster to relieve memory pressure
+                if not args.quiet:
+                    print('Resolved indel/SV cluster {}'.format(i))
                 clusters.pop(i)
 
         # Otherwise, determine output variant class and route accordingly

@@ -125,8 +125,6 @@ workflow UnifyGatkCallsets {
   # Cluster large indels and SVs
   Int n_cluster_shards = length(SplitIndelsForClustering.sharded_vcfs)
   scatter ( i in range(n_cluster_shards) ) {
-    
-    Int shard_suffix = i + 1
 
     call DefineClusters {
       input:
@@ -136,8 +134,7 @@ workflow UnifyGatkCallsets {
         sv_vcf_idx = select_first(select_all([SplitSvsForClustering.sharded_vcf_idxs[i]])),
         genome_file = genome_file,
         size_scalar = size_scalar,
-        output_prefix = "clustering_interval_~{shard_suffix}",
-        g2c_analysis_docker = g2c_analysis_docker_dev_tmp
+        g2c_analysis_docker = g2c_analysis_docker
     }
 
     call ResolveClusters {
@@ -147,7 +144,6 @@ workflow UnifyGatkCallsets {
         sv_vcf = select_first(select_all([SplitSvsForClustering.sharded_vcfs[i]])),
         sv_vcf_idx = select_first(select_all([SplitSvsForClustering.sharded_vcf_idxs[i]])),
         clusters = DefineClusters.final_clusters,
-        output_prefix = "clustering_interval_~{shard_suffix}",
         g2c_analysis_docker = g2c_analysis_docker_dev_tmp
     }
 
@@ -175,7 +171,7 @@ workflow UnifyGatkCallsets {
       input_file = snv_partition_intervals,
       lines_per_split = final_intervals_per_shard,
       out_prefix = "snv_output_partitions",
-      g2c_analysis_docker = g2c_analysis_docker_dev_tmp
+      g2c_analysis_docker = g2c_analysis_docker
   }
   scatter ( interval_shard in ShardSnvIntervals.shards ) {
     call ReshardVcfs as PartitionSnvOutputs {
@@ -186,7 +182,7 @@ workflow UnifyGatkCallsets {
         rename = true,
         delete_empty = true,
         disk_gb = ceil(final_partition_disk_scalar * EstimateSnvFileSize.sum) + 10,
-        g2c_analysis_docker = g2c_analysis_docker_dev_tmp
+        g2c_analysis_docker = g2c_analysis_docker
     }
   }
 
@@ -205,7 +201,7 @@ workflow UnifyGatkCallsets {
       input_file = indel_partition_intervals,
       lines_per_split = final_intervals_per_shard,
       out_prefix = "indel_output_partitions",
-      g2c_analysis_docker = g2c_analysis_docker_dev_tmp
+      g2c_analysis_docker = g2c_analysis_docker
   }
   scatter ( interval_shard in ShardIndelIntervals.shards ) {
     call ReshardVcfs as PartitionIndelOutputs {
@@ -216,7 +212,7 @@ workflow UnifyGatkCallsets {
         rename = true,
         delete_empty = true,
         disk_gb = ceil(final_partition_disk_scalar * EstimateIndelFileSize.sum) + 10,
-        g2c_analysis_docker = g2c_analysis_docker_dev_tmp
+        g2c_analysis_docker = g2c_analysis_docker
     }
   }
 
@@ -236,7 +232,7 @@ workflow UnifyGatkCallsets {
       input_file = sv_partition_intervals,
       lines_per_split = final_intervals_per_shard,
       out_prefix = "sv_output_partitions",
-      g2c_analysis_docker = g2c_analysis_docker_dev_tmp
+      g2c_analysis_docker = g2c_analysis_docker
   }
   scatter ( interval_shard in ShardSvIntervals.shards ) {
     call ReshardVcfs as PartitionSvOutputs {
@@ -247,7 +243,7 @@ workflow UnifyGatkCallsets {
         rename = true,
         delete_empty = true,
         disk_gb = ceil(final_partition_disk_scalar * EstimateSvFileSize.sum) + 10,
-        g2c_analysis_docker = g2c_analysis_docker_dev_tmp
+        g2c_analysis_docker = g2c_analysis_docker
     }
   }
 
@@ -597,8 +593,6 @@ task DefineClusters {
     Float size_scalar
     Float min_nonref_jaccard = 0.1
 
-    String output_prefix
-
     String g2c_analysis_docker
 
     Float mem_gb = 3.5
@@ -606,6 +600,7 @@ task DefineClusters {
   }
 
   Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 20
+  String output_prefix = basename(sv_vcf, ".svs.vcf.gz")
   String out_fname = "~{output_prefix}.final_clusters.tsv.gz"
 
   command <<<
@@ -766,8 +761,6 @@ task ResolveClusters {
 
     File clusters
 
-    String output_prefix
-
     String g2c_analysis_docker
 
     Float mem_gb = 7.5
@@ -776,6 +769,7 @@ task ResolveClusters {
 
   Int sort_mem_mb = floor(1000 * (mem_gb - 2))
   Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 20
+  String output_prefix = basename(sv_vcf, ".svs.vcf.gz")
 
   command <<<
     set -eu -o pipefail
