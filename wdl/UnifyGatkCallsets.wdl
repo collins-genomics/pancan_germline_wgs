@@ -747,12 +747,13 @@ task IntegrateIndelsAndSvs {
       --sv-vcf ~{sv_vcf} \
       --clusters "~{output_prefix}.final_clusters.tsv.gz" \
       --out-vcf-header header.vcf \
-      --out-prefix ~{output_prefix}
+      --out-prefix "~{output_prefix}.unsorted"
     for vc in indel sv; do
       bcftools sort \
         --max-mem "~{sort_mem_mb}M" \
-        "~{output_prefix}.$vcf.vcf.gz"
-      tabix -p vcf -f "~{output_prefix}.$vcf.vcf.gz"
+        -Oz -o "~{output_prefix}.$vc.vcf.gz" \
+        "~{output_prefix}.unsorted.$vc.vcf.gz"
+      tabix -p vcf -f "~{output_prefix}.$vc.vcf.gz"
     done
   >>>
 
