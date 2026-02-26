@@ -125,6 +125,7 @@ workflow UnifyGatkCallsets {
   # Cluster large indels and SVs
   Int n_cluster_shards = length(SplitIndelsForClustering.sharded_vcfs)
   scatter ( i in range(n_cluster_shards) ) {
+    
     Int shard_suffix = i + 1
     call IntegrateIndelsAndSvs {
       input:
@@ -137,10 +138,14 @@ workflow UnifyGatkCallsets {
         output_prefix = "clustering_interval_~{shard_suffix}",
         g2c_analysis_docker = g2c_analysis_docker_dev_tmp
     }
+
+    # Possible TODO: could extract records matching clusters here and integrate them in a separate task
+    # This would improve speed because the vast majority of indel records could simply be written out
+
   }
   call Utils.ConcatTextFiles as ConcatClusterLogs {
     input:
-      shards = IntegrateIndelsAndSvs.indel_sv_clusters,
+      shards = select_all(IntegrateIndelsAndSvs.indel_sv_clusters),
       concat_command = "zcat",
       compression_command = "gzip -c",
       input_has_header = true,
@@ -602,6 +607,17 @@ task IntegrateIndelsAndSvs {
       cp "~{sv_vcf_idx}" "~{sv_vcf}.tbi"
     fi
 
+    # Step 0: if zero indels or SVs are present, there's nothing to do
+    n_indel=$( bcftools query -n ~{indel_vcf} )
+    n_sv=$( bcftools query -n ~{sv_vcf} )
+    if [ $n_indel -eq 0 ] || [ $n_sv -eq 0 ]; then
+      cp ~{indel_vcf} "~{output_prefix}.indel.vcf.gz"
+      cp ~{indel_vcf_idx} "~{output_prefix}.indel.vcf.gz.tbi"
+      cp ~{sv_vcf} "~{output_prefix}.sv.vcf.gz"
+      cp ~{sv_vcf_idx} "~{output_prefix}.sv.vcf.gz.tbi"
+      exit 0
+    fi
+
     # Step 1: Extract BED info for indels and SVs
     echo "##INFO=<ID=SVLEN,Number=1,Type=Integer,Description=\"Length\">" > header.supp.vcf
     for vc in indel sv; do
@@ -613,7 +629,7 @@ task IntegrateIndelsAndSvs {
           invcf="~{sv_vcf}"
           ;;
       esac
-      bcftools view -G $invcf \
+      bcftools view $invcf \
       | bcftools annotate -h header.supp.vcf \
       | bcftools +fill-tags -- -t AC,AN,AF \
       | bcftools query \
@@ -749,7 +765,7 @@ task IntegrateIndelsAndSvs {
     File integrated_sv_vcf_idx = "~{output_prefix}.sv.vcf.gz.tbi"
     Float integrated_sv_vcf_size = size(integrated_sv_vcf, "GB")
 
-    File indel_sv_clusters = "~{output_prefix}.final_clusters.tsv.gz"
+    File? indel_sv_clusters = "~{output_prefix}.final_clusters.tsv.gz"
   }
 
   runtime {
