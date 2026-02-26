@@ -125,6 +125,7 @@ workflow UnifyGatkCallsets {
   # Cluster large indels and SVs
   Int n_cluster_shards = length(SplitIndelsForClustering.sharded_vcfs)
   scatter ( i in range(n_cluster_shards) ) {
+    Int shard_suffix = i + 1
     call IntegrateIndelsAndSvs {
       input:
         indel_vcf = select_first(select_all([SplitIndelsForClustering.sharded_vcfs[i]])),
@@ -133,7 +134,7 @@ workflow UnifyGatkCallsets {
         sv_vcf_idx = select_first(select_all([SplitSvsForClustering.sharded_vcf_idxs[i]])),
         genome_file = genome_file,
         size_scalar = size_scalar,
-        output_prefix = "clustering_interval_~{i}",
+        output_prefix = "clustering_interval_~{shard_suffix}",
         g2c_analysis_docker = g2c_analysis_docker_dev_tmp
     }
   }
@@ -760,4 +761,3 @@ task IntegrateIndelsAndSvs {
     maxRetries: 1
   }  
 }
-

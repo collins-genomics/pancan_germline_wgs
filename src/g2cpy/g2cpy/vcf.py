@@ -225,6 +225,8 @@ def integrate_infos(records, do_cpx_intervals=False, header=None):
         """
         Helper function to handle smart resolution of numeric values
         """
+        if all([v is None for v in vals]):
+            return None
         if key.upper().startswith('MIN') or key.upper().endswith('MIN'):
             res = np.nanmin(vals)
         if key.upper().startswith('MAX') or key.upper().endswith('MAX'):

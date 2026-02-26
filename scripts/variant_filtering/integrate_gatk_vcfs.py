@@ -82,7 +82,10 @@ def integrate_records(indels, svs, header):
 
     # Update INFO
     vc, vsc, varlen = g2cpy.classify_record(new_rec, return_varlen=True)
-    new_info = g2cpy.integrate_infos(indels + svs, header=header)
+    try:
+        new_info = g2cpy.integrate_infos(indels + svs, header=header)
+    except:
+        import pdb; pdb.set_trace()
     new_rec.info.clear()
     new_rec.info.update(new_info)
     new_rec.info['INTEGRATED_INDEL_SV'] = True
