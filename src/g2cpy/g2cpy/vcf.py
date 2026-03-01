@@ -307,11 +307,11 @@ def is_multiallelic(record):
     """
 
     if 'MULTIALLELIC' in record.filter \
-    or len(record.alleles) > 2 \
-    or record.info.get('SVTYPE', '') in 'CNV MCNV'.split():
+    or len(record.alleles) > 2:
         return True
-    else:
-        return False
+    if 'SVTYPE' in record.info.keys():
+        return record.info.get('SVTYPE', '') in 'CNV MCNV'.split()
+    return False
 
 
 def name_record(record, suffix_length=10):

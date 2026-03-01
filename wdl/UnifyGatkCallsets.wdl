@@ -25,11 +25,11 @@ workflow UnifyGatkCallsets {
     Array[File] gatksv_vcf_idxs
 
     File genome_file                        # BEDTools-style genome file
-    File nmask_bed                          # BED file of N-masked reference intervals
-    Int min_interval_size = 100000          # Minimum size of intervals used for SV/indel clustering
+    Int min_interval_size = 1000000         # Minimum size of intervals used for SV/indel clustering
 
     Int min_sv_size = 50
     Float size_scalar = 3                   # Maximum fold-difference between sizes of indels and SVs to tolerate
+    String sv_mask_field = "SL"             # Quality field to mask low-quality SV genotypes before determining matches to indels
 
     # BED4 files of final output intervals for resharding
     # Fourth column must correspond to desired output VCF name / interval name
@@ -45,16 +45,6 @@ workflow UnifyGatkCallsets {
   }
 
   Int min_large_indel_size = floor(min_sv_size / size_scalar)
-
-  # Make indel/sv clustering intervals
-  call MakeClusteringIntervals {
-    input:
-      genome_file = genome_file,
-      nmask_bed = nmask_bed,
-      min_nmask_size = ceil(2 * size_scalar * min_sv_size),
-      min_interval_size = min_interval_size,
-      g2c_analysis_docker = g2c_analysis_docker
-  }
 
   # Determine method of GATK-HC VCF input
   if ( !defined(gatkhc_vcf_array) || !defined(gatkhc_vcf_idx_array) ) {
@@ -95,6 +85,16 @@ workflow UnifyGatkCallsets {
     }
   }
 
+  # Make indel/sv clustering intervals
+  call MakeClusteringIntervals {
+    input:
+      genome_file = genome_file,
+      indel_beds = select_all(SplitGatkHcBySize.large_indel_sites_bed),
+      sv_beds = select_all(PrepareSvs.eligible_sv_sites_bed),
+      min_interval_size = min_interval_size,
+      g2c_analysis_docker = g2c_analysis_docker
+  }
+
   # Partition large indels across clustering intervals
   call Utils.Sum as EstimateLargeIndelFileSize {
     input:
@@ -132,6 +132,7 @@ workflow UnifyGatkCallsets {
         indel_vcf_idx = select_first(select_all([SplitIndelsForClustering.sharded_vcf_idxs[i]])),
         sv_vcf = select_first(select_all([SplitSvsForClustering.sharded_vcfs[i]])),
         sv_vcf_idx = select_first(select_all([SplitSvsForClustering.sharded_vcf_idxs[i]])),
+        sv_mask_field = sv_mask_field,
         genome_file = genome_file,
         size_scalar = size_scalar,
         g2c_analysis_docker = g2c_analysis_docker
@@ -144,6 +145,7 @@ workflow UnifyGatkCallsets {
         sv_vcf = select_first(select_all([SplitSvsForClustering.sharded_vcfs[i]])),
         sv_vcf_idx = select_first(select_all([SplitSvsForClustering.sharded_vcf_idxs[i]])),
         clusters = DefineClusters.final_clusters,
+        combined_header = DefineClusters.combined_header,
         g2c_analysis_docker = g2c_analysis_docker_dev_tmp
     }
 
@@ -266,30 +268,46 @@ workflow UnifyGatkCallsets {
 task MakeClusteringIntervals {
   input {
     File genome_file
-    File nmask_bed
-    Int min_nmask_size
+    Array[File] indel_beds
+    Array[File] sv_beds
     Int min_interval_size
+    Int min_gap_size = 500
     String g2c_analysis_docker
   }
+
+  Array[File] all_beds = flatten([indel_beds, sv_beds])
 
   command <<<
     set -eu -o pipefail
 
-    # Prep N-mask
-    zcat ~{nmask_bed} \
+    # Merge indel and SV coordinates
+    cat ~{write_lines(all_beds)} \
+    | xargs -I {} zcat {} \
+    | grep -ve '^#' \
     | sort -Vk1,1 -k2,2n -k3,3n \
     | bedtools merge -i - \
-    | awk -v ms="~{min_nmask_size}" -v FS="\t" -v OFS="\t" \
+    | bgzip -c \
+    > variant_coverage.bed.gz
+
+    # Define eligible split points
+    awk -v FS="\t" -v OFS="\t" '{ print $1, 0, $2 }' ~{genome_file} \
+    | bedtools subtract -a - -b variant_coverage.bed.gz \
+    | awk -v ms="~{min_gap_size}" -v FS="\t" -v OFS="\t" \
       '{ if ($3-$2>=ms) print }' \
+    | bgzip -c \
+    > eligible_splitpoints.bed.gz
+
+    # Filter splitpoints to retain only those at least $min_interval_size apart
+    zcat eligible_splitpoints.bed.gz \
     | awk -v md="~{min_interval_size}" -v FS="\t" -v OFS="\t" \
       'NR==1 { prev_chr=$1; prev_end=$3; print; next }
       { if ($1 != prev_chr || $2 >= prev_end + md) { prev_chr=$1; prev_end=$3; print } }' \
     | bgzip -c \
-    > nmask.filtered.bed.gz
+    > splits.filtered.bed.gz
 
-    # Subtract qualifying N-masked intervals from genome file
+    # Subtract qualifying splitpoints from genome file to define intervals
     awk -v FS="\t" -v OFS="\t" '{ print $1, 0, $2 }' ~{genome_file} \
-    | bedtools subtract -a - -b nmask.filtered.bed.gz \
+    | bedtools subtract -a - -b splits.filtered.bed.gz \
     | sort -Vk1,1 -k2,2n -k3,3n \
     | awk -v OFS="\t" '{ print $0, "clustering_interval_"NR }' \
     | bgzip -c \
@@ -328,6 +346,7 @@ task SplitGatkHcBySize {
   String snv_out_vcf = out_prefix + ".snv.vcf.gz"
   String si_out_vcf = out_prefix + ".small_indel.vcf.gz"
   String li_out_vcf = out_prefix + ".large_indel.vcf.gz"
+  String li_out_sites_bed = out_prefix + ".large_indel.sites.bed.gz"
 
   command <<<
     set -eu -o pipefail
@@ -353,6 +372,19 @@ task SplitGatkHcBySize {
       fi
     done < <( find ./ -name "~{out_prefix}.*.vcf.gz" )
 
+    # Get BED coordinates for large indels
+    if [ -e "~{li_out_vcf}" ]; then
+      echo "##INFO=<ID=SVLEN,Number=1,Type=Integer,Description=\"Length\">" > header.supp.vcf
+      bcftools annotate -h header.supp.vcf "~{li_out_vcf}" \
+      | bcftools query \
+        -f '%CHROM\t%POS\t%END\t%REF\t%ALT\t%INFO/SVLEN\t.\t.\t.\t.\t.\t.\t.\t.\t.\n' \
+      | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/clean_site_metrics.py \
+        -o long_indels --gzip -N 100
+      zcat long_indels.indel.sites.bed.gz \
+      | cut -f1-3 | bgzip -c \
+      > "~{li_out_sites_bed}"
+    fi
+
     # Validation check: since all outputs are optional, this task can seemingly
     # be interpreted by Cromwell as a success even if it errors out. Thus,
     # we need to explicitly exit non-zero if there are no VCFs in pwd
@@ -377,6 +409,7 @@ task SplitGatkHcBySize {
     File? large_indel_vcf = li_out_vcf
     File? large_indel_vcf_idx = li_out_vcf + ".tbi"
     Float? large_indel_vcf_size = size(li_out_vcf, "GB")
+    File? large_indel_sites_bed = li_out_sites_bed
 
     Int largest_indel_size = read_int("~{out_prefix}.largest_indel_size.txt")
   }
@@ -402,6 +435,7 @@ task PrepareSvs {
 
   String output_prefix = basename(vcf, ".vcf.gz")
   String elig_outfile = output_prefix + ".eligible_svs.vcf.gz"
+  String elig_sites_bed = output_prefix + ".eligible_svs.sites.bed.gz"
   String pt_outfile = output_prefix + ".passthrough_svs.vcf.gz"
   Int disk_gb = (3 * ceil(size([vcf], "GB"))) + 10
 
@@ -417,6 +451,18 @@ task PrepareSvs {
       ~{vcf}
     tabix -p vcf "~{elig_outfile}"
 
+    # Get site coordinates for eligible SVs to help with interval sharding downstream
+    if [ $( bcftools index -n "~{elig_outfile}" ) -gt 0 ]; then
+      bcftools query \
+        -f '%CHROM\t%POS\t%END\t%REF\t%ALT\t%INFO/SVLEN\t.\t.\t.\t.\t.\t.\t.\t.\t.\n' \
+         "~{elig_outfile}" \
+      | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/clean_site_metrics.py \
+        -o eligible --gzip -N 100
+      zcat eligible.sv.sites.bed.gz \
+      | cut -f1-3 | bgzip -c \
+      > "~{elig_sites_bed}"
+    fi
+
     # Exclusion
     bcftools view \
       -e 'INFO/SVTYPE = "DEL,DUP,INS" & INFO/SVLEN <= ~{max_size}' \
@@ -428,6 +474,7 @@ task PrepareSvs {
   output {
     File eligible_sv_vcf = "~{elig_outfile}"
     File eligible_sv_vcf_idx = "~{elig_outfile}.tbi"
+    File? eligible_sv_sites_bed = "~{elig_sites_bed}"
 
     File passthrough_sv_vcf = "~{pt_outfile}"
     File passthrough_sv_vcf_idx = "~{pt_outfile}.tbi"
@@ -588,7 +635,8 @@ task DefineClusters {
     
     File sv_vcf
     File sv_vcf_idx
-
+    String sv_mask_field = "SL"
+    
     File genome_file
     Float size_scalar
     Float min_nonref_jaccard = 0.1
@@ -606,6 +654,15 @@ task DefineClusters {
   command <<<
     set -eu -o pipefail
 
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[ReshardVcfs] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+
     # Ensure VCF indexes localize to same directory as VCFs
     if [ "~{indel_vcf}.tbi" != "~{indel_vcf_idx}" ]; then
       cp "~{indel_vcf_idx}" "~{indel_vcf}.tbi"
@@ -614,12 +671,35 @@ task DefineClusters {
       cp "~{sv_vcf_idx}" "~{sv_vcf}.tbi"
     fi
 
-    # Step 0: if zero indels or SVs are present, there's nothing to do
+    # Step 0: if zero indels or SVs are present, there's nothing to do other than make dummy files
     n_indel=$( bcftools index -n ~{indel_vcf} )
     n_sv=$( bcftools index -n ~{sv_vcf} )
     if [ $n_indel -eq 0 ] || [ $n_sv -eq 0 ]; then
+
       echo -e "#SVs\tindels" | gzip -c > "~{out_fname}"
+
+      bcftools query -l ~{indel_vcf} > indel.samples.list
+      bcftools query -l ~{sv_vcf} > sv.samples.list
+      cat indel.samples.list sv.samples.list | sort -V | uniq > union.samples.list
+      bcftools view \
+        --samples-file union.samples.list \
+        --force-samples \
+        --header-only \
+        -Oz -o indel.header.vcf.gz \
+        ~{indel_vcf}
+      bcftools view \
+        --samples-file union.samples.list \
+        --force-samples \
+        --header-only \
+        -Oz -o sv.header.vcf.gz \
+        ~{sv_vcf}
+      bcftools concat \
+        -Oz -o combined.header.vcf.gz \
+        indel.header.vcf.gz \
+        sv.header.vcf.gz
+
       exit 0
+
     fi
 
     # Step 1: Extract BED info for indels and SVs
@@ -682,33 +762,30 @@ task DefineClusters {
     > candidate_hits.vids.list
 
     # Step 3: Compute non-ref GT Jaccard indexes for all candidate pairs
+    # Note that the double call of SV GT masking is *not* by mistake; it is intentional
     bcftools query -l ~{indel_vcf} > indel.samples.list
     bcftools query -l ~{sv_vcf} > sv.samples.list
     cat indel.samples.list sv.samples.list | sort -V | uniq > union.samples.list
+    bcftools view --samples-file union.samples.list "~{indel_vcf}" \
+    | bcftools annotate --set-id "indel_%ID" \
+    | bcftools view \
+      --include 'ID=@candidate_hits.vids.list' \
+      -Oz -o indel.for_jaccard.vcf.gz
+    bcftools view \
+      --samples-file union.samples.list \
+      "~{sv_vcf}" \
+    | bcftools annotate --set-id "sv_%ID" \
+    | bcftools view \
+      --include 'ID=@candidate_hits.vids.list' \
+    | /opt/pancan_germline_wgs/scripts/variant_filtering/mask_sv_gts_for_regenotyping.py \
+      --quality-field "~{sv_mask_field}" \
+    | /opt/pancan_germline_wgs/scripts/variant_filtering/mask_sv_gts_for_regenotyping.py \
+      --quality-field "~{sv_mask_field}" \
+      --output-vcf sv.for_jaccard.vcf.gz
     for vc in indel sv; do
-      case "$vc" in
-        "indel")
-          invcf="~{indel_vcf}"
-          ;;
-        "sv")
-          invcf="~{sv_vcf}"
-          ;;
-      esac
-      bcftools view \
-        --samples-file union.samples.list \
-        $invcf \
-      | bcftools annotate \
-        --set-id "$vc""_%ID" \
-      | bcftools view \
-        --include 'ID=@candidate_hits.vids.list' \
-        -Oz -o $vc.for_jaccard.vcf.gz
       tabix -p vcf -f $vc.for_jaccard.vcf.gz
     done
-    cat \
-      <( echo "#vid" ) \
-      union.samples.list \
-    | paste -s \
-    > jaccard.header
+    cat <( echo "#vid" ) union.samples.list | paste -s > jaccard.header
     bcftools concat -a \
       -Oz -o all.for_jaccard.vcf.gz \
       indel.for_jaccard.vcf.gz \
@@ -733,10 +810,20 @@ task DefineClusters {
       --minimum-jaccard ~{min_nonref_jaccard} \
     | gzip -c \
     > "~{out_fname}"
+
+    # Make header as helper for resolution step
+    bcftools view \
+      --header-only \
+      -Oz -o combined.header.vcf.gz \
+      all.for_jaccard.vcf.gz
+
+    kill $HEARTBEAT_PID
+    wait $HEARTBEAT_PID 2>/dev/null || true
   >>>
 
   output {
     File final_clusters = "~{out_fname}"
+    File combined_header = "combined.header.vcf.gz"
   }
 
   runtime {
@@ -760,6 +847,7 @@ task ResolveClusters {
     File sv_vcf_idx
 
     File clusters
+    File combined_header
 
     String g2c_analysis_docker
 
@@ -774,6 +862,15 @@ task ResolveClusters {
   command <<<
     set -eu -o pipefail
 
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[ReshardVcfs] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+
     # Ensure VCF indexes localize to same directory as VCFs
     if [ "~{indel_vcf}.tbi" != "~{indel_vcf_idx}" ]; then
       cp "~{indel_vcf_idx}" "~{indel_vcf}.tbi"
@@ -781,6 +878,7 @@ task ResolveClusters {
     if [ "~{sv_vcf}.tbi" != "~{sv_vcf_idx}" ]; then
       cp "~{sv_vcf_idx}" "~{sv_vcf}.tbi"
     fi
+    tabix -p vcf -f "~{combined_header}"
 
     # Make integrated header for indel & SV VCFs
     tabix -H ~{indel_vcf} | sort -V > indel.header.vcf
@@ -791,7 +889,7 @@ task ResolveClusters {
       cat indel.header.vcf sv.header.vcf | fgrep "##$tag" | sort -V | uniq >> header.vcf
     done
     fgrep "##CPX" sv.header.vcf >> header.vcf
-    tabix -H all.for_jaccard.vcf.gz | fgrep -v "##" >> header.vcf
+    tabix -H "~{combined_header}" | fgrep -v "##" >> header.vcf
 
     # Step 5: Integrate indel and SV VCFs
     /opt/pancan_germline_wgs/scripts/variant_filtering/integrate_gatk_vcfs.py \
@@ -807,6 +905,9 @@ task ResolveClusters {
         "~{output_prefix}.unsorted.$vc.vcf.gz"
       tabix -p vcf -f "~{output_prefix}.$vc.vcf.gz"
     done
+
+    kill $HEARTBEAT_PID
+    wait $HEARTBEAT_PID 2>/dev/null || true
   >>>
 
   output {

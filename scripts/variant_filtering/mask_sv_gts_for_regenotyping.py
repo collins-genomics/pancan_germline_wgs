@@ -18,9 +18,10 @@ from g2cpy import is_multiallelic, parse_gt
 from sys import stdin, stdout
 
 
-def mask_gts(record, key='SL', always_keep_ref=True):
+def mask_gts(record, key='SL', quantile=None, always_keep_ref=True):
     """
     Mask genotypes with FORMAT/`key` < mean(FORMAT/`key`)
+    If `quantile` is not None, instead evaluate < quantile()
     """
 
     vals, sids = [], []
@@ -41,7 +42,10 @@ def mask_gts(record, key='SL', always_keep_ref=True):
     # robust to outliers, as we actually _care_ about outliers in this case.
     # To avoid penalizing underdispersed integer quality score distributions, we
     # check if all quality values are integers. If so, we take the floor of `cutoff`
-    cutoff = np.nanmean(vals)
+    if quantile is None:
+        cutoff = np.nanmean(vals)
+    else:
+        cutoff = np.nanquantile(vals, q=quantile)
     def _is_int_like(v):
         if v is None or np.isnan(v):
             return True
@@ -76,6 +80,8 @@ def main():
                         type=str, help='Output .vcf. [default: stdout]')
     parser.add_argument('-q', '--quality-field', type=str, default='SL',
                         help='FORMAT field to use for automated quality filtering')
+    parser.add_argument('-p', '--quantile', default=None, type=float, metavar='float',
+                        help='Set cutoff as a quantile of --quality-field. [default: mean]')
     args = parser.parse_args()
 
     # Open connection to input VCF
@@ -95,7 +101,7 @@ def main():
 
         # Mask genotypes for biallelic variants
         if not is_multiallelic(record):
-            record = mask_gts(record, args.quality_field)
+            record = mask_gts(record, args.quality_field, quantile=args.quantile)
 
         # Write to output VCF
         outvcf.write(record)

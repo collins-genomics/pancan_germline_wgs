@@ -31,17 +31,15 @@ load.gt.matrix <- function(tsv.in){
 
 # Compute non-ref sample Jaccard index for a pair of variants
 nonref.jaccard <- function(gt, vids){
-  x1 <- as.integer(RLCtools::parse.gt(gt[vids[1], ]) > 0)
-  if(sum(x1, na.rm=T) == 0){
+  df <- data.frame("x1" = as.integer(RLCtools::parse.gt(gt[vids[1], ]) > 0),
+                   "x2" = as.integer(RLCtools::parse.gt(gt[vids[2], ]) > 0))
+  df <- df[which(complete.cases(df)), ]
+  df <- df[which(df$x1 > 0 | df$x2 > 0), ]
+  if(nrow(df) == 0){
     return(0)
+  }else{
+    return(sum(df$x1 == 1 & df$x2 == 1) / nrow(df))
   }
-  x2 <- as.integer(RLCtools::parse.gt(gt[vids[2], ]) > 0)
-  if(sum(x2, na.rm=T) == 0){
-    return(0)
-  }
-  num <- sum(x1 == 1 & x2 == 1, na.rm=T)
-  denom <- sum(x1 == 1 | x2 == 1, na.rm=T)
-  return(num / denom)
 }
 
 
