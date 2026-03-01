@@ -647,7 +647,7 @@ task DefineClusters {
     Int n_cpu = 2
   }
 
-  Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 20
+  Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 10
   String output_prefix = basename(sv_vcf, ".svs.vcf.gz")
   String out_fname = "~{output_prefix}.final_clusters.tsv.gz"
 
@@ -851,12 +851,12 @@ task ResolveClusters {
 
     String g2c_analysis_docker
 
-    Float mem_gb = 7.5
-    Int n_cpu = 4
+    Float mem_gb = 3.5
+    Int n_cpu = 2
   }
 
   Int sort_mem_mb = floor(1000 * (mem_gb - 2))
-  Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 20
+  Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 10
   String output_prefix = basename(sv_vcf, ".svs.vcf.gz")
 
   command <<<
