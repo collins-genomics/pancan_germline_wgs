@@ -21,9 +21,12 @@ require(argparse, quietly=TRUE)
 # Data Functions #
 ##################
 # Load genotype matrix
-load.gt.matrix <- function(tsv.in){
+load.gt.matrix <- function(tsv.in, is.ad=F){
   # Load genotype matrix and set rownames
   gt <- read.table(tsv.in, header=T, sep="\t", comment.char="", check.names=F)
+  if(!is.ad){
+    gt[, -c(1)] <- apply(gt, 1, RLCtools::parse.gt)
+  }
   rownames(gt) <- gt[, 1]
   gt[, 1] <- NULL
   return(gt)
@@ -31,8 +34,8 @@ load.gt.matrix <- function(tsv.in){
 
 # Compute non-ref sample Jaccard index for a pair of variants
 nonref.jaccard <- function(gt, vids){
-  df <- data.frame("x1" = as.integer(RLCtools::parse.gt(gt[vids[1], ]) > 0),
-                   "x2" = as.integer(RLCtools::parse.gt(gt[vids[2], ]) > 0))
+  df <- data.frame("x1" = as.integer(gt[vids[1], ] > 0),
+                   "x2" = as.integer(gt[vids[2], ] > 0))
   df <- df[which(complete.cases(df)), ]
   df <- df[which(df$x1 > 0 | df$x2 > 0), ]
   if(nrow(df) == 0){
@@ -55,6 +58,9 @@ parser$add_argument("--pairs-tsv", required=TRUE, metavar=".tsv",
                     help=paste(".tsv with at least two columns specifying which",
                                "pairs of variants should be evaluated. Columns",
                                "after the first two will be ignored."))
+parser$add_argument("--matrix-is-ad", action="store_true",
+                    help=paste("Flag to indicate if --genotype-matrix has",
+                               "already been converted from GT notation to AD"))
 parser$add_argument("--out-tsv", metavar="path", type="character",
                     help="Destination of output .tsv with Jaccard indexes",
                     default="stdout")
@@ -63,13 +69,14 @@ args <- parser$parse_args()
 # # DEV:
 # args <- list("genotype_matrix" = "~/Downloads/jaccard.input.tsv.gz",
 #              "pairs_tsv" = "~/Downloads/candidate_hits.pairs.tsv.gz",
+#              "matrix_is_ad" = FALSE,
 #              "out_tsv" = "~/scratch/jaccard.test.tsv")
 
 # Read variant pairs to process
 pairs <- unique(read.table(args$pairs_tsv, header=F, sep="\t")[, 1:2])
 
 # Read genotype matrix
-gt <- load.gt.matrix(args$genotype_matrix)
+gt <- load.gt.matrix(args$genotype_matrix, is.ad=args$matrix_is_ad)
 
 # Compute non-ref Jaccard indexes for all pairs
 pairs$jaccard <- sapply(1:nrow(pairs), function(i){

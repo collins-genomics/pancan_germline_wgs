@@ -192,7 +192,6 @@ workflow UnifyGatkCallsets {
   }
 
   # Postprocess SVs
-  # TODO: UPDATE TO NRV
   Array[File] all_sv_vcfs = select_all(flatten([PrepareSvs.passthrough_sv_vcf,
                                                 ResolveClusters.integrated_sv_vcf]))
   Array[File] all_sv_vcf_idxs = select_all(flatten([PrepareSvs.passthrough_sv_vcf_idx,
@@ -207,6 +206,34 @@ workflow UnifyGatkCallsets {
       keep_empty_resharded_vcfs = false,
       parallel_shard_size = parallel_shard_size,
       g2c_analysis_docker = g2c_analysis_docker,
+      linux_docker = linux_docker
+  }
+
+  # Prepare reporting log of all variants considered & collapsed
+  call Utils.Sum as SumSnvCounts {input: values = select_all(SplitGatkHcBySize.n_snvs)}
+  call Utils.Sum as SumSmallIndelCounts {input: values = select_all(SplitGatkHcBySize.n_small_indels)}
+  call Utils.Sum as SumLargeIndelCounts {input: values = select_all(SplitGatkHcBySize.n_large_indels)}
+  call Utils.Sum as SumLargeIndelGE50Counts {input: values = select_all(SplitGatkHcBySize.n_large_indels_ge50bp)}
+  call Utils.Sum as SumEligSvCounts {input: values = select_all(PrepareSvs.n_eligible_svs)}
+  call Utils.Sum as SumPtSvCounts {input: values = select_all(PrepareSvs.n_passthrough_svs)}
+  call Utils.Sum as SumClusterCounts {input: values = select_all(DefineClusters.n_clusters)}
+  call Utils.Sum as SumMultiIndelClusterCounts {input: values = select_all(DefineClusters.n_multi_indel_clusters)}
+  call Utils.Sum as SumClusteredIndelCounts {input: values = select_all(DefineClusters.n_clustered_indels)}
+  call Utils.Sum as SumMultiSvClusterCounts {input: values = select_all(DefineClusters.n_multi_sv_clusters)}
+  call Utils.Sum as SumClusteredSvCounts {input: values = select_all(DefineClusters.n_clustered_svs)}
+  call WriteSummaryLog {
+    input:
+      snv_count = ceil(SumSnvCounts.sum),
+      small_indel_count = ceil(SumSmallIndelCounts.sum),
+      large_indel_count = ceil(SumLargeIndelCounts.sum),
+      large_indel_ge50bp_count = ceil(SumLargeIndelGE50Counts.sum),
+      eligible_sv_count = ceil(SumEligSvCounts.sum),
+      passthrough_sv_count = ceil(SumPtSvCounts.sum),
+      cluster_count = ceil(SumClusterCounts.sum),
+      multi_indel_cluster_count = ceil(SumMultiIndelClusterCounts.sum),
+      clustered_indel_count = ceil(SumClusteredIndelCounts.sum),
+      multi_sv_cluster_count = ceil(SumMultiSvClusterCounts.sum),
+      clustered_sv_count = ceil(SumClusteredSvCounts.sum),
       linux_docker = linux_docker
   }
 
@@ -322,6 +349,7 @@ task SplitGatkHcBySize {
 
     # Split input VCF
     echo "0" > "~{out_prefix}.largest_indel_size.txt"
+    echo "0" > "large_indel.ge50bp.variant_count.txt"
     /opt/pancan_germline_wgs/scripts/gatkhc_helpers/split_gatkhc_by_size.py \
       -i ~{vcf} \
       --large-indel-min-size ~{large_indel_size} \
@@ -333,15 +361,26 @@ task SplitGatkHcBySize {
       | cat <( echo -e "#chrom\tstart\tend" ) - \
       | bgzip -c \
       > "~{li_out_sites_bed}"
+      zcat "~{li_out_sites_bed}" \
+      | fgrep -v "#" \
+      | awk -v FS="\t" '{ if ($3-$2>=50) print }' \
+      | wc -l \
+      > "large_indel.ge50bp.variant_count.txt"
     fi
 
-    # Tabix non-empty output VCFs and delete empty VCFs
-    while read subvcf; do
-      tabix -p vcf -f $subvcf
-      if [ $( bcftools index -n $subvcf ) -eq 0 ]; then
-        rm $subvcf $subvcf.tbi
+    # Index and count variants for each output VCF, and delete empty VCFs
+    for vc in snv small_indel large_indel; do
+      vk=0
+      ovcf="~{out_prefix}.$vc.vcf.gz"
+      if [ -e $ovcf ]; then
+        tabix -p vcf -f $ovcf
+        vk=$( bcftools index -n $ovcf )
       fi
-    done < <( find ./ -name "~{out_prefix}.*.vcf.gz" )
+      if [ $vk -eq 0 ]; then
+        rm $ovcf $ovcf.tbi
+      fi
+      echo $vk > $vc.variant_count.txt
+    done
 
     # Validation check: since all outputs are optional, this task can seemingly
     # be interpreted by Cromwell as a success even if it errors out. Thus,
@@ -359,15 +398,19 @@ task SplitGatkHcBySize {
     File? snv_vcf = snv_out_vcf
     File? snv_vcf_idx = snv_out_vcf + ".tbi"
     Float? snv_vcf_size = size(snv_out_vcf, "GB")
+    Int? n_snvs = read_int("snv.variant_count.txt")
 
     File? small_indel_vcf = si_out_vcf
     File? small_indel_vcf_idx = si_out_vcf + ".tbi"
     Float? small_indel_vcf_size = size(si_out_vcf, "GB")
+    Int? n_small_indels = read_int("small_indel.variant_count.txt")
 
     File? large_indel_vcf = li_out_vcf
     File? large_indel_vcf_idx = li_out_vcf + ".tbi"
     Float? large_indel_vcf_size = size(li_out_vcf, "GB")
     File? large_indel_sites_bed = li_out_sites_bed
+    Int? n_large_indels = read_int("large_indel.variant_count.txt")
+    Int? n_large_indels_ge50bp = read_int("large_indel.ge50bp.variant_count.txt")
 
     Int largest_indel_size = read_int("~{out_prefix}.largest_indel_size.txt")
   }
@@ -408,6 +451,7 @@ task PrepareSvs {
       -Oz -o "~{elig_outfile}" \
       ~{vcf}
     tabix -p vcf "~{elig_outfile}"
+    bcftools index -n "~{elig_outfile}" > eligible.count.txt
 
     # Get site coordinates for eligible SVs to help with interval sharding downstream
     if [ $( bcftools index -n "~{elig_outfile}" ) -gt 0 ]; then
@@ -427,16 +471,19 @@ task PrepareSvs {
       -Oz -o "~{pt_outfile}" \
       ~{vcf}
     tabix -p vcf "~{pt_outfile}"
+    bcftools index -n "~{pt_outfile}" > passthrough.count.txt
   >>>
 
   output {
     File eligible_sv_vcf = "~{elig_outfile}"
     File eligible_sv_vcf_idx = "~{elig_outfile}.tbi"
     File? eligible_sv_sites_bed = "~{elig_sites_bed}"
+    Int n_eligible_svs = read_int("eligible.count.txt")
 
     File passthrough_sv_vcf = "~{pt_outfile}"
     File passthrough_sv_vcf_idx = "~{pt_outfile}.tbi"
     Float passthrough_sv_vcf_size = size(passthrough_sv_vcf, "GB")
+    Int n_passthrough_svs = read_int("passthrough.count.txt")
   }
 
   runtime {
@@ -563,17 +610,22 @@ task DefineClusters {
     /opt/pancan_germline_wgs/scripts/qc/vcf_qc/compare_sites.py \
       -a input.sv.sites.bed.gz \
       -b input.indel.sites.bed.gz \
-      -g ~{genome_file} \
+      -g hg38.chr22.genome \
       -o candidate_hits \
       --mode both \
-      --max-overlap-size-diff ~{size_scalar} \
+      --max-overlap-size-diff 3.0 \
       --overlap-pad 1 \
       --one-to-many \
-      --no-reverse \
       --gzip
     zcat candidate_hits.loj.sites.bed.gz \
     | grep -ve '^#' \
     | awk -v FS="\t" -v OFS="\t" '{ if ($9!="NA") print "sv_"$4, "indel_"$9, $NF }' \
+    > sv_to_indel.candidates.tsv
+    zcat candidate_hits.roj.sites.bed.gz \
+    | grep -ve '^#' \
+    | awk -v FS="\t" -v OFS="\t" '{ if ($9!="NA") print "sv_"$9, "indel_"$4, $NF }' \
+    > indel_to_sv.candidates.tsv
+    cat indel_to_sv.candidates.tsv sv_to_indel.candidates.tsv \
     | sort -Vk1,1 -k3,3n -k2,2V \
     | uniq \
     | gzip -c \
@@ -614,15 +666,14 @@ task DefineClusters {
       indel.for_jaccard.vcf.gz \
       sv.for_jaccard.vcf.gz
     tabix -p vcf -f all.for_jaccard.vcf.gz
-    bcftools query \
-      -f '%ID[\t%GT]\n' \
-      all.for_jaccard.vcf.gz \
-    | cat jaccard.header - \
+    /opt/pancan_germline_wgs/scripts/vcf2dosage.py \
+      --vcf-in all.for_jaccard.vcf.gz \
     | gzip -c \
     > jaccard.input.tsv.gz
-    /opt/pancan_germline_wgs/scripts/variant_filtering/calc_nonref_jaccards.R \
+    ./calc_nonref_jaccards.R \
       --genotype-matrix jaccard.input.tsv.gz \
       --pairs-tsv candidate_hits.pairs.tsv.gz \
+      --matrix-is-ad \
     | gzip -c \
     > jaccard.output.tsv.gz
 
@@ -640,6 +691,17 @@ task DefineClusters {
       -Oz -o combined.header.vcf.gz \
       all.for_jaccard.vcf.gz
 
+    # Count number of input indels and SVs in final clusters
+    zcat "~{out_fname}" | fgrep -v "#" | wc -l > total_clusters.count.txt
+    zcat "~{out_fname}" | fgrep -v "#" | cut -f2 | sed 's/,/\n/g' \
+    | sort | uniq | wc -l > indel.variant_count.txt
+    zcat "~{out_fname}" | fgrep -v "#" | cut -f2 \
+    | fgrep "," | wc -l > multi_indel.clusters.count.txt
+    zcat "~{out_fname}" | fgrep -v "#" | cut -f1 | sed 's/,/\n/g' \
+    | sort | uniq | wc -l > sv.variant_count.txt
+    zcat "~{out_fname}" | fgrep -v "#" | cut -f1 \
+    | fgrep "," | wc -l > multi_sv.clusters.count.txt
+
     kill $HEARTBEAT_PID
     wait $HEARTBEAT_PID 2>/dev/null || true
   >>>
@@ -647,6 +709,11 @@ task DefineClusters {
   output {
     File final_clusters = "~{out_fname}"
     File combined_header = "combined.header.vcf.gz"
+    Int n_clusters = read_int("total_clusters.count.txt")
+    Int n_multi_indel_clusters = read_int("multi_indel.clusters.count.txt")
+    Int n_clustered_indels = read_int("indel.variant_count.txt")
+    Int n_multi_sv_clusters = read_int("multi_sv.clusters.count.txt")
+    Int n_clustered_svs = read_int("sv.variant_count.txt")
   }
 
   runtime {
@@ -727,6 +794,7 @@ task ResolveClusters {
         -Oz -o "~{output_prefix}.$vc.vcf.gz" \
         "~{output_prefix}.unsorted.$vc.vcf.gz"
       tabix -p vcf -f "~{output_prefix}.$vc.vcf.gz"
+      bcftools index -n "~{output_prefix}.$vc.vcf.gz" > $vc.variant_count.txt
     done
 
     kill $HEARTBEAT_PID
@@ -737,10 +805,12 @@ task ResolveClusters {
     File integrated_indel_vcf = "~{output_prefix}.indel.vcf.gz"
     File integrated_indel_vcf_idx = "~{output_prefix}.indel.vcf.gz.tbi"
     Float integrated_indel_vcf_size = size(integrated_indel_vcf, "GB")
+    Int n_integrated_indels = read_int("indel.variant_count.txt")
 
     File integrated_sv_vcf = "~{output_prefix}.sv.vcf.gz"
     File integrated_sv_vcf_idx = "~{output_prefix}.sv.vcf.gz.tbi"
     Float integrated_sv_vcf_size = size(integrated_sv_vcf, "GB")
+    Int n_integrated_svs = read_int("sv.variant_count.txt")
   }
 
   runtime {
@@ -752,3 +822,72 @@ task ResolveClusters {
     maxRetries: 1
   }  
 }
+
+
+# Small task to write a summary log of workflow inputs and outputs for future reference
+task WriteSummaryLog {
+  input {
+    Int snv_count
+    Int small_indel_count
+    Int large_indel_count
+    Int large_indel_ge50bp_count
+
+    Int eligible_sv_count
+    Int passthrough_sv_count
+    
+    Int cluster_count
+    
+    Int multi_indel_cluster_count
+    Int clustered_indel_count
+    
+    Int multi_sv_cluster_count
+    Int clustered_sv_count
+    
+    String linux_docker
+  }
+
+  Int total_indel_count = small_indel_count + large_indel_count
+  Int total_sv_count = eligible_sv_count + passthrough_sv_count
+
+  command <<<
+    set -eu -o pipefail
+
+    cat << EOF > "UnifyGatkCallsets.stats.txt"
+Input variant counts from GATK-HC
+=================================
+- SNVs: ~{snv_count}
+- All indels: ~{total_indel_count}
+- Small indels not eligible for SV clustering: ~{small_indel_count}
+- Large indels eligible for SV clustering: ~{large_indel_count}
+- Indels 50bp or larger: ~{large_indel_ge50bp_count}
+
+Input variant counts from GATK-SV
+=================================
+- All SVs: ~{total_sv_count}
+- Small CNVs/insertion SVs eligible for indel clustering: ~{eligible_sv_count}
+- Other SVs not eligible for indel clustering: ~{passthrough_sv_count}
+
+Indel/SV clustering outcome
+===========================
+- Final clusters involving indels and SVs: ~{cluster_count}
+- Total input indels involved in any cluster: ~{clustered_indel_count}
+- Clusters involving two or more indels: ~{multi_indel_cluster_count}
+- Total input SVs involved in any cluster: ~{clustered_sv_count}
+- Clusters involving two or more SVs: ~{multi_sv_cluster_count}
+EOF
+  >>>
+
+  output {
+    File logfile = "UnifyGatkCallsets.stats.txt"
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
