@@ -65,6 +65,9 @@ def main():
     parser.add_argument('-b', '--buffer', default=1, type=int, metavar='int',
                         help='Buffer to add to --intervals when querying each ' +
                         'VCF [default: %default]')
+    parser.add_argument('--out-header', metavar='vcf', 
+                        help='VCF header to use for output shards. [default: ' +
+                        'use the header of the first VCF in --vcf-list]')
     args = parser.parse_args()
 
     # Read list of VCFs
@@ -72,7 +75,10 @@ def main():
         in_vcfs = list(set([l.rstrip() for l in fin.readlines()]))
 
     # Determine header for output VCFs based on first input VCF
-    header = _open_input_vcf(in_vcfs[0]).header
+    if args.out_header is None:
+        header = _open_input_vcf(in_vcfs[0]).header
+    else:
+        header = _open_input_vcf(args.out_header).header
 
     # Prep connections to output VCFs
     out_map = dict()

@@ -27,7 +27,7 @@ def main():
              formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('-i', '--input-vcf', default='stdin', metavar='VCF', 
                         type=str, help='Input .vcf. [default: stdin].')
-    parser.add_argument('-o', '--output-vcf-prefix', 
+    parser.add_argument('-o', '--output-prefix', 
                         help='Prefix for output .vcfs [default: gatkhc]',
                         default='gatkhc', metavar='string', type=str)
     parser.add_argument('--large-indel-min-size', default=10, type=int, metavar='Int',
@@ -35,6 +35,8 @@ def main():
     parser.add_argument('--largest-indel-log', default='stdout', type=str, 
                         metavar='txt', help='Output file for reporting the ' +
                         'length of the longest indel [default: stdout]')
+    parser.add_argument('--make-large-indel-bed', action='store_true',
+                        help='Also write out a sites .BED file for large indels')
     args = parser.parse_args()
 
     # Open connection to input VCF
@@ -45,10 +47,14 @@ def main():
     
     # Open connection to output VCFs
     header = invcf.header.copy()
-    out_vcf_fnames = {vc : '{}.{}.vcf.gz'.format(args.output_vcf_prefix, vc) 
+    out_vcf_fnames = {vc : '{}.{}.vcf.gz'.format(args.output_prefix, vc) 
                       for vc in 'snv small_indel large_indel'.split()}
     out_vcfs = {vc : pysam.VariantFile(fn, 'w', header=header) 
                 for vc, fn in out_vcf_fnames.items()}
+
+    # Open connection to output large indel sites BED, if optioned
+    if args.make_large_indel_bed:
+        li_bed_out = open('{}.large_indel.sites.bed'.format(args.output_prefix), 'w')
 
     # Iterate over input VCF and route each SV to the correct output VCF
     longest = 0
@@ -70,9 +76,18 @@ def main():
         # Write record to appropriate VCF
         out_vcfs[vc].write(record)
 
+        # If optioned, write large indels to sites BED
+        if vc == 'large_indel' and args.make_large_indel_bed:
+            outline = '{}\t{}\t{}\n'.format(record.chrom, record.pos, record.pos+varlen)
+            li_bed_out.write(outline)
+
     # Close connections to output VCFs
     for fh in out_vcfs.values():
         fh.close()
+
+    # Close connection to large indel sites BED, if necessary
+    if args.make_large_indel_bed:
+        li_bed_out.close()
 
     # Report longest indel
     longest_line = '{}\n'.format(longest)

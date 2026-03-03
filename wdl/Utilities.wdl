@@ -288,8 +288,8 @@ task CountRecordsInVcf {
 
 
 # Extract URIs of VCFs and indexes from a flat text file of URI strings
-# Useful in combination with ShardTextFile for parallelizing tasks over very large input arrays
-task ExtractVcfArrays {
+# Useful in combination with WriteVcfInfo and ShardTextFile for parallelizing tasks over very large input arrays
+task ReadVcfInfo {
   input {
     File vcf_info # Either a .txt file with VCF URIs or a two-column .tsv of VCF and tabix URIs.
                   # If provided as a single-column .txt file, we assume tabix indexes exist in the same bucket.
@@ -579,6 +579,146 @@ task Max {
 }
 
 
+# Reshard one or more input VCFs across prespecified intervals
+task ReshardVcfs {
+  input {
+    Array[File] vcfs
+    Array[File] vcf_idxs
+    File intervals_bed
+    Boolean intervals_are_compressed = true
+    String? interval_suffix
+    File? output_header
+
+    Boolean rename = false
+    Boolean delete_empty = false
+
+    String g2c_analysis_docker
+
+    Int? disk_gb
+    Float mem_gb = 7.5
+    Int n_cpu = 4
+    Int boot_gb = 15
+    Int n_preemptible = 1
+    Int ulimit = 4096
+  }
+
+  String rename_cmd = if rename then "| /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py" else ""
+  String int_cat_cmd = if intervals_are_compressed then "zcat" else "cat"
+  String int_bgzip_cmd = if intervals_are_compressed then "| bgzip -c" else ""
+  String int_bed_loc = basename(intervals_bed)
+  String out_header_cmd = if defined(output_header) then "--out-header ~{output_header}" else ""
+
+  Int default_disk_gb = ceil(2 * size(vcfs, "GB")) + 20
+  Int disk_gb_use = select_first([disk_gb, default_disk_gb])
+  Int sort_mem_mb = floor(1000 * (mem_gb - 2))
+
+  command <<<
+    set -eu -o pipefail
+
+    # Update and report ulimit for debugging purposes
+    ulimit -n ~{ulimit} || true
+    echo -e "\nVM ulimit: $( ulimit -n )\n"
+
+    # Exit with non-zero status if input array is empty
+    if [ ~{length(vcfs)} -eq 0 ]; then
+      echo "Error: input VCF array is empty. Need to provide at least one VCF. Exiting"
+      sleep 60s
+      exit 1
+    fi
+
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[ReshardVcfs] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+
+    # Relocate intervals to pwd, adding a suffix if optioned
+    if ~{defined(interval_suffix)}; then
+      ~{int_cat_cmd} ~{intervals_bed} \
+      | awk -v suf="~{interval_suffix}" -v FS="\t" -v OFS="\t" \
+        '{ print $1, $2, $3, $4"."suf }' \
+      ~{int_bgzip_cmd} \
+      > ~{int_bed_loc}
+    else
+      cp ~{intervals_bed} ~{int_bed_loc}
+    fi
+
+    # Relocate VCF indexes to ensure they match their corresponding VCF
+    cat ~{write_lines(vcfs)} > vcf.inputs.list
+    cat ~{write_lines(vcf_idxs)} > tbi.inputs.list
+    while read vcf; do
+      exp_tbi="$vcf.tbi"
+      if [ $( fgrep -w $exp_tbi tbi.inputs.list | wc -l ) -eq 0 ]; then
+        tbi_base="$( basename $vcf ).tbi"
+        cp $( fgrep $tbi_base $tbi.inputs.list ) $exp_tbi
+      fi
+    done < vcf.inputs.list
+
+    # Reshard variants
+    /opt/pancan_germline_wgs/scripts/utilities/reshard_vcfs.py \
+      --vcf-list vcf.inputs.list \
+      "~{out_header_cmd}" \
+      --intervals ~{int_bed_loc}
+
+    # To reduce disk pressure, we delete the localized copies of raw VCFs
+    xargs -a vcf.inputs.list rm
+
+    # Next, we sort, deduplicate, rename, and reindex each sharded VCF
+    mkdir clean_outputs
+    ~{int_cat_cmd} ~{int_bed_loc} > intervals.tmp
+    while read chrom start end iid; do
+      vcf="$iid.vcf.gz"
+
+      # Delete empty VCFs if optioned
+      if ~{delete_empty}; then
+        if [ $( bcftools query -f '%ID\n' $vcf | sed -n '10p' | wc -l ) -eq 0 ]; then
+          echo -e "$vcf contains no records; removing because `delete_empty` is `true`..."
+          rm $vcf
+          continue
+        fi
+      fi
+
+      # Sort, deduplicate, and rename records
+      bcftools sort \
+        --max-mem "~{sort_mem_mb}M" \
+        $vcf \
+      ~{rename_cmd} \
+      | bcftools norm \
+        -d exact \
+        --threads ~{n_cpu} \
+        -Oz -o $iid.clean.vcf.gz
+      mv $iid.clean.vcf.gz $vcf
+
+      tabix -p vcf -f $vcf
+
+      mv $vcf clean_outputs/
+      mv $vcf.tbi clean_outputs/
+    done < intervals.tmp
+
+    kill $HEARTBEAT_PID
+    wait $HEARTBEAT_PID 2>/dev/null || true
+  >>>
+
+  output {
+    Array[File?] resharded_vcfs = glob("clean_outputs/*vcf.gz")
+    Array[File?] resharded_vcf_idxs = glob("clean_outputs/*vcf.gz.tbi")
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb_use + " HDD"
+    bootDiskSizeGb: boot_gb
+    preemptible: n_preemptible
+    maxRetries: 1
+  }
+}
+
+
 task ShardTextFile {
   input {
     File input_file
@@ -863,24 +1003,24 @@ task SumSvCountsPerSample {
   }
 }
 
-# Simple helper task to write VCF and index URIs to a two-column .tsv
-# Designed for downstream compatability with ShardTextFile and ExtractVcfArrays
-task VcfArrayToTsv {
+
+# Writes a two-column .tsv of VCF and index information
+task WriteVcfInfo {
   input {
-    Array[String] vcfs
-    Array[String] vcf_idxs
+    Array[String] vcf_uris
+    Array[String] tbi_uris
     String output_prefix
     String docker
   }
 
-  String outfile = output_prefix + ".vcf_uris.tsv"
+  String outfile = output_prefix + ".vcf_info.tsv"
 
   command <<<
     set -eu -o pipefail
 
     paste \
-      ~{write_lines(vcfs)} \
-      ~{write_lines(vcf_idxs)} \
+      ~{write_lines(vcf_uris)} \
+      ~{write_lines(tbi_uris)} \
     > ~{outfile}
   >>>
 
@@ -892,8 +1032,9 @@ task VcfArrayToTsv {
     docker: docker
     memory: "1.75 GB"
     cpu: 1
-    disks: "local-disk 20 HDD"
+    disks: "local-disk 25 HDD"
+    preemptible: 1
     maxRetries: 1
-    preemptible: 3
   }
 }
+

@@ -41,7 +41,7 @@ workflow UltraParallelGetVcfTerritories {
   # Scatter over sharded VCF lists
   scatter ( i in range(n_chunks) ) {
     # Extract URIs from sharded file as array of strings and indexes
-    call Utils.ExtractVcfArrays {
+    call Utils.ReadVcfInfo {
       input:
         vcf_info = ShardVcfList.shards[i],
         linux_docker = g2c_analysis_docker
@@ -50,8 +50,8 @@ workflow UltraParallelGetVcfTerritories {
     # Get territories for all VCFs in this chunk
     call GetTerritories.GetGenomeTerritoryPerVcf {
       input:
-        vcfs = ExtractVcfArrays.vcf_uris,
-        vcf_idxs = ExtractVcfArrays.vcf_tbi_uris,
+        vcfs = ReadVcfInfo.vcf_uris,
+        vcf_idxs = ReadVcfInfo.vcf_tbi_uris,
         compute_density = false,
         genome_file = genome_file,
         output_prefix = "~{output_prefix}.chunk_~{i}",

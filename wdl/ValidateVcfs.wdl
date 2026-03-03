@@ -35,10 +35,10 @@ workflow ValidateVcfs {
 
   # If inputs are defined as arrays, write as .tsv for subsequent chunking
   if ( ! defined(vcf_info_tsv) ) {
-    call Utils.VcfArrayToTsv {
+    call Utils.WriteVcfInfo {
       input:
-        vcfs = select_first([vcfs, []]),
-        vcf_idxs = select_first([vcf_idxs, []]),
+        vcf_uris = select_first([vcfs, []]),
+        tbi_uris = select_first([vcf_idxs, []]),
         output_prefix = output_prefix,
         docker = linux_docker
     }
@@ -47,7 +47,7 @@ workflow ValidateVcfs {
   # Shard VCF URI list
   call Utils.ShardTextFile as ShardVcfList {
     input:
-      input_file = select_first([vcf_info_tsv, VcfArrayToTsv.vcf_info_tsv]),
+      input_file = select_first([vcf_info_tsv, WriteVcfInfo.vcf_info_tsv]),
       lines_per_split = vcfs_per_shard,
       out_prefix = output_prefix + ".",
       g2c_analysis_docker = g2c_analysis_docker
@@ -57,14 +57,14 @@ workflow ValidateVcfs {
   # Scatter over sharded VCF lists
   scatter ( i in range(n_chunks) ) {
     # Extract URIs from sharded file as array of strings and indexes
-    call Utils.ExtractVcfArrays {
+    call Utils.ReadVcfInfo {
       input:
         vcf_info = ShardVcfList.shards[i],
         linux_docker = g2c_analysis_docker
     }
 
-    Array[Pair[File, File]] inner_vcf_infos = zip(ExtractVcfArrays.vcf_uris, 
-                                                  ExtractVcfArrays.vcf_tbi_uris)
+    Array[Pair[File, File]] inner_vcf_infos = zip(ReadVcfInfo.vcf_uris, 
+                                                  ReadVcfInfo.vcf_tbi_uris)
     scatter ( j in range(length(inner_vcf_infos)) ) {
 
       File input_vcf = inner_vcf_infos[j].left

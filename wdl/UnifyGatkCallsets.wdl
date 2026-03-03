@@ -9,6 +9,7 @@
 version 1.0
 
 
+import "NestedReshardVcfs.wdl" as NRV
 import "Utilities.wdl" as Utils
 
 
@@ -24,23 +25,22 @@ workflow UnifyGatkCallsets {
     Array[File] gatksv_vcfs
     Array[File] gatksv_vcf_idxs
 
-    File genome_file                        # BEDTools-style genome file
-    Int min_interval_size = 1000000         # Minimum size of intervals used for SV/indel clustering
+    File genome_file                               # BEDTools-style genome file
+    Int min_interval_size = 1000000                # Minimum size of intervals used for SV/indel clustering
 
     Int min_sv_size = 50
-    Float size_scalar = 3                   # Maximum fold-difference between sizes of indels and SVs to tolerate
-    String sv_mask_field = "SL"             # Quality field to mask low-quality SV genotypes before determining matches to indels
+    Float size_scalar = 3                          # Maximum fold-difference between sizes of indels and SVs to tolerate
+    String sv_mask_field = "SL"                    # Quality field to mask low-quality SV genotypes before determining matches to indels
 
     # BED4 files of final output intervals for resharding
     # Fourth column must correspond to desired output VCF name / interval name
     File snv_partition_intervals
     File indel_partition_intervals
     File sv_partition_intervals
-    Int final_intervals_per_shard = 25      # Parallelization control for final partitioning task
-    Float final_partition_disk_scalar = 1.5 # Disk sizing parameter for final partitioning task
+    Int parallel_shard_size = 20                   # Global parallelization control for ReshardVcf tasks
+    Float final_partition_disk_scalar = 1.5        # Disk sizing parameter for final partitioning task
 
     String g2c_analysis_docker
-    String g2c_analysis_docker_dev_tmp      # REMOVE THIS ONCE SUCCESSFUL
     String linux_docker = "ubuntu:plucky-20251001"
   }
 
@@ -48,7 +48,7 @@ workflow UnifyGatkCallsets {
 
   # Determine method of GATK-HC VCF input
   if ( !defined(gatkhc_vcf_array) || !defined(gatkhc_vcf_idx_array) ) {
-    call Utils.ExtractVcfArrays as ExtractGatkhcInfo {
+    call Utils.ReadVcfInfo as ExtractGatkhcInfo {
       input:
         vcf_info = select_first([gatkhc_vcf_info_tsv, '']),
         linux_docker = linux_docker
@@ -96,23 +96,20 @@ workflow UnifyGatkCallsets {
   }
 
   # Partition large indels across clustering intervals
-  call Utils.Sum as EstimateLargeIndelFileSize {
-    input:
-      values = select_all(SplitGatkHcBySize.large_indel_vcf_size)
-  }
-  call ReshardVcfs as SplitIndelsForClustering {
+  call NRV.NestedReshardVcfs as SplitIndelsForClustering {
     input:
       vcfs = select_all(SplitGatkHcBySize.large_indel_vcf),
       vcf_idxs = select_all(SplitGatkHcBySize.large_indel_vcf_idx),
-      intervals_bed = MakeClusteringIntervals.intervals_bed,
+      reshard_intervals_bed = MakeClusteringIntervals.intervals_bed,
       interval_suffix = "large_indels",
-      rename = true,
-      disk_gb = ceil(2.5 * EstimateLargeIndelFileSize.sum) + 10,
-      g2c_analysis_docker = g2c_analysis_docker
+      rename_variants = true,
+      parallel_shard_size = parallel_shard_size,
+      g2c_analysis_docker = g2c_analysis_docker,
+      linux_docker = linux_docker
   }
 
   # Partition SVs across clustering intervals
-  call ReshardVcfs as SplitSvsForClustering {
+  call Utils.ReshardVcfs as SplitSvsForClustering {
     input:
       vcfs = PrepareSvs.eligible_sv_vcf,
       vcf_idxs = PrepareSvs.eligible_sv_vcf_idx,
@@ -123,15 +120,15 @@ workflow UnifyGatkCallsets {
   }
 
   # Cluster large indels and SVs
-  Int n_cluster_shards = length(SplitIndelsForClustering.sharded_vcfs)
+  Int n_cluster_shards = length(SplitIndelsForClustering.resharded_vcfs)
   scatter ( i in range(n_cluster_shards) ) {
 
     call DefineClusters {
       input:
-        indel_vcf = select_first(select_all([SplitIndelsForClustering.sharded_vcfs[i]])),
-        indel_vcf_idx = select_first(select_all([SplitIndelsForClustering.sharded_vcf_idxs[i]])),
-        sv_vcf = select_first(select_all([SplitSvsForClustering.sharded_vcfs[i]])),
-        sv_vcf_idx = select_first(select_all([SplitSvsForClustering.sharded_vcf_idxs[i]])),
+        indel_vcf = select_first(select_all([SplitIndelsForClustering.resharded_vcfs[i]])),
+        indel_vcf_idx = select_first(select_all([SplitIndelsForClustering.resharded_vcf_idxs[i]])),
+        sv_vcf = select_first(select_all([SplitSvsForClustering.resharded_vcfs[i]])),
+        sv_vcf_idx = select_first(select_all([SplitSvsForClustering.resharded_vcf_idxs[i]])),
         sv_mask_field = sv_mask_field,
         genome_file = genome_file,
         size_scalar = size_scalar,
@@ -140,13 +137,13 @@ workflow UnifyGatkCallsets {
 
     call ResolveClusters {
       input:
-        indel_vcf = select_first(select_all([SplitIndelsForClustering.sharded_vcfs[i]])),
-        indel_vcf_idx = select_first(select_all([SplitIndelsForClustering.sharded_vcf_idxs[i]])),
-        sv_vcf = select_first(select_all([SplitSvsForClustering.sharded_vcfs[i]])),
-        sv_vcf_idx = select_first(select_all([SplitSvsForClustering.sharded_vcf_idxs[i]])),
+        indel_vcf = select_first(select_all([SplitIndelsForClustering.resharded_vcfs[i]])),
+        indel_vcf_idx = select_first(select_all([SplitIndelsForClustering.resharded_vcf_idxs[i]])),
+        sv_vcf = select_first(select_all([SplitSvsForClustering.resharded_vcfs[i]])),
+        sv_vcf_idx = select_first(select_all([SplitSvsForClustering.resharded_vcf_idxs[i]])),
         clusters = DefineClusters.final_clusters,
         combined_header = DefineClusters.combined_header,
-        g2c_analysis_docker = g2c_analysis_docker_dev_tmp
+        g2c_analysis_docker = g2c_analysis_docker
     }
 
     # Possible TODO: could extract records matching clusters here and integrate them in a separate task
@@ -164,28 +161,16 @@ workflow UnifyGatkCallsets {
   }
 
   # Postprocess SNVs
-  call Utils.Sum as EstimateSnvFileSize {
+  call NRV.NestedReshardVcfs as PartitionSnvOutputs {
     input:
-      values = select_all(SplitGatkHcBySize.snv_vcf_size)
-  }
-  call Utils.ShardTextFile as ShardSnvIntervals {
-    input:
-      input_file = snv_partition_intervals,
-      lines_per_split = final_intervals_per_shard,
-      out_prefix = "snv_output_partitions",
-      g2c_analysis_docker = g2c_analysis_docker
-  }
-  scatter ( interval_shard in ShardSnvIntervals.shards ) {
-    call ReshardVcfs as PartitionSnvOutputs {
-      input:
-        vcfs = select_all(SplitGatkHcBySize.snv_vcf),
-        vcf_idxs = select_all(SplitGatkHcBySize.snv_vcf_idx),
-        intervals_bed = interval_shard,
-        rename = true,
-        delete_empty = true,
-        disk_gb = ceil(final_partition_disk_scalar * EstimateSnvFileSize.sum) + 10,
-        g2c_analysis_docker = g2c_analysis_docker
-    }
+      vcfs = select_all(SplitGatkHcBySize.snv_vcf),
+      vcf_idxs = select_all(SplitGatkHcBySize.snv_vcf_idx),
+      reshard_intervals_bed = snv_partition_intervals,
+      rename_variants = true,
+      keep_empty_resharded_vcfs = false,
+      parallel_shard_size = parallel_shard_size,
+      g2c_analysis_docker = g2c_analysis_docker,
+      linux_docker = linux_docker
   }
 
   # Postprocess indels
@@ -193,71 +178,47 @@ workflow UnifyGatkCallsets {
                                                    ResolveClusters.integrated_indel_vcf]))
   Array[File] all_indel_vcf_idxs = select_all(flatten([SplitGatkHcBySize.small_indel_vcf_idx,
                                                        ResolveClusters.integrated_indel_vcf_idx]))
-  call Utils.Sum as EstimateIndelFileSize {
+  call NRV.NestedReshardVcfs as PartitionIndelOutputs {
     input:
-      values = select_all(flatten([SplitGatkHcBySize.small_indel_vcf_size,
-                                   ResolveClusters.integrated_indel_vcf_size]))
-  }
-  call Utils.ShardTextFile as ShardIndelIntervals {
-    input:
-      input_file = indel_partition_intervals,
-      lines_per_split = final_intervals_per_shard,
-      out_prefix = "indel_output_partitions",
-      g2c_analysis_docker = g2c_analysis_docker
-  }
-  scatter ( interval_shard in ShardIndelIntervals.shards ) {
-    call ReshardVcfs as PartitionIndelOutputs {
-      input:
-        vcfs = all_indel_vcfs,
-        vcf_idxs = all_indel_vcf_idxs,
-        intervals_bed = interval_shard,
-        rename = true,
-        delete_empty = true,
-        disk_gb = ceil(final_partition_disk_scalar * EstimateIndelFileSize.sum) + 10,
-        g2c_analysis_docker = g2c_analysis_docker
-    }
+      vcfs = all_indel_vcfs,
+      vcf_idxs = all_indel_vcf_idxs,
+      reshard_intervals_bed = indel_partition_intervals,
+      resharded_vcf_header = select_first(select_all(ResolveClusters.integrated_indel_vcf)),
+      rename_variants = true,
+      keep_empty_resharded_vcfs = false,
+      parallel_shard_size = parallel_shard_size,
+      g2c_analysis_docker = g2c_analysis_docker,
+      linux_docker = linux_docker
   }
 
   # Postprocess SVs
-  # Don't forget: need to add passthrough SVs
+  # TODO: UPDATE TO NRV
   Array[File] all_sv_vcfs = select_all(flatten([PrepareSvs.passthrough_sv_vcf,
                                                 ResolveClusters.integrated_sv_vcf]))
   Array[File] all_sv_vcf_idxs = select_all(flatten([PrepareSvs.passthrough_sv_vcf_idx,
                                                     ResolveClusters.integrated_sv_vcf_idx]))
-  call Utils.Sum as EstimateSvFileSize {
+  call NRV.NestedReshardVcfs as PartitionSvOutputs {
     input:
-      values = select_all(flatten([PrepareSvs.passthrough_sv_vcf_size,
-                                   ResolveClusters.integrated_sv_vcf_size]))
-  }
-  call Utils.ShardTextFile as ShardSvIntervals {
-    input:
-      input_file = sv_partition_intervals,
-      lines_per_split = final_intervals_per_shard,
-      out_prefix = "sv_output_partitions",
-      g2c_analysis_docker = g2c_analysis_docker
-  }
-  scatter ( interval_shard in ShardSvIntervals.shards ) {
-    call ReshardVcfs as PartitionSvOutputs {
-      input:
-        vcfs = all_sv_vcfs,
-        vcf_idxs = all_sv_vcf_idxs,
-        intervals_bed = interval_shard,
-        rename = true,
-        delete_empty = true,
-        disk_gb = ceil(final_partition_disk_scalar * EstimateSvFileSize.sum) + 10,
-        g2c_analysis_docker = g2c_analysis_docker
-    }
+      vcfs = all_sv_vcfs,
+      vcf_idxs = all_sv_vcf_idxs,
+      reshard_intervals_bed = sv_partition_intervals,
+      resharded_vcf_header = select_first(select_all(ResolveClusters.integrated_sv_vcf)),
+      rename_variants = true,
+      keep_empty_resharded_vcfs = false,
+      parallel_shard_size = parallel_shard_size,
+      g2c_analysis_docker = g2c_analysis_docker,
+      linux_docker = linux_docker
   }
 
   output {
-    Array[File?] cleaned_snv_vcfs = select_all(flatten(PartitionSnvOutputs.sharded_vcfs))
-    Array[File?] cleaned_snv_vcf_idxs = select_all(flatten(PartitionSnvOutputs.sharded_vcf_idxs))
+    Array[File?] cleaned_snv_vcfs = PartitionSnvOutputs.resharded_vcfs
+    Array[File?] cleaned_snv_vcf_idxs = PartitionSnvOutputs.resharded_vcf_idxs
 
-    Array[File?] cleaned_indel_vcfs = select_all(flatten(PartitionIndelOutputs.sharded_vcfs))
-    Array[File?] cleaned_indel_vcf_idxs = select_all(flatten(PartitionIndelOutputs.sharded_vcf_idxs))
+    Array[File?] cleaned_indel_vcfs = PartitionIndelOutputs.resharded_vcfs
+    Array[File?] cleaned_indel_vcf_idxs = PartitionIndelOutputs.resharded_vcf_idxs
 
-    Array[File?] cleaned_sv_vcfs = select_all(flatten(PartitionSvOutputs.sharded_vcfs))
-    Array[File?] cleaned_sv_vcf_idxs = select_all(flatten(PartitionSvOutputs.sharded_vcf_idxs))
+    Array[File?] cleaned_sv_vcfs = PartitionSvOutputs.resharded_vcfs
+    Array[File?] cleaned_sv_vcf_idxs = PartitionSvOutputs.resharded_vcf_idxs
 
     File cluster_assignment_log = ConcatClusterLogs.merged_file
   }
@@ -276,6 +237,7 @@ task MakeClusteringIntervals {
   }
 
   Array[File] all_beds = flatten([indel_beds, sv_beds])
+  Int buffer_width = floor(min_gap_size / 2)
 
   command <<<
     set -eu -o pipefail
@@ -284,6 +246,8 @@ task MakeClusteringIntervals {
     cat ~{write_lines(all_beds)} \
     | xargs -I {} zcat {} \
     | grep -ve '^#' \
+    | awk -v buf="~{buffer_width}" -v FS="\t" -v OFS="\t" \
+      '{pos=$2-buf; if (pos<0) pos=0; print $1, pos, $3+buf }' \
     | sort -Vk1,1 -k2,2n -k3,3n \
     | bedtools merge -i - \
     | bgzip -c \
@@ -362,7 +326,14 @@ task SplitGatkHcBySize {
       -i ~{vcf} \
       --large-indel-min-size ~{large_indel_size} \
       --largest-indel-log "~{out_prefix}.largest_indel_size.txt" \
+      --make-large-indel-bed \
       -o ~{out_prefix}
+    if [ -e "~{out_prefix}.large_indel.sites.bed" ]; then
+      sort -Vk1,1 -k2,2n -k3,3n "~{out_prefix}.large_indel.sites.bed" \
+      | cat <( echo -e "#chrom\tstart\tend" ) - \
+      | bgzip -c \
+      > "~{li_out_sites_bed}"
+    fi
 
     # Tabix non-empty output VCFs and delete empty VCFs
     while read subvcf; do
@@ -371,19 +342,6 @@ task SplitGatkHcBySize {
         rm $subvcf $subvcf.tbi
       fi
     done < <( find ./ -name "~{out_prefix}.*.vcf.gz" )
-
-    # Get BED coordinates for large indels
-    if [ -e "~{li_out_vcf}" ]; then
-      echo "##INFO=<ID=SVLEN,Number=1,Type=Integer,Description=\"Length\">" > header.supp.vcf
-      bcftools annotate -h header.supp.vcf "~{li_out_vcf}" \
-      | bcftools query \
-        -f '%CHROM\t%POS\t%END\t%REF\t%ALT\t%INFO/SVLEN\t.\t.\t.\t.\t.\t.\t.\t.\t.\n' \
-      | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/clean_site_metrics.py \
-        -o long_indels --gzip -N 100
-      zcat long_indels.indel.sites.bed.gz \
-      | cut -f1-3 | bgzip -c \
-      > "~{li_out_sites_bed}"
-    fi
 
     # Validation check: since all outputs are optional, this task can seemingly
     # be interpreted by Cromwell as a success even if it errors out. Thus,
@@ -492,141 +450,6 @@ task PrepareSvs {
 }
 
 
-# Reshard one or more input VCFs across prespecified intervals
-task ReshardVcfs {
-  input {
-    Array[File] vcfs
-    Array[File] vcf_idxs
-    File intervals_bed
-    Boolean intervals_are_compressed = true
-    String? interval_suffix
-
-    Boolean rename = false
-    Boolean delete_empty = false
-
-    String g2c_analysis_docker
-
-    Int disk_gb = 50
-    Float mem_gb = 7.5
-    Int n_cpu = 4
-    Int boot_gb = 25
-    Int n_preemptible = 1
-    Int ulimit = 4096
-  }
-
-  String rename_cmd = if rename then "| /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py" else ""
-  String int_cat_cmd = if intervals_are_compressed then "zcat" else "cat"
-  String int_bgzip_cmd = if intervals_are_compressed then "| bgzip -c" else ""
-  String int_bed_loc = basename(intervals_bed)
-
-  Int sort_mem_mb = floor(1000 * (mem_gb - 2))
-
-  command <<<
-    set -eu -o pipefail
-
-    # Update and report ulimit for debugging purposes
-    ulimit -n ~{ulimit} || true
-    echo -e "\nVM ulimit: $( ulimit -n )\n"
-
-    # Exit with non-zero status if input array is empty
-    if [ ~{length(vcfs)} -eq 0 ]; then
-      echo "Error: input VCF array is empty. Need to provide at least one VCF. Exiting"
-      sleep 60s
-      exit 1
-    fi
-
-    # Start heartbeat to avoid silent VM death
-    (
-      while true; do
-        echo "[ReshardVcfs] still running at $(date)"
-        sleep 60
-      done
-    ) &
-    HEARTBEAT_PID=$!
-
-    # Relocate intervals to pwd, adding a suffix if optioned
-    if ~{defined(interval_suffix)}; then
-      ~{int_cat_cmd} ~{intervals_bed} \
-      | awk -v suf="~{interval_suffix}" -v FS="\t" -v OFS="\t" \
-        '{ print $1, $2, $3, $4"."suf }' \
-      ~{int_bgzip_cmd} \
-      > ~{int_bed_loc}
-    else
-      cp ~{intervals_bed} ~{int_bed_loc}
-    fi
-
-    # Relocate VCF indexes to ensure they match their corresponding VCF
-    cat ~{write_lines(vcfs)} > vcf.inputs.list
-    cat ~{write_lines(vcf_idxs)} > tbi.inputs.list
-    while read vcf; do
-      exp_tbi="$vcf.tbi"
-      if [ $( fgrep -w $exp_tbi tbi.inputs.list | wc -l ) -eq 0 ]; then
-        tbi_base="$( basename $vcf ).tbi"
-        cp $( fgrep $tbi_base $tbi.inputs.list ) $exp_tbi
-      fi
-    done < vcf.inputs.list
-
-    # Reshard variants
-    /opt/pancan_germline_wgs/scripts/utilities/reshard_vcfs.py \
-      --vcf-list vcf.inputs.list \
-      --intervals ~{int_bed_loc}
-
-    # To reduce disk pressure, we delete the localized copies of raw VCFs
-    xargs -a vcf.inputs.list rm
-
-    # Next, we sort, deduplicate, rename, and reindex each sharded VCF
-    mkdir clean_outputs
-    ~{int_cat_cmd} ~{int_bed_loc} > intervals.tmp
-    while read chrom start end iid; do
-      vcf="$iid.vcf.gz"
-
-      # Delete empty VCFs if optioned
-      if ~{delete_empty}; then
-        if [ $( bcftools query -f '%ID\n' $vcf | sed -n '10p' | wc -l ) -eq 0 ]; then
-          echo -e "$vcf contains no records; removing because `delete_empty` is `true`..."
-          rm $vcf
-          continue
-        fi
-      fi
-
-      # Sort, deduplicate, and rename records
-      bcftools sort \
-        --max-mem "~{sort_mem_mb}M" \
-        $vcf \
-      ~{rename_cmd} \
-      | bcftools norm \
-        -d exact \
-        --threads ~{n_cpu} \
-        -Oz -o $iid.clean.vcf.gz
-      mv $iid.clean.vcf.gz $vcf
-
-      tabix -p vcf -f $vcf
-
-      mv $vcf clean_outputs/
-      mv $vcf.tbi clean_outputs/
-    done < intervals.tmp
-
-    kill $HEARTBEAT_PID
-    wait $HEARTBEAT_PID 2>/dev/null || true
-  >>>
-
-  output {
-    Array[File?] sharded_vcfs = glob("clean_outputs/*vcf.gz")
-    Array[File?] sharded_vcf_idxs = glob("clean_outputs/*vcf.gz.tbi")
-  }
-
-  runtime {
-    docker: g2c_analysis_docker
-    memory: mem_gb + " GB"
-    cpu: n_cpu
-    disks: "local-disk " + disk_gb + " HDD"
-    bootDiskSizeGb: boot_gb
-    preemptible: n_preemptible
-    maxRetries: 1
-  }
-}
-
-
 # Define clusters of indels and SVs to be integrated
 task DefineClusters {
   input {
@@ -657,7 +480,7 @@ task DefineClusters {
     # Start heartbeat to avoid silent VM death
     (
       while true; do
-        echo "[ReshardVcfs] still running at $(date)"
+        echo "[DefineClusters] still running at $(date)"
         sleep 60
       done
     ) &
@@ -865,7 +688,7 @@ task ResolveClusters {
     # Start heartbeat to avoid silent VM death
     (
       while true; do
-        echo "[ReshardVcfs] still running at $(date)"
+        echo "[DefineClusters] still running at $(date)"
         sleep 60
       done
     ) &

@@ -66,15 +66,15 @@ workflow RefineSvGenotypesWithSnvs {
 
   # Determine method of SNV VCF input
   if ( defined(snv_vcfs) && defined(snv_vcf_idxs) ) {
-    call WriteSnvInfo {
+    call Utils.WriteVcfInfo as WriteSnvInfo {
       input:
         vcf_uris = select_first([snv_vcfs, []]),
         tbi_uris = select_first([snv_vcf_idxs, []]),
-        output_prefix = output_prefix,
+        output_prefix = output_prefix + ".snv",
         docker = linux_docker
     }
   }
-  File snv_info_tsv = select_first(select_all([WriteSnvInfo.snv_info_tsv, snv_vcf_info_tsv]))
+  File snv_info_tsv = select_first(select_all([WriteSnvInfo.vcf_info_tsv, snv_vcf_info_tsv]))
   if ( !defined(snv_vcfs) ) {
     call GetFirstSnvVcf {
       input:
@@ -1022,37 +1022,3 @@ task UpdateGts {
   }
 }
 
-
-# Writes a two-column .tsv of SNV VCF and index information
-task WriteSnvInfo {
-  input {
-    Array[String] vcf_uris
-    Array[String] tbi_uris
-    String output_prefix
-    String docker
-  }
-
-  String outfile = output_prefix + ".snv_vcf_info.tsv"
-
-  command <<<
-    set -eu -o pipefail
-
-    paste \
-      ~{write_lines(vcf_uris)} \
-      ~{write_lines(tbi_uris)} \
-    > ~{outfile}
-  >>>
-
-  output {
-    File snv_info_tsv = outfile
-  }
-
-  runtime {
-    docker: docker
-    memory: "1.75 GB"
-    cpu: 1
-    disks: "local-disk 25 HDD"
-    preemptible: 1
-    maxRetries: 1
-  }
-}
