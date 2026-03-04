@@ -660,7 +660,7 @@ task ReshardVcfs {
     # Reshard variants
     /opt/pancan_germline_wgs/scripts/utilities/reshard_vcfs.py \
       --vcf-list vcf.inputs.list \
-      "~{out_header_cmd}" \
+      ~{out_header_cmd} \
       --intervals ~{int_bed_loc}
 
     # To reduce disk pressure, we delete the localized copies of raw VCFs

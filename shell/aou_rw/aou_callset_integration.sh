@@ -869,19 +869,14 @@ gsutil -m cp -r contig_genome_files gs://dfci-g2c-refs/hg38/
 # Write template input .json 
 cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
 {
-  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:6354a71",
-  "UnifyGatkCallsets.g2c_analysis_docker_dev_tmp": "vanallenlab/g2c_analysis:df80215",
+  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:2de68e2",
   "UnifyGatkCallsets.gatkhc_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
   "UnifyGatkCallsets.gatksv_vcfs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz"],
   "UnifyGatkCallsets.gatksv_vcf_idxs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz.tbi"],
   "UnifyGatkCallsets.genome_file": "gs://dfci-g2c-refs/hg38/contig_genome_files/hg38.\$CONTIG.genome",
   "UnifyGatkCallsets.indel_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.indel.bed.gz",
   "UnifyGatkCallsets.min_interval_size": 2000000,
-  "UnifyGatkCallsets.PartitionSnvOutputs.n_preemptible": 0,
   "UnifyGatkCallsets.snv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.snv.bed.gz",
-  "UnifyGatkCallsets.SplitIndelsForClustering.mem_gb": 32,
-  "UnifyGatkCallsets.SplitIndelsForClustering.n_cpu": 16,
-  "UnifyGatkCallsets.SplitIndelsForClustering.n_preemptible": 0,
   "UnifyGatkCallsets.sv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.sv.bed.gz"
 }
 EOF
