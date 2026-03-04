@@ -172,7 +172,9 @@ task ChunkReshardedVcfsByIntervals {
     set -eu -o pipefail
 
     # Concatenate and sort all resharded VCF URIs
-    cat ~{write_lines(vcf_info_tsvs)} \
+    while read tsv; do 
+      cat $tsv
+    done < ~{write_lines(vcf_info_tsvs)} \
     | sort -Vk1,1 -k2,2V \
     > input_vcf_info.tsv
 
@@ -201,7 +203,7 @@ task ChunkReshardedVcfsByIntervals {
     # Map VCF URIs to an info tsv for each chunk
     while read member_list; do
       fgrep -f $member_list input_vcf_info.tsv \
-      > "vcf_info.$member_list.tsv"
+      > "vcf_info.$( basename $member_list ).tsv"
     done < interval_chunks.list
   >>>
 
