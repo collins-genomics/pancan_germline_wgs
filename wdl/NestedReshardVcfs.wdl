@@ -184,7 +184,7 @@ task ChunkReshardedVcfsByIntervals {
 
     # Determine complement list of intervals with *zero* input VCFs
     ~{int_cat_cmd} ~{intervals_bed} \
-    | awk -v isuf="~{isuf}" '{ print $4""isuf".vcf.gz }' \
+    | awk -v isuf="~{isuf}" '{ print $4""isuf".vcf.gz" }' \
     | fgrep -xvf interval_vcf_names.list \
     | sed 's/\.vcf.gz//g' \
     | sort -V | uniq \
