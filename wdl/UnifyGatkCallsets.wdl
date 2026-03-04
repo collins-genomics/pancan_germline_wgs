@@ -104,6 +104,8 @@ workflow UnifyGatkCallsets {
       interval_suffix = "large_indels",
       rename_variants = true,
       parallel_shard_size = parallel_shard_size,
+      reshard_task_mem_gb = 12,
+      reshard_task_n_cpu = 4,
       g2c_analysis_docker = g2c_analysis_docker,
       linux_docker = linux_docker
   }
@@ -169,6 +171,8 @@ workflow UnifyGatkCallsets {
       rename_variants = true,
       keep_empty_resharded_vcfs = false,
       parallel_shard_size = parallel_shard_size,
+      reshard_task_mem_gb = 12,
+      reshard_task_n_cpu = 4,
       g2c_analysis_docker = g2c_analysis_docker,
       linux_docker = linux_docker
   }
@@ -187,6 +191,8 @@ workflow UnifyGatkCallsets {
       rename_variants = true,
       keep_empty_resharded_vcfs = false,
       parallel_shard_size = parallel_shard_size,
+      reshard_task_mem_gb = 12,
+      reshard_task_n_cpu = 4,
       g2c_analysis_docker = g2c_analysis_docker,
       linux_docker = linux_docker
   }

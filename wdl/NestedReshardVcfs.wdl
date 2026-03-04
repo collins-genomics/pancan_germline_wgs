@@ -33,6 +33,9 @@ workflow NestedReshardVcfs {
     Boolean shuffle_when_sharding = true           # Should shards be shuffled for random load balancing?
     Int parallel_shard_size = 10                   # Global parallelization control for ReshardVcf tasks
 
+    Float reshard_task_mem_gb = 7.5
+    Int reshard_task_n_cpu = 4
+
     String g2c_analysis_docker
     String linux_docker = "ubuntu:plucky-20251001"
   }
@@ -79,6 +82,8 @@ workflow NestedReshardVcfs {
         output_header = resharded_vcf_header,
         rename = rename_variants,
         delete_empty = true,
+        mem_gb = reshard_task_mem_gb,
+        n_cpu = reshard_task_n_cpu,
         g2c_analysis_docker = g2c_analysis_docker
     }
 

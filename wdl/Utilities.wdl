@@ -596,6 +596,7 @@ task ReshardVcfs {
 
     Int? disk_gb
     Float mem_gb = 7.5
+    Float max_sort_mem_gb = 6.0
     Int n_cpu = 4
     Int boot_gb = 15
     Int n_preemptible = 1
@@ -610,7 +611,10 @@ task ReshardVcfs {
 
   Int default_disk_gb = ceil(2 * size(vcfs, "GB")) + 20
   Int disk_gb_use = select_first([disk_gb, default_disk_gb])
-  Int sort_mem_mb = floor(1000 * (mem_gb - 2))
+  Int sort_mem_mb_default = floor(1000 * (mem_gb - 3.5))
+  Int sort_mem_mb_lower = if sort_mem_mb_default < 1000 then 1000 else sort_mem_mb_default
+  Int max_sort_mem_mb = floor(1000 * max_sort_mem_gb)
+  Int sort_mem_mb = if sort_mem_mb_lower > max_sort_mem_mb then max_sort_mem_mb else sort_mem_mb_lower
 
   command <<<
     set -eu -o pipefail
@@ -682,6 +686,8 @@ task ReshardVcfs {
       fi
 
       # Sort, deduplicate, and rename records
+      echo "Sorting $vcf"
+      ls -lh $vcf
       bcftools sort \
         --max-mem "~{sort_mem_mb}M" \
         $vcf \
@@ -711,7 +717,7 @@ task ReshardVcfs {
     docker: g2c_analysis_docker
     memory: mem_gb + " GB"
     cpu: n_cpu
-    disks: "local-disk " + disk_gb_use + " HDD"
+    disks: "local-disk " + disk_gb_use + " SSD"
     bootDiskSizeGb: boot_gb
     preemptible: n_preemptible
     maxRetries: 1

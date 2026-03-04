@@ -66,7 +66,7 @@ def integrate_records(indels, svs, header):
 
     # Determine which record should be used as the base
     # If multiple indels match the same SV, merge them all into that SV for simplicity
-    # Otherwise, we assume the indel is more accurate
+    # Otherwise, we assume the indel is more accurate (and retains exact alternate allele)
     if n_indels > 1 and n_svs == 1:
         new_rec = svs[0].copy()
     else:
