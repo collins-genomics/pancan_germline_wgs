@@ -236,8 +236,6 @@ task ConcatenateIntervalVcfs {
     Int n_cpu = 2
   }
 
-  Array[Pair[File, File]] vcf_info = zip(vcfs, vcf_idxs)
-
   Int disk_gb = ceil(2.5 * size(vcfs, "GB")) + 10
   Int sort_mem_mb = floor(1000 * (mem_gb - 2))
   Int concat_threads = floor(2 * n_cpu)
@@ -246,7 +244,9 @@ task ConcatenateIntervalVcfs {
     set -eu -o pipefail
 
     # Concatenate and sort all resharded VCF info
-    cat ~{write_tsv(vcf_info)} \
+    paste \
+      ~{write_lines(vcfs)} \
+      ~{write_lines(vcf_idxs)} \
     | sort -Vk1,1 -k2,2V \
     > input_vcf_info.tsv
 
