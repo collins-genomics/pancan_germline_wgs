@@ -190,7 +190,7 @@ task ChunkReshardedVcfsByIntervals {
     | fgrep -xvf interval_vcf_names.list \
     | sed 's/\.vcf.gz//g' \
     | sort -V | uniq \
-    > empty_intervals.list
+    > empty_intervals.list || true
 
     # Shard intervals
     /opt/pancan_germline_wgs/scripts/utilities/evenSplitter.R \
@@ -203,7 +203,7 @@ task ChunkReshardedVcfsByIntervals {
     # Map VCF URIs to an info tsv for each chunk
     while read member_list; do
       fgrep -f $member_list input_vcf_info.tsv \
-      > "vcf_info.$( basename $member_list ).tsv"
+      > "vcf_info.$( basename $member_list ).tsv" || true
     done < interval_chunks.list
   >>>
 
