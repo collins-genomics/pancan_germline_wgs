@@ -31,7 +31,8 @@ workflow NestedReshardVcfs {
 
     # Parallelization parameters
     Boolean shuffle_when_sharding = true           # Should shards be shuffled for random load balancing?
-    Int parallel_shard_size = 10                   # Global parallelization control for ReshardVcf tasks
+    Int vcfs_per_shard = 10                        # Parallelization control for ReshardVcf tasks
+    Int intervals_per_shard = 10                   # Parallelization control for merging resharded VCFs per interval
 
     Float reshard_task_mem_gb = 7.5
     Int reshard_task_n_cpu = 4
@@ -56,7 +57,7 @@ workflow NestedReshardVcfs {
   call Utils.ShardTextFile as ShardInputVcfList {
     input:
       input_file = input_vcf_info_tsv,
-      lines_per_split = parallel_shard_size,
+      lines_per_split = vcfs_per_shard,
       shuffle = shuffle_when_sharding,
       out_prefix = "input_vcf_chunk",
       g2c_analysis_docker = g2c_analysis_docker
@@ -108,7 +109,7 @@ workflow NestedReshardVcfs {
       intervals_bed = reshard_intervals_bed,
       intervals_are_compressed = intervals_are_compressed,
       interval_suffix = interval_suffix,
-      intervals_per_chunk = parallel_shard_size,
+      intervals_per_chunk = intervals_per_shard,
       shuffle = shuffle_when_sharding,
       g2c_analysis_docker = g2c_analysis_docker
   }
