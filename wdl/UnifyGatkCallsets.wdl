@@ -622,7 +622,7 @@ task DefineClusters {
     /opt/pancan_germline_wgs/scripts/qc/vcf_qc/compare_sites.py \
       -a input.sv.sites.bed.gz \
       -b input.indel.sites.bed.gz \
-      -g hg38.chr22.genome \
+      -g ~{genome_file} \
       -o candidate_hits \
       --mode both \
       --max-overlap-size-diff 3.0 \
@@ -638,7 +638,7 @@ task DefineClusters {
     | awk -v FS="\t" -v OFS="\t" '{ if ($9!="NA") print "sv_"$9, "indel_"$4, $NF }' \
     > indel_to_sv.candidates.tsv
     cat indel_to_sv.candidates.tsv sv_to_indel.candidates.tsv \
-    | sort -Vk1,1 -k3,3n -k2,2V \
+    | sort -Vk1,1 -k3,3nr -k2,2V \
     | uniq \
     | gzip -c \
     > candidate_hits.pairs.tsv.gz
