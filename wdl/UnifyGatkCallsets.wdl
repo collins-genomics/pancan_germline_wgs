@@ -529,7 +529,7 @@ task DefineClusters {
     Int n_cpu = 2
   }
 
-  Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 10
+  Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 20
   String output_prefix = basename(sv_vcf, ".svs.vcf.gz")
   String out_fname = "~{output_prefix}.final_clusters.tsv.gz"
 
@@ -553,6 +553,27 @@ task DefineClusters {
       cp "~{sv_vcf_idx}" "~{sv_vcf}.tbi"
     fi
 
+    # Make header as helper for resolution step
+    bcftools query -l ~{indel_vcf} > indel.samples.list
+    bcftools query -l ~{sv_vcf} > sv.samples.list
+    cat indel.samples.list sv.samples.list | sort -V | uniq > union.samples.list
+    bcftools view \
+      --samples-file union.samples.list \
+      --force-samples \
+      --header-only \
+      -Oz -o indel.header.vcf.gz \
+      ~{indel_vcf}
+    bcftools view \
+      --samples-file union.samples.list \
+      --force-samples \
+      --header-only \
+      -Oz -o sv.header.vcf.gz \
+      ~{sv_vcf}
+    bcftools concat \
+      -Oz -o combined.header.vcf.gz \
+      indel.header.vcf.gz \
+      sv.header.vcf.gz
+
     # Step 0: if zero indels or SVs are present, there's nothing to do other than make dummy files
     n_indel=$( bcftools index -n ~{indel_vcf} )
     n_sv=$( bcftools index -n ~{sv_vcf} )
@@ -560,25 +581,10 @@ task DefineClusters {
 
       echo -e "#SVs\tindels" | gzip -c > "~{out_fname}"
 
-      bcftools query -l ~{indel_vcf} > indel.samples.list
-      bcftools query -l ~{sv_vcf} > sv.samples.list
-      cat indel.samples.list sv.samples.list | sort -V | uniq > union.samples.list
-      bcftools view \
-        --samples-file union.samples.list \
-        --force-samples \
-        --header-only \
-        -Oz -o indel.header.vcf.gz \
-        ~{indel_vcf}
-      bcftools view \
-        --samples-file union.samples.list \
-        --force-samples \
-        --header-only \
-        -Oz -o sv.header.vcf.gz \
-        ~{sv_vcf}
-      bcftools concat \
-        -Oz -o combined.header.vcf.gz \
-        indel.header.vcf.gz \
-        sv.header.vcf.gz
+      for prefix in "total_clusters." "indel.variant_" "multi_indel.clusters." \
+                    "sv.variant_" "multi_sv.clusters."; do
+        echo "0" > "$prefix"count.txt
+      done
 
       exit 0
 
@@ -618,7 +624,7 @@ task DefineClusters {
       tabix -p bed -f input.$vc.sites.bed.gz
     done
 
-    # Step 2: find candidate overlapping indels & SVs
+    # Step 2a: find candidate overlapping indels & SVs
     /opt/pancan_germline_wgs/scripts/qc/vcf_qc/compare_sites.py \
       -a input.sv.sites.bed.gz \
       -b input.indel.sites.bed.gz \
@@ -648,18 +654,34 @@ task DefineClusters {
     | uniq \
     > candidate_hits.vids.list
 
+    # Step 2b: if no candidate hits are found, there's nothing left to do other than make dummy files
+    n_candidates=$( cat candidate_hits.vids.list | wc -l )
+    if [ $n_candidates -eq 0 ]; then
+
+      echo -e "#SVs\tindels" | gzip -c > "~{out_fname}"
+      
+      for prefix in "total_clusters." "indel.variant_" "multi_indel.clusters." \
+                    "sv.variant_" "multi_sv.clusters."; do
+        echo "0" > "$prefix"count.txt
+      done
+
+      exit 0
+
+    fi
+
     # Step 3: Compute non-ref GT Jaccard indexes for all candidate pairs
     # Note that the double call of SV GT masking is *not* by mistake; it is intentional
-    bcftools query -l ~{indel_vcf} > indel.samples.list
-    bcftools query -l ~{sv_vcf} > sv.samples.list
-    cat indel.samples.list sv.samples.list | sort -V | uniq > union.samples.list
-    bcftools view --samples-file union.samples.list "~{indel_vcf}" \
+    bcftools view \
+      --samples-file union.samples.list \
+      --force-samples \
+      "~{indel_vcf}" \
     | bcftools annotate --set-id "indel_%ID" \
     | bcftools view \
       --include 'ID=@candidate_hits.vids.list' \
       -Oz -o indel.for_jaccard.vcf.gz
     bcftools view \
       --samples-file union.samples.list \
+      --force-samples \
       "~{sv_vcf}" \
     | bcftools annotate --set-id "sv_%ID" \
     | bcftools view \
@@ -678,11 +700,11 @@ task DefineClusters {
       indel.for_jaccard.vcf.gz \
       sv.for_jaccard.vcf.gz
     tabix -p vcf -f all.for_jaccard.vcf.gz
-    /opt/pancan_germline_wgs/scripts/vcf2dosage.py \
+    /opt/pancan_germline_wgs/scripts/utilities/vcf2dosage.py \
       --vcf-in all.for_jaccard.vcf.gz \
     | gzip -c \
     > jaccard.input.tsv.gz
-    ./calc_nonref_jaccards.R \
+    /opt/pancan_germline_wgs/scripts/variant_filtering/calc_nonref_jaccards.R \
       --genotype-matrix jaccard.input.tsv.gz \
       --pairs-tsv candidate_hits.pairs.tsv.gz \
       --matrix-is-ad \
@@ -696,12 +718,6 @@ task DefineClusters {
       --minimum-jaccard ~{min_nonref_jaccard} \
     | gzip -c \
     > "~{out_fname}"
-
-    # Make header as helper for resolution step
-    bcftools view \
-      --header-only \
-      -Oz -o combined.header.vcf.gz \
-      all.for_jaccard.vcf.gz
 
     # Count number of input indels and SVs in final clusters
     zcat "~{out_fname}" | fgrep -v "#" | wc -l > total_clusters.count.txt
@@ -733,9 +749,10 @@ task DefineClusters {
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
+    bootDiskSizeGb: 15
     preemptible: 3
     maxRetries: 1
-  }  
+  }
 }
 
 
@@ -767,7 +784,7 @@ task ResolveClusters {
     # Start heartbeat to avoid silent VM death
     (
       while true; do
-        echo "[DefineClusters] still running at $(date)"
+        echo "[ResolveClusters] still running at $(date)"
         sleep 60
       done
     ) &
