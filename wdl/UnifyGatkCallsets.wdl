@@ -124,16 +124,26 @@ workflow UnifyGatkCallsets {
       g2c_analysis_docker = g2c_analysis_docker
   }
 
+  # Sort partitioned indels and SVs to ensure no mismatching due to wildcard globs
+  call AlignIndelAndSvFiles {
+    input:
+      indel_vcfs = SplitIndelsForClustering.resharded_vcfs,
+      indel_vcf_idxs = SplitIndelsForClustering.resharded_vcf_idxs,
+      sv_vcfs = select_all(SplitSvsForClustering.resharded_vcfs),
+      sv_vcf_idxs = select_all(SplitSvsForClustering.resharded_vcf_idxs),
+      interval_names = MakeClusteringIntervals.interval_names_list,
+      linux_docker = linux_docker
+  }
+
   # Cluster large indels and SVs
-  Int n_cluster_shards = length(SplitIndelsForClustering.resharded_vcfs)
-  scatter ( i in range(n_cluster_shards) ) {
+  scatter ( interval_info in AlignIndelAndSvFiles.interval_infos ) {
 
     call DefineClusters {
       input:
-        indel_vcf = select_first(select_all([SplitIndelsForClustering.resharded_vcfs[i]])),
-        indel_vcf_idx = select_first(select_all([SplitIndelsForClustering.resharded_vcf_idxs[i]])),
-        sv_vcf = select_first(select_all([SplitSvsForClustering.resharded_vcfs[i]])),
-        sv_vcf_idx = select_first(select_all([SplitSvsForClustering.resharded_vcf_idxs[i]])),
+        indel_vcf = interval_info[1],
+        indel_vcf_idx = interval_info[2],
+        sv_vcf = interval_info[3],
+        sv_vcf_idx = interval_info[4],
         sv_mask_field = sv_mask_field,
         genome_file = genome_file,
         size_scalar = size_scalar,
@@ -142,17 +152,14 @@ workflow UnifyGatkCallsets {
 
     call ResolveClusters {
       input:
-        indel_vcf = select_first(select_all([SplitIndelsForClustering.resharded_vcfs[i]])),
-        indel_vcf_idx = select_first(select_all([SplitIndelsForClustering.resharded_vcf_idxs[i]])),
-        sv_vcf = select_first(select_all([SplitSvsForClustering.resharded_vcfs[i]])),
-        sv_vcf_idx = select_first(select_all([SplitSvsForClustering.resharded_vcf_idxs[i]])),
+        indel_vcf = interval_info[1],
+        indel_vcf_idx = interval_info[2],
+        sv_vcf = interval_info[3],
+        sv_vcf_idx = interval_info[4],
         clusters = DefineClusters.final_clusters,
         combined_header = DefineClusters.combined_header,
         g2c_analysis_docker = g2c_analysis_docker
     }
-
-    # Possible TODO: could extract records matching clusters here and integrate them in a separate task
-    # This would improve speed because the vast majority of indel records could simply be written out
 
   }
   call Utils.ConcatTextFiles as ConcatClusterLogs {
@@ -315,10 +322,15 @@ task MakeClusteringIntervals {
     | awk -v OFS="\t" '{ print $0, "clustering_interval_"NR }' \
     | bgzip -c \
     > clustering.intervals.bed.gz
+
+    # Write list of clustering interval names to be used later
+    zcat clustering.intervals.bed.gz |
+    | cut -f4 > "clustering.intervals.ids.list"
   >>>
 
   output {
     File intervals_bed = "clustering.intervals.bed.gz"
+    File interval_names_list = "clustering.intervals.ids.list"
   }
 
   runtime {
@@ -505,6 +517,51 @@ task PrepareSvs {
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: 1
     maxRetries: 1
+  }
+}
+
+
+# Ensure sharded indel and SV files are sorted identically for subsequent clustering
+task AlignIndelAndSvFiles {
+  input {
+    Array[String] indel_vcfs
+    Array[String] indel_vcf_idxs
+    Array[String] sv_vcfs
+    Array[String] sv_vcf_idxs
+    File interval_names
+    String linux_docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+
+      cat ~{write_lines(indel_vcfs)} > indel_vcf.uris.list
+      cat ~{write_lines(indel_vcf_idxs)} > indel_tbi.uris.list
+      cat ~{write_lines(sv_vcfs)} > sv_vcf.uris.list
+      cat ~{write_lines(sv_vcf_idxs)} > sv_tbi.uris.list
+
+    while read iid; do
+      echo $iid
+      fgrep -w "$iid.large_indels.vcf.gz" indel_vcf.uris.list
+      fgrep -w "$iid.large_indels.vcf.gz.tbi" indel_tbi.uris.list
+      fgrep -w "$iid.svs.vcf.gz" sv_vcf.uris.list
+      fgrep -w "$iid.svs.vcf.gz.tbi" sv_tbi.uris.list
+    done < ~{interval_names} \
+    | paste - - - - - \
+    > ordered_interval_info.tsv
+  >>>
+
+  output {
+    Array[Array[String]] interval_infos = read_tsv("ordered_interval_info.tsv")
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 1
+    maxRetries: 3
   }
 }
 
