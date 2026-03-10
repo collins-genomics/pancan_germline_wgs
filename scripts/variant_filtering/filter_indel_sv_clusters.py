@@ -36,42 +36,46 @@ def count_prefix(nodes, prefix):
     return sum(1 for n in nodes if n.startswith(prefix))
 
 
-def cluster_is_valid(G, cluster):
+def count_vcs(cluster):
     """
-    Checks whether a cluster of SVs/indels is valid (is singular for SVs or indels)
+    Count variant class memberships for a connected cluster
+    Returns: tuple of (# indels, # SVs)
     """
 
     nodes = list(cluster)
     n_sv = count_prefix(nodes, "sv_")
     n_indel = count_prefix(nodes, "indel_")
-    return (n_sv == 1) or (n_indel == 1)
+
+    return tuple([n_indel, n_sv])
+
+
+def cluster_is_valid(cluster):
+    """
+    Checks whether a cluster of SVs/indels is valid (is singular for SVs or indels)
+    """
+
+    n_indel, n_sv = count_vcs(cluster)
+
+    return (n_indel == 1) or (n_sv == 1)
 
 
 def prune_cluster(G, cluster):
     """
-    Remove weakest edges (largest cdist) until cluster becomes valid.
+    Remove the weakest edge (largest cdist) from a given cluster
     """
-    
-    removed = 0
 
     subG = G.subgraph(cluster).copy()
     
-    # sort edges by descending weight (remove worst first)
+    # Sort edges by descending weight (larger weight = worse match)
     edges_sorted = sorted(
         subG.edges(data=True),
         key=lambda x: x[2].get("weight", 0),
         reverse=True
     )
-    
-    for u, v, data in edges_sorted:
-        if cluster_is_valid(G, cluster):
-            break
-        
-        if G.has_edge(u, v):
-            G.remove_edge(u, v)
-            removed += 1
 
-    return removed
+    # Remove the single worst edge
+    u, v, data = edges_sorted[0]
+    G.remove_edge(u, v)
 
 
 def iterative_prune(G):
@@ -87,8 +91,9 @@ def iterative_prune(G):
         clusters = list(nx.connected_components(G))
         
         for cluster in clusters:
-            if not cluster_is_valid(G, cluster):
-                removed_total += prune_cluster(G, cluster)
+            if not cluster_is_valid(cluster):
+                prune_cluster(G, cluster)
+                removed_total += 1
         
         if removed_total == 0:
             break
@@ -145,7 +150,8 @@ def main():
         vids = list(cluster)
         svs = [re.sub('^sv_', '', vid) for vid in vids if vid.startswith("sv_")]
         indels = [re.sub('^indel_', '', vid) for vid in vids if vid.startswith("indel_")]
-        fout.write('{}\t{}\n'.format(','.join(sorted(svs)), ','.join(sorted(indels))))
+        if len(svs) > 0 and len(indels) > 0:
+            fout.write('{}\t{}\n'.format(','.join(sorted(svs)), ','.join(sorted(indels))))
 
     # Close outfile to clear buffer
     fout.close()
