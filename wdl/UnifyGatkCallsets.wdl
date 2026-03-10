@@ -324,7 +324,7 @@ task MakeClusteringIntervals {
     > clustering.intervals.bed.gz
 
     # Write list of clustering interval names to be used later
-    zcat clustering.intervals.bed.gz |
+    zcat clustering.intervals.bed.gz \
     | cut -f4 > "clustering.intervals.ids.list"
   >>>
 

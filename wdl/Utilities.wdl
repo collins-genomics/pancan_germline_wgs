@@ -607,7 +607,7 @@ task ReshardVcfs {
   String int_cat_cmd = if intervals_are_compressed then "zcat" else "cat"
   String int_bgzip_cmd = if intervals_are_compressed then "| bgzip -c" else ""
   String int_bed_loc = basename(intervals_bed)
-  String out_header_cmd = if defined(output_header) then "--out-header " + basename(select_first([output_header])) else ""
+  String out_header_cmd = if defined(output_header) then "--out-header " + basename(select_first(select_all([output_header]))) else ""
 
   Int default_disk_gb = ceil(2 * size(vcfs, "GB")) + 20
   Int disk_gb_use = select_first([disk_gb, default_disk_gb])
@@ -633,7 +633,7 @@ task ReshardVcfs {
     # Relocate output header to pwd if provided
     if ~{defined(output_header)}; then
       cp ~{default=" " output_header} ./
-    done
+    fi
 
     # Start heartbeat to avoid silent VM death
     (
@@ -684,7 +684,7 @@ task ReshardVcfs {
       # Delete empty VCFs if optioned
       if ~{delete_empty}; then
         if [ $( bcftools query -f '%ID\n' $vcf | sed -n '10p' | wc -l ) -eq 0 ]; then
-          echo -e "$vcf contains no records; removing because `delete_empty` is `true`..."
+          echo -e "$vcf contains no records; removing because 'delete_empty' is 'true'..."
           rm $vcf
           continue
         fi
