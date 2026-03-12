@@ -71,10 +71,7 @@ workflow UnifyGatkCallsets {
         g2c_analysis_docker = g2c_analysis_docker
     }
   }
-  call Utils.Max as CalcMaxIndelSize {
-    input:
-      values = select_all(SplitGatkHcBySize.largest_indel_size)
-  }
+  call Utils.Max as CalcMaxIndelSize {input: values = select_all(SplitGatkHcBySize.largest_indel_size)}
 
   # Pre-filter SVs to only those eligible for possible indel clustering
   Array[Pair[File, File]] sv_vcf_infos = zip(gatksv_vcfs, gatksv_vcf_idxs)
@@ -388,7 +385,7 @@ task SplitGatkHcBySize {
     String g2c_analysis_docker
   }
 
-  Int disk_gb = ceil(3 * size(vcf, "GB")) + 10
+  Int disk_gb = ceil(3 * size(vcf, "GB")) + 15
   String out_prefix = basename(vcf, ".vcf.gz")
   String snv_out_vcf = out_prefix + ".snv.vcf.gz"
   String si_out_vcf = out_prefix + ".small_indel.vcf.gz"
@@ -401,18 +398,25 @@ task SplitGatkHcBySize {
     # Ensure tabix index is localized to the same directory as the input VCF
     if [ "~{vcf}.tbi" != "~{vcf_idx}" ]; then
       mv "~{vcf_idx}" "~{vcf}.tbi"
-    fi 
+    fi
 
-    # Split input VCF
+    # Establish trackers
     echo "0" > "~{out_prefix}.largest_indel_size.txt"
     echo "0" > "large_indel.ge50bp.variant_count.txt"
+
+    # If input VCF is empty, we can just exit early
+    if [ $( bcftools index -n ~{vcf} ) -eq 0 ]; then
+      exit 0
+    fi
+
+    # Split input VCF
     /opt/pancan_germline_wgs/scripts/gatkhc_helpers/split_gatkhc_by_size.py \
       -i ~{vcf} \
       --large-indel-min-size ~{large_indel_size} \
       --largest-indel-log "~{out_prefix}.largest_indel_size.txt" \
       --make-large-indel-bed \
       -o ~{out_prefix}
-    if [ -e "~{out_prefix}.large_indel.sites.bed" ]; then
+    if [ -s "~{out_prefix}.large_indel.sites.bed" ]; then
       sort -Vk1,1 -k2,2n -k3,3n "~{out_prefix}.large_indel.sites.bed" \
       | cat <( echo -e "#chrom\tstart\tend" ) - \
       | bgzip -c \
@@ -421,7 +425,7 @@ task SplitGatkHcBySize {
       | fgrep -v "#" \
       | awk -v FS="\t" '{ if ($3-$2>=50) print }' \
       | wc -l \
-      > "large_indel.ge50bp.variant_count.txt"
+      > "large_indel.ge50bp.variant_count.txt" || true
     fi
 
     # Index and count variants for each output VCF, and delete empty VCFs
@@ -440,7 +444,8 @@ task SplitGatkHcBySize {
 
     # Validation check: since all outputs are optional, this task can seemingly
     # be interpreted by Cromwell as a success even if it errors out. Thus,
-    # we need to explicitly exit non-zero if there are no VCFs in pwd
+    # we need to explicitly exit non-zero if there are no VCFs in pwd.
+    # This should be safe since we ruled out empty input VCFs earlier
     if [ ~{strict} ]; then
       if [ $( find ./ -name "~{out_prefix}.*.vcf.gz" | wc -l ) -lt 1 ]; then
         echo "Likely error: no output VCFs were generated. This is usually unexpected and indicates a silent error."
@@ -448,6 +453,11 @@ task SplitGatkHcBySize {
         exit 1
       fi
     fi
+
+    # Sometimes this task seems to finish unusually quickly, and Cromwell
+    # seemingly doesn't always catch this in highly parallelized use-cases.
+    # To be safe, we can sleep for 30 seconds to allow Cromwell to catch up
+    sleep 30s
   >>>
 
   output {
