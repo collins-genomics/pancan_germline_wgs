@@ -190,6 +190,7 @@ get_workspace_number() {
 # Simple routine to monitor a single Cromwell workflow
 # Required first positional argument is workflow ID
 # Optional second positional argument is gate window (in minutes)
+# Optional third positional argument is number of loops
 monitor_workflow() {
   # Check inputs
   if [ $# -lt 1 ]; then
@@ -201,9 +202,14 @@ monitor_workflow() {
   else
     monitor_gate=5
   fi
+  if [ $# -ge 3 ]; then
+    iter=$3
+  else
+    iter=1000000
+  fi
 
   # Endless loop
-  while true; do
+  for k in $( seq 1 $iter ); done
     echo -e "\n\n\n\n"
     date
     njobs=$( gcloud compute instances list | wc -l )

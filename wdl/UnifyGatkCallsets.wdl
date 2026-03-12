@@ -38,6 +38,7 @@ workflow UnifyGatkCallsets {
     File snv_partition_intervals
     File indel_partition_intervals
     File sv_partition_intervals
+    String large_sv_interval_name = "large_svs"    # Optional custom name for the extra "large SV" shard
     Int vcfs_per_shard = 20                        # Global parallelization control for *all* ReshardVcf tasks
     Int intervals_per_shard_final_partition = 3    # Parallelization control for final partitioning task
     Float final_partition_disk_scalar = 1.5        # Disk sizing parameter for final partitioning task
@@ -228,6 +229,37 @@ workflow UnifyGatkCallsets {
       linux_docker = linux_docker
   }
 
+  # Make one separate SV shard for all large SVs to aid in downstream region-based queries
+  call DefineLargeSVCutoff {
+    input:
+      intervals = sv_partition_intervals,
+      docker = linux_docker
+  }
+  Array[File] partitioned_sv_vcfs = PartitionSvOutputs.resharded_vcfs
+  Array[File] partitioned_sv_vcf_idxs = PartitionSvOutputs.resharded_vcf_idxs
+  Array[Pair[File, File]] penultimate_sv_infos = zip(partitioned_sv_vcfs, partitioned_sv_vcf_idxs)
+  scatter ( svpair in penultimate_sv_infos ) {
+    call ExtractLargeSvs {
+      input:
+        vcf = svpair.left,
+        vcf_idx = svpair.right,
+        size_cutoff = DefineLargeSVCutoff.cutoff,
+        bcftools_docker = g2c_analysis_docker
+    }
+  }
+  Array[File] large_sv_vcfs = select_all(ExtractLargeSvs.large_vcf)
+  Array[File] large_sv_vcf_idxs = select_all(ExtractLargeSvs.large_vcf_idx)
+  if ( length(large_sv_vcfs) > 0 ) {
+    call Utils.ConcatVcfs as ConcatLargeSvs {
+      input:
+        vcfs = large_sv_vcfs,
+        vcf_idxs = large_sv_vcf_idxs,
+        out_prefix = large_sv_interval_name,
+        bcftools_concat_options = "-a",
+        bcftools_docker = g2c_analysis_docker
+    }
+  }
+
   # Prepare reporting log of all variants considered & collapsed
   call Utils.Sum as SumSnvCounts {input: values = select_all(SplitGatkHcBySize.n_snvs)}
   call Utils.Sum as SumSmallIndelCounts {input: values = select_all(SplitGatkHcBySize.n_small_indels)}
@@ -263,8 +295,8 @@ workflow UnifyGatkCallsets {
     Array[File?] cleaned_indel_vcfs = PartitionIndelOutputs.resharded_vcfs
     Array[File?] cleaned_indel_vcf_idxs = PartitionIndelOutputs.resharded_vcf_idxs
 
-    Array[File?] cleaned_sv_vcfs = PartitionSvOutputs.resharded_vcfs
-    Array[File?] cleaned_sv_vcf_idxs = PartitionSvOutputs.resharded_vcf_idxs
+    Array[File?] cleaned_sv_vcfs = select_all(flatten([ExtractLargeSvs.notlarge_vcf, [ConcatLargeSvs.merged_vcf]]))
+    Array[File?] cleaned_sv_vcf_idxs = select_all(flatten([ExtractLargeSvs.notlarge_vcf_idx, [ConcatLargeSvs.merged_vcf_idx]]))
 
     File cluster_assignment_log = ConcatClusterLogs.merged_file
   }
@@ -905,6 +937,104 @@ task ResolveClusters {
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: 1
+    maxRetries: 1
+  }  
+}
+
+
+# Compute the size of the second-smallest interval in a BED file
+# Capped at 100kb for robustness
+task DefineLargeSVCutoff {
+  input {
+    File intervals
+    String concat_cmd = "zcat"
+    Int bp_buffer = 2
+    Int max_cutoff = 100000
+    String docker
+  }
+
+  Int disk_gb = ceil(2 * size(intervals, "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    ~{concat_cmd} ~{intervals} \
+    | grep -ve '^#' \
+    | awk -v FS="\t" '{ print $3-$2 }' \
+    | sort -nk1,1 \
+    | sed -n '2p' \
+    > size.txt
+  >>>
+
+  output {
+    Int raw_cutoff = read_int("size.txt") - bp_buffer
+    Int cutoff = if raw_cutoff > max_cutoff then max_cutoff else raw_cutoff
+  }
+
+  runtime {
+    docker: docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }  
+}
+
+
+# Split large and small SVs from a sorted, integrated VCF
+task ExtractLargeSvs {
+  input {
+    File vcf
+    File vcf_idx
+    Int size_cutoff
+    String bcftools_docker
+  }
+
+  Int disk_gb = ceil(2.5 * size(vcf, "GB")) + 15
+  String main_outfile = basename(vcf)
+  String large_outfile = basename(vcf, ".vcf.gz") + ".large.vcf.gz"
+
+  command <<<
+    set -eu -o pipefail
+
+    bcftools view \
+      -i 'SVLEN >= ~{size_cutoff}' \
+      -Oz -o ~{large_outfile} \
+      ~{vcf}
+    tabix -p vcf -f ~{large_outfile}
+
+    # Check if any large SVs were present in this shard
+    # If not, we can simply return the input VCF as the output VCF
+    n_large=$( bcftools index -n ~{large_outfile} )
+    if [ $n_large -eq 0 ]; then
+      rm ~{large_outfile} "~{large_outfile}.tbi"
+      mv ~{vcf} ~{main_outfile}
+      mv ~{vcf_idx} "~{main_outfile}.tbi"
+      exit 0
+    fi
+
+    bcftools view \
+      -e 'SVLEN >= ~{size_cutoff}' \
+      -Oz -o ~{main_outfile} \
+      ~{vcf}
+    tabix -p vcf -f ~{main_outfile}
+  >>>
+
+  output {
+    File notlarge_vcf = main_outfile
+    File notlarge_vcf_idx = main_outfile + ".tbi"
+
+    File? large_vcf = large_outfile
+    File? large_vcf_idx = large_outfile + ".tbi"
+  }
+
+  runtime {
+    docker: bcftools_docker
+    memory: "3.5 GB"
+    cpu: 2
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
     maxRetries: 1
   }  
 }
