@@ -867,7 +867,7 @@ task ResolveClusters {
     fgrep "##CPX" sv.header.vcf >> header.vcf
     tabix -H "~{combined_header}" | fgrep -v "##" >> header.vcf
 
-    # Step 5: Integrate indel and SV VCFs
+    # Integrate indel and SV VCFs
     /opt/pancan_germline_wgs/scripts/variant_filtering/integrate_gatk_vcfs.py \
       --indel-vcf ~{indel_vcf} \
       --sv-vcf ~{sv_vcf} \

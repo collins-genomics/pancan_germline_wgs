@@ -225,7 +225,8 @@ def integrate_infos(records, do_cpx_intervals=False, header=None):
         """
         Helper function to handle smart resolution of numeric values
         """
-        if all([v is None for v in vals]):
+        vals = [v for v in vals if v is not None]
+        if len(vals) == 0:
             return None
         if key.upper().startswith('MIN') or key.upper().endswith('MIN'):
             res = np.nanmin(vals)
@@ -282,7 +283,7 @@ def integrate_infos(records, do_cpx_intervals=False, header=None):
             elif key_is_numeric:
                 nvl = []
                 for i in range(len(vals[0])):
-                    nvl.append(__resolve_numerics(key, [v[0] for v in vals], key_h.type))
+                    nvl.append(__resolve_numerics(key, [v[i] for v in vals], key_h.type))
                 newinfo[key] = out_type(nvl)
             else:
                 newinfo[key] = out_type(sorted(list(set(recursive_flatten(vals)))))
