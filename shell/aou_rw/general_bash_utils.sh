@@ -198,24 +198,29 @@ monitor_workflow() {
     return 2
   fi
   if [ $# -ge 2 ]; then
-    monitor_gate=$2
+    local monitor_gate=$2
   else
-    monitor_gate=5
+    local monitor_gate=5
   fi
   if [ $# -ge 3 ]; then
-    iter=$3
+    local iter=$3
   else
-    iter=1000000
+    local iter=1000000
   fi
 
   # Endless loop
-  for k in $( seq 1 $iter ); done
+  local k=0
+  while true; do
+    ((k++))
     echo -e "\n\n\n\n"
     date
     njobs=$( gcloud compute instances list | wc -l )
     echo -e "Current Cromwell server load: $(( $njobs - 4 )) active VMs"
-    cromshell -t 150 --no_turtle status $1 2>/dev/null
+    ( cromshell -t 150 --no_turtle status $1 | jq .status ) 2>/dev/null 
     cromshell -t 150 --no_turtle counts -x $1 2>/dev/null
+    if [ $k -ge $iter ]; then
+      return 0
+    fi
     echo -e "Waiting $monitor_gate minutes before checking again...\n"
     sleep ${monitor_gate}m
   done
