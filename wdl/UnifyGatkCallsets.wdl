@@ -400,9 +400,14 @@ task SplitGatkHcBySize {
       mv "~{vcf_idx}" "~{vcf}.tbi"
     fi
 
-    # Establish trackers
-    echo "0" > "~{out_prefix}.largest_indel_size.txt"
-    echo "0" > "large_indel.ge50bp.variant_count.txt"
+    # Initialize trackers
+    for fname in snv.variant_count.txt \
+                 small_indel.variant_count.txt \
+                 large_indel.variant_count.txt \
+                 large_indel.ge50bp.variant_count.txt \
+                 "~{out_prefix}.largest_indel_size.txt"; do
+      echo "0" > $fname
+    done
 
     # If input VCF is empty, we can just exit early
     if [ $( bcftools index -n ~{vcf} ) -eq 0 ]; then
@@ -446,7 +451,7 @@ task SplitGatkHcBySize {
     # be interpreted by Cromwell as a success even if it errors out. Thus,
     # we need to explicitly exit non-zero if there are no VCFs in pwd.
     # This should be safe since we ruled out empty input VCFs earlier
-    if [ ~{strict} ]; then
+    if [ "~{strict}" == "true" ]; then
       if [ $( find ./ -name "~{out_prefix}.*.vcf.gz" | wc -l ) -lt 1 ]; then
         echo "Likely error: no output VCFs were generated. This is usually unexpected and indicates a silent error."
         sleep 60s
@@ -463,17 +468,14 @@ task SplitGatkHcBySize {
   output {
     File? snv_vcf = snv_out_vcf
     File? snv_vcf_idx = snv_out_vcf + ".tbi"
-    Float? snv_vcf_size = size(snv_out_vcf, "GB")
     Int? n_snvs = read_int("snv.variant_count.txt")
 
     File? small_indel_vcf = si_out_vcf
     File? small_indel_vcf_idx = si_out_vcf + ".tbi"
-    Float? small_indel_vcf_size = size(si_out_vcf, "GB")
     Int? n_small_indels = read_int("small_indel.variant_count.txt")
 
     File? large_indel_vcf = li_out_vcf
     File? large_indel_vcf_idx = li_out_vcf + ".tbi"
-    Float? large_indel_vcf_size = size(li_out_vcf, "GB")
     File? large_indel_sites_bed = li_out_sites_bed
     Int? n_large_indels = read_int("large_indel.variant_count.txt")
     Int? n_large_indels_ge50bp = read_int("large_indel.ge50bp.variant_count.txt")
@@ -643,6 +645,15 @@ task DefineClusters {
       done
     ) &
     HEARTBEAT_PID=$!
+
+    # Initialize trackers
+    for fname in total_clusters.count.txt \
+                multi_indel.clusters.count.txt \
+                indel.variant_count.txt \
+                multi_sv.clusters.count.txt \
+                sv.variant_count.txt; do
+      echo "0" > $fname
+    done
 
     # Ensure VCF indexes localize to same directory as VCFs
     if [ "~{indel_vcf}.tbi" != "~{indel_vcf_idx}" ]; then
