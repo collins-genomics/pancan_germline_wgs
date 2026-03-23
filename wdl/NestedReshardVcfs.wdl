@@ -237,9 +237,9 @@ task ConcatenateIntervalVcfs {
     Int n_cpu = 2
   }
 
-  Int disk_gb = ceil(5 * size(vcfs, "GB")) + 25
+  Int disk_gb = ceil(3.5 * size(vcfs, "GB")) + 25
   Int sort_mem_mb = floor(1000 * (mem_gb - 2))
-  Int concat_threads = floor(2 * n_cpu)
+  Int concat_threads = floor(2 * n_cpu) - 1
 
   command <<<
     set -eu -o pipefail
@@ -293,13 +293,21 @@ task ConcatenateIntervalVcfs {
 
       # Concatenate and sort all records for this interval
       cut -f1 $iid.vcf_info.tsv > $iid.input_vcfs.list
+      echo "Processing interval: $iid"
+      cat $iid.input_vcfs.list
       bcftools concat -a -D \
         --file-list $iid.input_vcfs.list \
         --threads ~{concat_threads} \
-      | bcftools sort \
+        -Oz -o $iid.concat.vcf.gz
+      bcftools index -t $iid.concat.vcf.gz
+
+      bcftools sort \
         --max-mem "~{sort_mem_mb}M" \
-        -Oz -o $iid.vcf.gz
+        -Oz -o $iid.vcf.gz \
+        $iid.concat.vcf.gz
       tabix -p vcf -f $iid.vcf.gz
+      rm $iid.concat.vcf.gz
+
     done < interval_names.list
 
     kill $HEARTBEAT_PID

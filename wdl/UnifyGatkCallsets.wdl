@@ -823,32 +823,29 @@ task DefineClusters {
     | gzip -c \
     > "~{out_fname}"
 
-    # Count number of input indels and SVs in final clusters
+    # Count number of input indels and SVs in final clusters:
     
     # Total clusters
-    zcat "~{out_fname}" \
-    | awk 'BEGIN{n=0} !/^#/ {n++} END{print n}' \
-    > total_clusters.count.txt
+    zcat "~{out_fname}" | awk '!/^#/' | wc -l > total_clusters.count.txt
 
     # Number of unique indels
     zcat "~{out_fname}" | awk '!/^#/' \
     | cut -f2 | sed 's/,/\n/g' \
-    | sort | uniq | wc -l | awk '{print $1}' > indel.variant_count.txt
+    | sort | uniq | wc -l \
+    > indel.variant_count.txt
 
     # Number of clusters involving multiple indels
-    zcat "~{out_fname}" \
-    | awk -v FS="\t" '!/^#/ && $2 ~ /,/ {n++} END{print n}' \
+    zcat "~{out_fname}" | awk -v FS="\t" '!/^#/ && $2 ~ /,/' | wc -l \
     > multi_indel.clusters.count.txt
 
     # Number of unique SVs
     zcat "~{out_fname}" | awk '!/^#/' \
     | cut -f1 | sed 's/,/\n/g' \
-    | sort | uniq | wc -l | awk '{print $1}' \
+    | sort | uniq | wc -l \
     > sv.variant_count.txt
 
     # Number of clusters involving multiple SVs
-    zcat "~{out_fname}" \
-    | awk -v FS="\t" '!/^#/ && $1 ~ /,/ {n++} END{print n}' \
+    zcat "~{out_fname}" | awk -v FS="\t" '!/^#/ && $1 ~ /,/' | wc -l \
     > multi_sv.clusters.count.txt
   >>>
 
