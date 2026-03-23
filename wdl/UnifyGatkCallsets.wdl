@@ -645,6 +645,7 @@ task DefineClusters {
       done
     ) &
     HEARTBEAT_PID=$!
+    trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
 
     # Initialize trackers
     for fname in total_clusters.count.txt \
@@ -680,24 +681,21 @@ task DefineClusters {
       -Oz -o sv.header.vcf.gz \
       ~{sv_vcf}
     bcftools concat \
-      -Oz -o combined.header.vcf.gz \
       indel.header.vcf.gz \
-      sv.header.vcf.gz
+      sv.header.vcf.gz \
+    | bcftools view \
+      --samples-file union.samples.list \
+      --force-samples \
+      --header-only \
+      -Oz -o combined.header.vcf.gz
+    tabix -p vcf -f combined.header.vcf.gz
 
     # Step 0: if zero indels or SVs are present, there's nothing to do other than make dummy files
     n_indel=$( bcftools index -n ~{indel_vcf} )
     n_sv=$( bcftools index -n ~{sv_vcf} )
     if [ $n_indel -eq 0 ] || [ $n_sv -eq 0 ]; then
-
       echo -e "#SVs\tindels" | gzip -c > "~{out_fname}"
-
-      for prefix in "total_clusters." "indel.variant_" "multi_indel.clusters." \
-                    "sv.variant_" "multi_sv.clusters."; do
-        echo "0" > "$prefix"count.txt
-      done
-
       exit 0
-
     fi
 
     # Step 1: Extract BED info for indels and SVs
@@ -721,7 +719,11 @@ task DefineClusters {
         --gzip \
         -N 100
       find ./ -name "input.$vc.*.sites.bed.gz" > $vc.partitioned.sites.list
-      if [ $( cat $vc.partitioned.sites.list | wc -l ) -gt 1 ]; then
+      n_parts=$( wc -l < $vc.partitioned.sites.list )
+      if [ $n_parts -eq 0 ]; then
+        echo "ERROR: no partitioned BEDs found for $vc" >&2
+        exit 1
+      elif [ $n_parts -gt 1 ]; then
         cat \
           <( zcat $( sed -n '1p' $vc.partitioned.sites.list ) | sed -n '1p' ) \
           <( cat $vc.partitioned.sites.list | xargs -I {} zcat {} \
@@ -729,7 +731,7 @@ task DefineClusters {
         | bgzip -c \
         > input.$vc.sites.bed.gz
       else
-        cp $( sed -n '1p' $vc.partitioned.sites.list ) input.$vc.sites.bed.gz
+        cp "$( sed -n '1p' $vc.partitioned.sites.list )" input.$vc.sites.bed.gz
       fi
       tabix -p bed -f input.$vc.sites.bed.gz
     done
@@ -765,18 +767,10 @@ task DefineClusters {
     > candidate_hits.vids.list
 
     # Step 2b: if no candidate hits are found, there's nothing left to do other than make dummy files
-    n_candidates=$( cat candidate_hits.vids.list | wc -l )
+    n_candidates=$( wc -l < candidate_hits.vids.list )
     if [ $n_candidates -eq 0 ]; then
-
       echo -e "#SVs\tindels" | gzip -c > "~{out_fname}"
-      
-      for prefix in "total_clusters." "indel.variant_" "multi_indel.clusters." \
-                    "sv.variant_" "multi_sv.clusters."; do
-        echo "0" > "$prefix"count.txt
-      done
-
       exit 0
-
     fi
 
     # Step 3: Compute non-ref GT Jaccard indexes for all candidate pairs
@@ -830,18 +824,32 @@ task DefineClusters {
     > "~{out_fname}"
 
     # Count number of input indels and SVs in final clusters
-    zcat "~{out_fname}" | fgrep -v "#" | wc -l > total_clusters.count.txt
-    zcat "~{out_fname}" | fgrep -v "#" | cut -f2 | sed 's/,/\n/g' \
-    | sort | uniq | wc -l > indel.variant_count.txt
-    zcat "~{out_fname}" | fgrep -v "#" | cut -f2 \
-    | fgrep "," | wc -l > multi_indel.clusters.count.txt
-    zcat "~{out_fname}" | fgrep -v "#" | cut -f1 | sed 's/,/\n/g' \
-    | sort | uniq | wc -l > sv.variant_count.txt
-    zcat "~{out_fname}" | fgrep -v "#" | cut -f1 \
-    | fgrep "," | wc -l > multi_sv.clusters.count.txt
+    
+    # Total clusters
+    zcat "~{out_fname}" \
+    | awk 'BEGIN{n=0} !/^#/ {n++} END{print n}' \
+    > total_clusters.count.txt
 
-    kill $HEARTBEAT_PID
-    wait $HEARTBEAT_PID 2>/dev/null || true
+    # Number of unique indels
+    zcat "~{out_fname}" | awk '!/^#/' \
+    | cut -f2 | sed 's/,/\n/g' \
+    | sort | uniq | wc -l | awk '{print $1}' > indel.variant_count.txt
+
+    # Number of clusters involving multiple indels
+    zcat "~{out_fname}" \
+    | awk -v FS="\t" '!/^#/ && $2 ~ /,/ {n++} END{print n}' \
+    > multi_indel.clusters.count.txt
+
+    # Number of unique SVs
+    zcat "~{out_fname}" | awk '!/^#/' \
+    | cut -f1 | sed 's/,/\n/g' \
+    | sort | uniq | wc -l | awk '{print $1}' \
+    > sv.variant_count.txt
+
+    # Number of clusters involving multiple SVs
+    zcat "~{out_fname}" \
+    | awk -v FS="\t" '!/^#/ && $1 ~ /,/ {n++} END{print n}' \
+    > multi_sv.clusters.count.txt
   >>>
 
   output {
@@ -979,12 +987,15 @@ task DefineLargeSVCutoff {
   command <<<
     set -eu -o pipefail
 
+    echo 1000000000 > size.txt
+
     ~{concat_cmd} ~{intervals} \
     | grep -ve '^#' \
     | awk -v FS="\t" '{ print $3-$2 }' \
     | sort -nk1,1 \
-    | sed -n '2p' \
-    > size.txt
+    | head -n2 \
+    | tail -n1 \
+    > size.txt || true
   >>>
 
   output {

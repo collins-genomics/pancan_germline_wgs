@@ -237,12 +237,21 @@ task ConcatenateIntervalVcfs {
     Int n_cpu = 2
   }
 
-  Int disk_gb = ceil(2.5 * size(vcfs, "GB")) + 10
+  Int disk_gb = ceil(5 * size(vcfs, "GB")) + 25
   Int sort_mem_mb = floor(1000 * (mem_gb - 2))
   Int concat_threads = floor(2 * n_cpu)
 
   command <<<
     set -eu -o pipefail
+
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[ConcatenateIntervalVcfs] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
 
     # Concatenate and sort all resharded VCF info
     paste \
@@ -267,11 +276,11 @@ task ConcatenateIntervalVcfs {
       > $iid.vcf_info.tsv
 
       # If only one VCF is included, just rename that VCF and continue
-      if [ $( cat $iid.vcf_info.tsv | wc -l ) -eq 1 ]; then
+      if [ $( wc -l < $iid.vcf_info.tsv ) -eq 1 ]; then
         invcf=$( cut -f1 $iid.vcf_info.tsv | sed -n '1p' )
         intbi=$( cut -f2 $iid.vcf_info.tsv | sed -n '1p' )
-        mv $invcf $iid.vcf.gz
-        mv $intbi $iid.vcf.gz
+        mv "$invcf" $iid.vcf.gz
+        mv "$intbi" $iid.vcf.gz.tbi
         continue
       fi
 
@@ -283,14 +292,18 @@ task ConcatenateIntervalVcfs {
       done < $iid.vcf_info.tsv
 
       # Concatenate and sort all records for this interval
+      cut -f1 $iid.vcf_info.tsv > $iid.input_vcfs.list
       bcftools concat -a -D \
-        --file-list <( cut -f1 $iid.vcf_info.tsv ) \
+        --file-list $iid.input_vcfs.list \
         --threads ~{concat_threads} \
       | bcftools sort \
         --max-mem "~{sort_mem_mb}M" \
         -Oz -o $iid.vcf.gz
       tabix -p vcf -f $iid.vcf.gz
     done < interval_names.list
+
+    kill $HEARTBEAT_PID
+    wait $HEARTBEAT_PID 2>/dev/null || true
   >>>
 
   output {
