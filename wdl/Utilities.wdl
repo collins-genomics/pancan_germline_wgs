@@ -643,6 +643,7 @@ task ReheaderVcf {
       ~{vcf} \
     | bcftools reheader \
       -h ~{new_header} \
+    | bcftools view \
       -Oz -o "~{out_filename}"
     tabix -p vcf -f "~{out_filename}"
   >>>
