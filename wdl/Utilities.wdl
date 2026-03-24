@@ -778,15 +778,23 @@ task ReshardVcfs {
       # Sort, deduplicate, and rename records
       echo "Sorting $vcf"
       ls -lh $vcf
+
       bcftools sort \
         --max-mem "~{sort_mem_mb}M" \
-        $vcf \
-      ~{rename_cmd} \
-      | bcftools norm \
+        -Oz -o $iid.sorted.vcf.gz \
+        $vcf
+      tabix -p vcf -f $iid.sorted.vcf.gz
+      
+      bcftools norm \
         -d exact \
         --threads ~{n_cpu} \
+        $iid.sorted.vcf.gz \
+      ~{rename_cmd} \
+      | bcftools view \
         -Oz -o $iid.clean.vcf.gz
+
       mv $iid.clean.vcf.gz $vcf
+      rm $iid.sorted.vcf.gz $iid.sorted.vcf.gz.tbi
 
       tabix -p vcf -f $vcf
 

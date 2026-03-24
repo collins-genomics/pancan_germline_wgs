@@ -879,6 +879,7 @@ cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
   "UnifyGatkCallsets.indel_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.indel.bed.gz",
   "UnifyGatkCallsets.large_sv_interval_name": "dfci-g2c.v1.sv.\$CONTIG.large",
   "UnifyGatkCallsets.min_interval_size": 1000000,
+  "UnifyGatkCallsets.PartitionSvOutputs.reshard_task_mem_gb": 15.5,
   "UnifyGatkCallsets.snv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.snv.bed.gz",
   "UnifyGatkCallsets.sv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.sv.bed.gz"
 }
@@ -894,7 +895,6 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.UnifyGatkCallsets.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
-  --submission-gate 5 \
   --max-attempts 3
 
 # # DEV: submit
