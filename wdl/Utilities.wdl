@@ -287,46 +287,6 @@ task CountRecordsInVcf {
 }
 
 
-# Extract URIs of VCFs and indexes from a flat text file of URI strings
-# Useful in combination with WriteVcfInfo and ShardTextFile for parallelizing tasks over very large input arrays
-task ReadVcfInfo {
-  input {
-    File vcf_info # Either a .txt file with VCF URIs or a two-column .tsv of VCF and tabix URIs.
-                  # If provided as a single-column .txt file, we assume tabix indexes exist in the same bucket.
-    String linux_docker
-  }
-
-  command <<<
-    set -eu -o pipefail
-
-    max_fields=$( awk -v FS="\t" '{ print NF }' ~{vcf_info} \
-                  | sort -nrk1,1 | sed -n '1p' )
-
-    if [ $max_fields -gt 1 ]; then
-      awk -v FS="\t" '{ print $1 }' ~{vcf_info} > vcf_uris.list
-      awk -v FS="\t" '{ print $2 }' ~{vcf_info} > index_uris.list
-    else
-      cp ~{vcf_info} vcf_uris.list
-      awk '{ print $1".tbi" }' ~{vcf_info} > index_uris.list
-    fi
-  >>>
-
-  output {
-    Array[String] vcf_uris = read_lines("vcf_uris.list")
-    Array[String] vcf_tbi_uris = read_lines("index_uris.list")
-  }
-
-  runtime {
-    docker: linux_docker
-    memory: "1.75 GB"
-    cpu: 1
-    disks: "local-disk 20 HDD"
-    preemptible: 1
-    maxRetries: 1
-  }
-}
-
-
 # Generic task to efficiently download a file from an FTP server
 task FtpDownload {
   input {
@@ -485,6 +445,44 @@ task GetSamplesFromVcfHeader {
 }
 
 
+task GetVcfHeader {
+  input {
+    File vcf
+    File vcf_idx
+    String bcftools_docker
+  }
+
+  String out_filename = basename(vcf, ".vcf.gz") + ".header.vcf.gz"
+  Int disk_gb = ceil(1.2 * size(vcf, "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    if [ "~{vcf_idx}" != "~{vcf}.tbi" ]; then
+      cp ~{vcf_idx} "~{vcf}.tbi"
+    fi
+
+    bcftools view \
+      --header-only \
+      -Oz -o "~{out_filename}" \
+      ~{vcf}
+  >>>
+
+  output {
+    File header = "~{out_filename}"
+  }
+
+  runtime {
+    docker: bcftools_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
 task IntersectTextFiles {
   input {
     Array[File] files
@@ -573,6 +571,92 @@ task Max {
     memory: "1.7 GB"
     cpu: 1
     disks: "local-disk 10 HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
+# Extract URIs of VCFs and indexes from a flat text file of URI strings
+# Useful in combination with WriteVcfInfo and ShardTextFile for parallelizing tasks over very large input arrays
+task ReadVcfInfo {
+  input {
+    File vcf_info # Either a .txt file with VCF URIs or a two-column .tsv of VCF and tabix URIs.
+                  # If provided as a single-column .txt file, we assume tabix indexes exist in the same bucket.
+    String linux_docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+
+    max_fields=$( awk -v FS="\t" '{ print NF }' ~{vcf_info} \
+                  | sort -nrk1,1 | sed -n '1p' )
+
+    if [ $max_fields -gt 1 ]; then
+      awk -v FS="\t" '{ print $1 }' ~{vcf_info} > vcf_uris.list
+      awk -v FS="\t" '{ print $2 }' ~{vcf_info} > index_uris.list
+    else
+      cp ~{vcf_info} vcf_uris.list
+      awk '{ print $1".tbi" }' ~{vcf_info} > index_uris.list
+    fi
+  >>>
+
+  output {
+    Array[String] vcf_uris = read_lines("vcf_uris.list")
+    Array[String] vcf_tbi_uris = read_lines("index_uris.list")
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
+
+
+task ReheaderVcf {
+  input {
+    File vcf
+    File vcf_idx
+    File new_header
+    String bcftools_docker
+  }
+
+  String out_filename = basename(vcf, ".vcf.gz") + ".reheadered.vcf.gz"
+  Int disk_gb = ceil(2.5 * size(vcf, "GB")) + 15
+
+  command <<<
+    set -eu -o pipefail
+
+    if [ "~{vcf_idx}" != "~{vcf}.tbi" ]; then
+      cp ~{vcf_idx} "~{vcf}.tbi"
+    fi
+
+    bcftools query -l ~{new_header} > samples.list
+
+    bcftools view \
+      --samples-file samples.list \
+      --force-samples \
+      ~{vcf} \
+    | bcftools reheader \
+      -h ~{new_header} \
+      -Oz -o "~{out_filename}"
+    tabix -p vcf -f "~{out_filename}"
+  >>>
+
+  output {
+    File reheadered_vcf = "~{out_filename}"
+    File reheadered_vcf_idx = "~{out_filename}.tbi"
+  }
+
+  runtime {
+    docker: bcftools_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk " + disk_gb + " HDD"
     preemptible: 3
     maxRetries: 1
   }

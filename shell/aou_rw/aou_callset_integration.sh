@@ -907,6 +907,6 @@ code/scripts/manage_chromshards.py \
 # | jq .id | tr -d '"' \
 # >> scratch/dev.wid.list
 
-# # Monitor QC visualization workflow
+# # Monitor workflow
 # monitor_workflow $( tail -n1 scratch/dev.wid.list ) 2
 

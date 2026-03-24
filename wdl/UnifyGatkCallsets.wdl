@@ -170,6 +170,44 @@ workflow UnifyGatkCallsets {
       docker = linux_docker
   }
 
+  # Reheader small indels to be compatible with reclustered large indels
+  call Utils.GetVcfHeader as GetFinalIndelHeader {
+    input:
+      vcf = select_first(select_all(ResolveClusters.integrated_indel_vcf)),
+      vcf_idx = select_first(select_all(ResolveClusters.integrated_indel_vcf_idx)),
+      bcftools_docker = g2c_analysis_docker
+  }
+  Array[Pair[File, File]] si_infos = zip(select_all(SplitGatkHcBySize.small_indel_vcf),
+                                         select_all(SplitGatkHcBySize.small_indel_vcf_idx))
+  scatter ( si_info in si_infos ) {
+    call Utils.ReheaderVcf as ReheaderSmallIndels {
+      input:
+        vcf = si_info.left,
+        vcf_idx = si_info.right,
+        new_header = GetFinalIndelHeader.header,
+        bcftools_docker = g2c_analysis_docker
+    }
+  }
+
+  # Reheader passthrough SVs to be compatible with reclustered small SVs
+  call Utils.GetVcfHeader as GetFinalSvHeader {
+    input:
+      vcf = select_first(select_all(ResolveClusters.integrated_sv_vcf)),
+      vcf_idx = select_first(select_all(ResolveClusters.integrated_sv_vcf_idx)),
+      bcftools_docker = g2c_analysis_docker
+  }
+  Array[Pair[File, File]] pt_infos = zip(PrepareSvs.passthrough_sv_vcf,
+                                         PrepareSvs.passthrough_sv_vcf_idx)
+  scatter ( pt_info in pt_infos ) {
+    call Utils.ReheaderVcf as ReheaderPassthroughSvs {
+      input:
+        vcf = pt_info.left,
+        vcf_idx = pt_info.right,
+        new_header = GetFinalSvHeader.header,
+        bcftools_docker = g2c_analysis_docker
+    }
+  }
+
   # Postprocess SNVs
   call NRV.NestedReshardVcfs as PartitionSnvOutputs {
     input:
@@ -187,10 +225,10 @@ workflow UnifyGatkCallsets {
   }
 
   # Postprocess indels
-  Array[File] all_indel_vcfs = select_all(flatten([SplitGatkHcBySize.small_indel_vcf,
-                                                   ResolveClusters.integrated_indel_vcf]))
-  Array[File] all_indel_vcf_idxs = select_all(flatten([SplitGatkHcBySize.small_indel_vcf_idx,
-                                                       ResolveClusters.integrated_indel_vcf_idx]))
+  Array[File] all_indel_vcfs = select_all(flatten([ReheaderSmallIndels.reheadered_vcf,
+                                                   select_all(ResolveClusters.integrated_indel_vcf)]))
+  Array[File] all_indel_vcf_idxs = select_all(flatten([ReheaderSmallIndels.reheadered_vcf_idx,
+                                                       select_all(ResolveClusters.integrated_indel_vcf_idx)]))
   call NRV.NestedReshardVcfs as PartitionIndelOutputs {
     input:
       vcfs = all_indel_vcfs,
@@ -208,9 +246,9 @@ workflow UnifyGatkCallsets {
   }
 
   # Postprocess SVs
-  Array[File] all_sv_vcfs = select_all(flatten([PrepareSvs.passthrough_sv_vcf,
+  Array[File] all_sv_vcfs = select_all(flatten([ReheaderPassthroughSvs.reheadered_vcf,
                                                 ResolveClusters.integrated_sv_vcf]))
-  Array[File] all_sv_vcf_idxs = select_all(flatten([PrepareSvs.passthrough_sv_vcf_idx,
+  Array[File] all_sv_vcf_idxs = select_all(flatten([ReheaderPassthroughSvs.reheadered_vcf_idx,
                                                     ResolveClusters.integrated_sv_vcf_idx]))
   call NRV.NestedReshardVcfs as PartitionSvOutputs {
     input:
