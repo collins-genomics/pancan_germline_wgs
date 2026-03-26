@@ -89,14 +89,14 @@ def integrate_records(indels, svs, header):
 
     # Selectively update certain features depending on final variant class
     new_rec.info['ALGORITHMS'] += ('gatkhc', )
+    # We treat all GATK-HC variants as SR evidence due to GATK-HC local realignments
+    if 'SR' not in new_rec.info.get('EVIDENCE', tuple()):
+        new_rec.info['EVIDENCE'] += ('SR', )
     if vc == 'sv':
         new_rec.info['SVLEN'] = int(varlen)
-        new_rec.info['SVTYPE'] = vsc.upper()
-        # We treat all GATK-HC variants as SR evidence due to GATK-HC local realignments
-        if 'SR' not in new_rec.info.get('EVIDENCE', tuple()):
-            new_rec.info['EVIDENCE'] += ('SR', )
+        new_rec.info['SVTYPE'] = vsc.upper()        
     else:
-        for k in 'SVLEN SVTYPE END ALGORITHMS EVIDENCE'.split():
+        for k in 'SVLEN SVTYPE END'.split():
             if k in new_rec.info.keys():
                 new_rec.info.pop(k)
 

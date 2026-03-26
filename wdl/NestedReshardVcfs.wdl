@@ -351,7 +351,7 @@ task MakeEmptyVcfs {
 
     while read iid; do
       cp header.vcf.gz $iid.vcf.gz
-      cp header.vcf.gz.tbi $iid.vcf.gz
+      cp header.vcf.gz.tbi $iid.vcf.gz.tbi
     done < ~{empty_interval_names}
   >>>
 
