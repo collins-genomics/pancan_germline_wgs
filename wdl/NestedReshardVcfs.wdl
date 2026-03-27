@@ -303,10 +303,11 @@ task ConcatenateIntervalVcfs {
 
       bcftools sort \
         --max-mem "~{sort_mem_mb}M" \
-        -Oz -o $iid.vcf.gz \
+        -Oz -o $iid.sorted.vcf.gz \
         $iid.concat.vcf.gz
-      tabix -p vcf -f $iid.vcf.gz
-      rm $iid.concat.vcf.gz
+      tabix -p vcf -f $iid.sorted.vcf.gz
+      
+      rm $iid.concat.vcf.gz $iid.concat.vcf.gz.tbi
 
     done < interval_names.list
 
@@ -315,8 +316,8 @@ task ConcatenateIntervalVcfs {
   >>>
 
   output {
-    Array[File] merged_vcfs = glob("*.vcf.gz")
-    Array[File] merged_vcf_idxs = glob("*.vcf.gz.tbi")
+    Array[File] merged_vcfs = glob("*.sorted.vcf.gz")
+    Array[File] merged_vcf_idxs = glob("*.sorted.vcf.gz.tbi")
   }
 
   runtime {
