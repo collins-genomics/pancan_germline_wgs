@@ -623,14 +623,14 @@ task AlignIndelAndSvFiles {
       cat ~{write_lines(sv_vcf_idxs)} > sv_tbi.uris.list
 
     while read iid; do
-      echo $iid
-      fgrep -w "$iid.large_indels.vcf.gz" indel_vcf.uris.list
-      fgrep -w "$iid.large_indels.vcf.gz.tbi" indel_tbi.uris.list
-      fgrep -w "$iid.svs.vcf.gz" sv_vcf.uris.list
-      fgrep -w "$iid.svs.vcf.gz.tbi" sv_tbi.uris.list
-    done < ~{interval_names} \
-    | paste - - - - - \
-    > ordered_interval_info.tsv
+      for wrapper in 1; do
+        echo $iid
+        fgrep -w "$iid.large_indels.sorted.vcf.gz" indel_vcf.uris.list
+        fgrep -w "$iid.large_indels.sorted.vcf.gz.tbi" indel_tbi.uris.list
+        fgrep -w "$iid.svs.vcf.gz" sv_vcf.uris.list
+        fgrep -w "$iid.svs.vcf.gz.tbi" sv_tbi.uris.list
+      done | paste - - - - - >> ordered_interval_info.tsv
+    done < ~{interval_names}
   >>>
 
   output {

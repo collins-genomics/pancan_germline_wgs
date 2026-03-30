@@ -871,7 +871,7 @@ cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
 {
   "UnifyGatkCallsets.DefineClusters.n_cpu": 4,
   "UnifyGatkCallsets.DefineClusters.mem_gb": 12,
-  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:e894561",
+  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:f0f503f",
   "UnifyGatkCallsets.gatkhc_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
   "UnifyGatkCallsets.gatksv_vcfs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz"],
   "UnifyGatkCallsets.gatksv_vcf_idxs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz.tbi"],
