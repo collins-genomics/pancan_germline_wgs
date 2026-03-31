@@ -1065,6 +1065,16 @@ task ExtractLargeSvs {
   command <<<
     set -eu -o pipefail
 
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[ExtractLargeSvs] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+    trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
+
     bcftools view \
       -i 'SVLEN >= ~{size_cutoff}' \
       -Oz -o ~{large_outfile} \
