@@ -279,8 +279,8 @@ task ConcatenateIntervalVcfs {
       if [ $( wc -l < $iid.vcf_info.tsv ) -eq 1 ]; then
         invcf=$( cut -f1 $iid.vcf_info.tsv | sed -n '1p' )
         intbi=$( cut -f2 $iid.vcf_info.tsv | sed -n '1p' )
-        mv "$invcf" $iid.vcf.gz
-        mv "$intbi" $iid.vcf.gz.tbi
+        mv "$invcf" $iid.sorted.vcf.gz
+        mv "$intbi" $iid.sorted.vcf.gz.tbi
         continue
       fi
 
@@ -306,7 +306,7 @@ task ConcatenateIntervalVcfs {
         -Oz -o $iid.sorted.vcf.gz \
         $iid.concat.vcf.gz
       tabix -p vcf -f $iid.sorted.vcf.gz
-      
+
       rm $iid.concat.vcf.gz $iid.concat.vcf.gz.tbi
 
     done < interval_names.list
