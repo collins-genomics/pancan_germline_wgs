@@ -18,7 +18,7 @@ setup(
     packages=['g2cpy'],
     author='Ryan L. Collins',
     author_email='Ryan_Collins@dfci.harvard.edu',
-    url='https://github.com/vanallenlab/pancan_germline_wgs',
+    url='https://github.com/collins-genomics/pancan_germline_wgs',
     description='Dana-Farber Germline Genomics of Cancer Database: python helper functions',
     long_description=open('README.md').read(),
     license='GNU GPL v2.0',

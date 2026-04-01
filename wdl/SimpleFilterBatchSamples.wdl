@@ -9,7 +9,7 @@
 version 1.0
 
 
-import "https://raw.githubusercontent.com/vanallenlab/pancan_germline_wgs/main/wdl/ExcludeSamplesFromVcf.wdl" as ExcludeTask
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/main/wdl/ExcludeSamplesFromVcf.wdl" as ExcludeTask
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/v0.26.10-beta/wdl/FilterOutlierSamples.wdl" as filter_outliers
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/v0.26.10-beta/wdl/TasksMakeCohortVcf.wdl" as tasks_mcv
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/v0.26.10-beta/wdl/Utils.wdl" as util

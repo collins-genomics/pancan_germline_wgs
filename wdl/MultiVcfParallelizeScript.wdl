@@ -10,8 +10,8 @@
 version 1.0
 
 
-import "https://raw.githubusercontent.com/vanallenlab/pancan_germline_wgs/main/wdl/ApplyScriptParallelPerChrom.wdl" as Parallelize
-import "https://raw.githubusercontent.com/vanallenlab/pancan_germline_wgs/main/wdl/Utilities.wdl" as Utilities
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/main/wdl/ApplyScriptParallelPerChrom.wdl" as Parallelize
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/main/wdl/Utilities.wdl" as Utilities
 
 
 workflow MultiVcfParallelizeScript {

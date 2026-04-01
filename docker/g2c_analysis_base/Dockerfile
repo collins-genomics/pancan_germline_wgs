@@ -20,7 +20,7 @@ RUN apt-get -qqy update --fix-missing && \
 # It will be re-cloned when building the child image, g2c_analysis
 ARG G2C_TAG=main
 RUN git clone \
-    https://github.com/vanallenlab/pancan_germline_wgs.git \
+    https://github.com/collins-genomics/pancan_germline_wgs.git \
     opt/pancan_germline_wgs && \
     cd opt/pancan_germline_wgs && \
     git pull && \

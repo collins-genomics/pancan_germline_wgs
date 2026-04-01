@@ -9,7 +9,7 @@
 version 1.0
 
 
-import "https://raw.githubusercontent.com/vanallenlab/pancan_germline_wgs/main/wdl/Utilities.wdl" as Tasks
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/main/wdl/Utilities.wdl" as Tasks
 
 
 workflow ConcatVcfs {

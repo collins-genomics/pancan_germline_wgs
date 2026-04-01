@@ -71,7 +71,7 @@ RUN git clone \
 # Clone pancan_germline_wgs repo and check out specified hash
 ARG G2C_TAG=main
 RUN git clone \
-    https://github.com/vanallenlab/pancan_germline_wgs.git \
+    https://github.com/collins-genomics/pancan_germline_wgs.git \
     opt/pancan_germline_wgs && \
     cd opt/pancan_germline_wgs && \
     git pull && \

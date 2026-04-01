@@ -40,13 +40,13 @@ We currently support two options for QC pipeline deployment:
 
 1. Both steps of this workflow can be deployed manually via Cromwell with [cromshell](https://github.com/broadinstitute/cromshell). This is how we have deployed this pipeline for the DFCI G2C project. When deploying directly via a stand-alone Cromwell server, you must include **all WDLs in this directory in a dependencies.zip** provided to Cromwell.  
 
-2. We have also registered this pipeline on [Dockstore](https://dockstore.org/). For Terra users, this is the easiest route for deploying this pipeline. Simply navigate to the Dockstore pages for [part 1 (metric collection)](https://dockstore.org/workflows/github.com/vanallenlab/pancan_germline_wgs/CollectVcfQcMetrics) and [part 2 (plotting)](https://dockstore.org/workflows/github.com/vanallenlab/pancan_germline_wgs/PlotVcfQcMetrics:posthoc_filtering), export both of them to your Terra workspace, and run them as you would any other workflow. All dependencies will be handled for you by Dockstore!
+2. We have also registered this pipeline on [Dockstore](https://dockstore.org/). For Terra users, this is the easiest route for deploying this pipeline. Simply navigate to the Dockstore pages for [part 1 (metric collection)](https://dockstore.org/workflows/github.com/collins-genomics/pancan_germline_wgs/CollectVcfQcMetrics) and [part 2 (plotting)](https://dockstore.org/workflows/github.com/collins-genomics/pancan_germline_wgs/PlotVcfQcMetrics:posthoc_filtering), export both of them to your Terra workspace, and run them as you would any other workflow. All dependencies will be handled for you by Dockstore!
 
 **Important note for Terra users:** Due to Terra's data model, if you collect QC per chromosome with site and/or sample benchmarking and feed these as inputs to QC plotting using syntax like `contig_seg.contig.benchmarking_data` (for example), you will likely need to set `transpose_site_benchmarking_nested_arrays` and/or `transpose_sample_benchmarking_nested_arrays` to `true` for all data to be properly ingested. See full input documentation below for more information.  
 
 ### Inputs  
 
-These are complex workflows with dozens of inputs and outputs. We document each input and output below, but we have also provided template input .json files in the [refs/json/vcf-qc](https://github.com/vanallenlab/pancan_germline_wgs/tree/posthoc_filtering/refs/json/vcf-qc) subdirectory of this repo for users with human hg38-based callsets hoping to get started quickly with default/recommended parameters.  
+These are complex workflows with dozens of inputs and outputs. We document each input and output below, but we have also provided template input .json files in the [refs/json/vcf-qc](https://github.com/collins-genomics/pancan_germline_wgs/tree/posthoc_filtering/refs/json/vcf-qc) subdirectory of this repo for users with human hg38-based callsets hoping to get started quickly with default/recommended parameters.  
 
 When using these template inputs, note that you will still need to update many fields in the .json with information specific to your callset.  
 
