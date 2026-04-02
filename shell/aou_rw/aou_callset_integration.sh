@@ -917,10 +917,11 @@ if ! [ -e $staging_dir/partition_maps ]; then
     $staging_dir/partition_maps/
 fi
 
-# Write two-column .tsv of VCF & index info for each contig
+# Write two-column .tsv of VCF & index info for indels and SVs from each contig
 while read contig; do
   gsutil -m ls \
     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration/$contig/**.vcf.gz \
+  | fgrep -v ".snv." \
   | sort -Vk1,1 \
   | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
   > $staging_dir/dfci-g2c.v1.integrated_qc.vcf_info.$contig.tsv
@@ -1017,7 +1018,7 @@ code/scripts/manage_chromshards.py \
   --dependencies-zip qc.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/integrated-indel-sv-qv/VcfQcMetrics/ \
   --name CollectIntegratedIndelSvQcMetrics \
-  --contig-list <( fgrep -v "chr19" contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
+  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
   --status-tsv cromshell/progress/dfci-g2c.v1.CollectIntegratedIndelSvQcMetrics.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 60 \

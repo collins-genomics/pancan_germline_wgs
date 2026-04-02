@@ -1060,7 +1060,7 @@ task ShardTextFile {
 }
 
 
-# Duplicated from Utilities.wdl
+# Originally duplicated (but since diverged) from Utilities.wdl
 task ShardVcf {
   input {
     File vcf
@@ -1072,10 +1072,20 @@ task ShardVcf {
   }
 
   String out_prefix = basename(vcf, ".vcf.gz") + ".sharded"
-  Int use_disk_gb = select_first([disk_gb, ceil(5 * size(vcf, "GB")) + 20])
+  Int use_disk_gb = select_first([disk_gb, ceil(6 * size(vcf, "GB")) + 20])
 
   command <<<
     set -eu -o pipefail
+
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[ShardVcf] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+    trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
 
     # Make an empty shard in case the input VCF is totally empty
     bcftools view -h ~{vcf} | bgzip -c > "~{out_prefix}.0.vcf.gz"
@@ -1101,8 +1111,8 @@ task ShardVcf {
   runtime {
     cpu: 2
     memory: "3.75 GiB"
-    disks: "local-disk " + use_disk_gb + " HDD"
-    bootDiskSizeGb: 10
+    disks: "local-disk " + use_disk_gb + " SSD"
+    bootDiskSizeGb: 15
     docker: bcftools_docker
     preemptible: n_preemptible
     maxRetries: 1
