@@ -1068,11 +1068,13 @@ task ShardVcf {
     Int records_per_shard
     String bcftools_docker
     Int? disk_gb
+    Float mem_gb = 3.75
+    Int n_cpu = 2
     Int n_preemptible = 3
   }
 
   String out_prefix = basename(vcf, ".vcf.gz") + ".sharded"
-  Int use_disk_gb = select_first([disk_gb, ceil(6 * size(vcf, "GB")) + 20])
+  Int use_disk_gb = select_first([disk_gb, ceil(4 * size(vcf, "GB")) + 20])
 
   command <<<
     set -eu -o pipefail
@@ -1109,8 +1111,8 @@ task ShardVcf {
   }
 
   runtime {
-    cpu: 2
-    memory: "3.75 GiB"
+    cpu: n_cpu
+    memory: mem_gb + " GiB"
     disks: "local-disk " + use_disk_gb + " SSD"
     bootDiskSizeGb: 15
     docker: bcftools_docker
