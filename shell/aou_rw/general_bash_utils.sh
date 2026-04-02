@@ -212,7 +212,7 @@ monitor_workflow() {
   local k=0
   while true; do
     ((k++))
-    echo -e "\n\n\n\n"
+    echo -e "\n"
     date
     njobs=$( gcloud compute instances list | wc -l )
     echo -e "Current Cromwell server load: $(( $njobs - 4 )) active VMs"

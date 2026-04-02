@@ -1058,7 +1058,7 @@ task ExtractLargeSvs {
     String bcftools_docker
   }
 
-  Int disk_gb = ceil(2.5 * size(vcf, "GB")) + 15
+  Int disk_gb = ceil(4 * size(vcf, "GB")) + 20
   String main_outfile = basename(vcf)
   String large_outfile = basename(vcf, ".vcf.gz") + ".large.vcf.gz"
 
@@ -1066,19 +1066,19 @@ task ExtractLargeSvs {
     set -eu -o pipefail
 
     # Start heartbeat to avoid silent VM death
-    (
-      while true; do
-        echo "[ExtractLargeSvs] still running at $(date)"
-        sleep 60
-      done
-    ) &
+    while true; do
+      echo "[ExtractLargeSvs] still running at $(date)"
+      sleep 60
+    done &
     HEARTBEAT_PID=$!
     trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
 
+    echo "Starting bcftools large SV extraction $(date)"
     bcftools view \
       -i 'SVLEN >= ~{size_cutoff}' \
       -Oz -o ~{large_outfile} \
       ~{vcf}
+    echo "Finished bcftools large SV extraction $(date)"
     tabix -p vcf -f ~{large_outfile}
 
     # Check if any large SVs were present in this shard
@@ -1091,10 +1091,14 @@ task ExtractLargeSvs {
       exit 0
     fi
 
+    # Reciprocally, we need to *exclude* large SVs from the 
+    # input VCF to produce two disjoint output files
+    echo "Starting bcftools large SV exclusion $(date)"
     bcftools view \
       -e 'SVLEN >= ~{size_cutoff}' \
       -Oz -o ~{main_outfile} \
       ~{vcf}
+    echo "Finished bcftools large SV exclusion $(date)"
     tabix -p vcf -f ~{main_outfile}
   >>>
 
@@ -1108,9 +1112,9 @@ task ExtractLargeSvs {
 
   runtime {
     docker: bcftools_docker
-    memory: "3.5 GB"
-    cpu: 2
-    disks: "local-disk " + disk_gb + " HDD"
+    memory: "8 GB"
+    cpu: 4
+    disks: "local-disk " + disk_gb + " SSD"
     preemptible: 3
     maxRetries: 1
   }  

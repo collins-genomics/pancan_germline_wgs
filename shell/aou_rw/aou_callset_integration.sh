@@ -1017,7 +1017,7 @@ code/scripts/manage_chromshards.py \
   --dependencies-zip qc.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/integrated-indel-sv-qv/VcfQcMetrics/ \
   --name CollectIntegratedIndelSvQcMetrics \
-  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
+  --contig-list <( fgrep -v "chr19" contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
   --status-tsv cromshell/progress/dfci-g2c.v1.CollectIntegratedIndelSvQcMetrics.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 60 \
