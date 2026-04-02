@@ -334,6 +334,7 @@ workflow UnifyGatkCallsets {
     Array[File?] cleaned_sv_vcf_idxs = select_all(flatten([ExtractLargeSvs.notlarge_vcf_idx, [ConcatLargeSvs.merged_vcf_idx]]))
 
     File cluster_assignment_log = ConcatClusterLogs.merged_file
+    File integration_summary_log = WriteSummaryLog.logfile
   }
 }
 
