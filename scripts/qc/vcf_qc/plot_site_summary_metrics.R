@@ -92,7 +92,7 @@ get.af.ss <- function(af.d, common.af=0.01){
 # Plotting Functions #
 ######################
 # Summary plot of variant counts by class & subclass
-plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
+plot.counts.by.vsc <- function(df, has.snvs=TRUE, has.indels=TRUE, has.svs=TRUE,
                                ref.size.d=NULL, ref.title=NULL,
                                bar.sep=0.1, vc.sep=0.35, ref.pt.cex=2/3,
                                parmar=c(0.1, 7.5, 2, 4.5)){
@@ -111,18 +111,24 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
   })))
   colnames(vc.counts) <- colnames(vsc.counts) <- colnames(ss.df)
   vc.sums <- c()
-  if(has.short.variants){
+  if(has.snvs){
     n.snv <- as.numeric(vc.counts[vc.counts$analysis == "site_count.snv", "n"])
     titv.r <- as.numeric(vsc.counts[vsc.counts$analysis == "site_count.ti", "n"]) / n.snv
+    snv.ratios <- data.frame("analysis"="site_ratios.snv", "measure"="ti_tv_ratio",
+                             "value"=titv.r, "n"=n.snv)
+    vc.sums["snv"] = n.snv
+  }else{
+    snv.ratios <- data.frame("analysis"=character(), "measure"=character(),
+                             "value"=numeric(), "n"=numeric())
+  }
+  if(has.indels){
     n.indel <- as.numeric(vc.counts[vc.counts$analysis == "site_count.indel", "n"])
     insdel.r <- as.numeric(vsc.counts[vsc.counts$analysis == "site_count.ins", "n"]) / n.indel
-    short.ratios <- data.frame("analysis"=c("site_ratios.snv", "site_ratios.indel"),
-                               "measure"=c("ti_tv_ratio", "ins_del_ratio"),
-                               "value"=c(titv.r, insdel.r),
-                               "n"=c(n.snv, n.indel))
-    vc.sums <- c("snv" = n.snv, "indel" = n.indel)
+    indel.ratios <- data.frame("analysis"="site_ratios.indel", "measure"="ins_del_ratio",
+                               "value"=insdel.r, "n"=n.indel)
+    vc.sums["indel"] = n.indel
   }else{
-    short.ratios <- data.frame("analysis"=character(), "measure"=character(),
+    indel.ratios <- data.frame("analysis"=character(), "measure"=character(),
                                "value"=numeric(), "n"=numeric())
   }
   if(has.svs){
@@ -135,7 +141,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
     sv.ratios <- data.frame("analysis"=character(), "measure"=character(),
                             "value"=numeric(), "n"=numeric())
   }
-  ss.df <- as.data.frame(rbind(ss.df, vc.counts, vsc.counts, short.ratios, sv.ratios))
+  ss.df <- as.data.frame(rbind(ss.df, vc.counts, vsc.counts, snv.ratios, indel.ratios, sv.ratios))
 
   # Simplify count data
   k <- log10(apply(df[, -c(1:2)], 1, sum))
@@ -164,7 +170,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
   }else{
     xlims <- c(0, max(c(ceiling(k))))
   }
-  n.vc <- sum(has.short.variants, all(has.short.variants, has.svs))
+  n.vc <- sum(has.snvs, has.indels, has.svs)
   ylims <- c(if(add.ref){-1}else{0}, length(k)+bar.sep+(vc.sep*n.vc))
   bar.cols <- var.class.colors[df$class]
   bar.labs <- sapply(10^k, function(lk){
@@ -241,7 +247,7 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
   vc.x.r <- 1.525 * diff(par("usr")[1:2])
 
   # Add brackets to left and right margins
-  if(has.short.variants){
+  if(has.snvs){
     snv.bracket.y <- c(min(bar.at[vc.to.vsc.map[["snv"]]], na.rm=T) - 1 + bar.sep,
                        max(bar.at[vc.to.vsc.map[["snv"]]], na.rm=T) - bar.sep)
     staple.bracket(x0=vc.x, x1=vc.x,
@@ -256,7 +262,8 @@ plot.counts.by.vsc <- function(df, has.short.variants=TRUE, has.svs=TRUE,
                    staple.accent.color=var.class.colors["snv"])
     text(x=vc.x.r-bracket.lab.buf, y=mean(snv.bracket.y)-0.1,
          labels=vc.sum.labs["snv"], cex=4.5/6, pos=4, xpd=T)
-
+  }
+  if(has.indels){
     indel.bracket.y <- c(min(bar.at[vc.to.vsc.map[["indel"]]], na.rm=T) - 1 + bar.sep,
                          max(bar.at[vc.to.vsc.map[["indel"]]], na.rm=T) - bar.sep)
     staple.bracket(x0=vc.x, x1=vc.x,
@@ -338,7 +345,7 @@ plot.size.volcano <- function(size.d, ref.size.d=NULL, ref.title=NULL,
     ref.df.for.lims <- merge(df[, c("class", "subclass")], ref.df, all=F, sort=F)
     ylims <- c(0, 1.05*log10(max(max(df[, -c(1:2)]), max(ref.df.for.lims[, -c(1:2)]))))
   }else{
-    ylims <- c(0, log10(max(df[, -c(1:2)])))
+    ylims <- c(0, 1.05*log10(max(df[, -c(1:2)])))
   }
 
   # Prep plot area
@@ -793,19 +800,7 @@ args <- parser$parse_args()
 #              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/g2c.qc.test")
 
-# # YL DEV:
-# args <- list("size_distrib" = "~/scratch/YL.v1.2.size_distribution.merged.tsv.gz",
-#              "af_distrib" = "~/scratch/YL.v1.2.af_distribution.merged.tsv.gz",
-#              "joint_distrib" = "~/scratch/YL.v1.2.size_vs_af_distribution.merged.tsv.gz",
-#              "sv_sites" = "~/scratch/YL.v1.2.all_svs.bed.gz",
-#              "common_af" = 0.01,
-#              "ref_size_distrib" = "~/scratch/site_bench_inputs_v2_may14/gnomAD_v4.1.size_distribution.merged.tsv.gz",
-#              "ref_af_distrib" = "~/scratch/site_bench_inputs_v2_may14/gnomAD_v4.1.af_distribution.merged.tsv.gz",
-#              "ref_title" = "gnomAD v4.1",
-#              "custom_constants" = "~/Desktop/Collins/VanAllen/jackie_younglung/data/yl_qc.custom_constants.R",
-#              "out_prefix" = "~/scratch/yl.qc.test")
-
-# # Peds DEV:
+# # GATK-HC only DEV:
 # args <- list("size_distrib" = "~/scratch/ei_plot_dbg_1/Peds_cohort.size_distribution.merged.tsv.gz",
 #              "af_distrib" = "~/scratch/ei_plot_dbg_1/Peds_cohort.af_distribution.merged.tsv.gz",
 #              "joint_distrib" = "~/scratch/ei_plot_dbg_1/Peds_cohort.size_vs_af_distribution.merged.tsv.gz",
@@ -815,6 +810,18 @@ args <- parser$parse_args()
 #              "ref_af_distrib" = "~/scratch/ei_plot_dbg_1/gnomAD_v4.1.af_distribution.merged.tsv.gz",
 #              "ref_title" = "gnomAD_v4.1",
 #              "out_prefix" = "~/scratch/ei_plot_dbg_1/Peds_cohort")
+
+# # Indel/SV only DEV:
+# args <- list("size_distrib" = "~/Downloads/post_integration_site_plot_input_data/dfci-g2c.v1.integrated_qc.size_distribution.merged.tsv.gz",
+#              "af_distrib" = "~/Downloads/post_integration_site_plot_input_data/dfci-g2c.v1.integrated_qc.af_distribution.merged.tsv.gz",
+#              "joint_distrib" = "~/Downloads/post_integration_site_plot_input_data/dfci-g2c.v1.integrated_qc.size_vs_af_distribution.merged.tsv.gz",
+#              "sv_sites" = "~/Downloads/post_integration_site_plot_input_data/dfci-g2c.v1.integrated_qc.all_svs.bed.gz",
+#              "common_af" = 0.001,
+#              "ref_size_distrib" = "~/Downloads/post_integration_site_plot_input_data/gnomAD_v4.1.size_distribution.merged.tsv.gz",
+#              "ref_af_distrib" = "~/Downloads/post_integration_site_plot_input_data/gnomAD_v4.1.af_distribution.merged.tsv.gz",
+#              "ref_title" = "gnomAD v4.1",
+#              "custom_constants" = NULL,
+#              "out_prefix" = "~/scratch/g2c.integrated.qc.test")
 
 # Load custom constants if optioned
 if(!is.null(args$custom_constants)){
@@ -830,9 +837,12 @@ ref.size.d <- read.compressed.distrib(args$ref_size_distrib)
 ref.af.d <- read.compressed.distrib(args$ref_af_distrib)
 
 # Check if short variant & SV data are present in compressed distributions
-has.short.variants <- (any(c("snv", "indel") %in% size.d$df$class)
-                       | any(c("snv", "indel") %in% af.d$df$class)
-                       | any(c("snv", "indel") %in% joint.d$df$class))
+has.snvs <- ("snv" %in% size.d$df$class
+            | "snv" %in% af.d$df$class
+            | "snv" %in% joint.d$df$class)
+has.indels <- ("indel" %in% size.d$df$class
+            | "indel" %in% af.d$df$class
+            | "indel" %in% joint.d$df$class)
 has.svs <- ("sv" %in% size.d$df$class
             | "sv" %in% af.d$df$class
             | "sv" %in% joint.d$df$class)
@@ -852,7 +862,7 @@ if(!is.null(count.use.d)){
     }
     pdf(paste(args$out_prefix, "variant_count_bars", pdf.suffix, sep="."),
         height=2.25, width=3.25)
-    count.ss <- plot.counts.by.vsc(count.use.d$df, has.short.variants, has.svs,
+    count.ss <- plot.counts.by.vsc(count.use.d$df, has.snvs, has.indels, has.svs,
                                    ref.d.sub, ref.title=args$ref_title)
     dev.off()
   }
@@ -922,26 +932,43 @@ if(!is.null(af.d)){
     dev.off()
 
     # Supplementary step function of AFs for short variants by subclass
-    if(has.short.variants){
-      short.af.df <- do.call("rbind",
-                             lapply(c("ti", "tv", "del", "ins"), function(vsc){
-                               apply(af.d$df[which(af.d$df$subclass == vsc),
-                                             -c(1:2)], 2, sum)
-                             }))
-      if(has.ref){
-        short.ref.af.df <- do.call("rbind",
-                                   lapply(c("ti", "tv", "del", "ins"), function(vsc){
-                                     apply(ref.af.d$df[which(ref.af.d$df$subclass == vsc),
-                                                       -c(1:2)], 2, sum)
-                                   }))
+    if(has.snvs | has.indels){
+      snvs.in.af <- intersect(names(snv.colors), af.d$df$subclass)
+      snv.ref.af.df <- NULL
+      indels.in.af <- intersect(names(indel.colors), af.d$df$subclass)
+      indel.ref.af.df <- NULL
+      if(has.snvs){
+        snv.af.df <- do.call("rbind", lapply(snvs.in.af, function(vsc){
+          apply(af.d$df[which(af.d$df$subclass == vsc), -c(1:2)], 2, sum)
+        }))
+        if(has.ref){
+          snv.ref.af.df <- do.call("rbind", lapply(snvs.in.af, function(vsc){
+            apply(ref.af.d$df[which(ref.af.d$df$subclass == vsc), -c(1:2)], 2, sum)
+          }))
+        }
       }else{
-        short.ref.af.df <- NULL
+        snv.af.df <- NULL
       }
+      if(has.indels){
+        indel.af.df <- do.call("rbind", lapply(indels.in.af, function(vsc){
+          apply(af.d$df[which(af.d$df$subclass == vsc), -c(1:2)], 2, sum)
+        }))
+        if(has.ref){
+          indel.ref.af.df <- do.call("rbind", lapply(indels.in.af, function(vsc){
+            apply(ref.af.d$df[which(ref.af.d$df$subclass == vsc), -c(1:2)], 2, sum)
+          }))
+        }
+      }else{
+        indel.af.df <- NULL
+      }
+      short.af.df <- rbind(snv.af.df, indel.af.df)
+      short.ref.af.df <- rbind(snv.ref.af.df, indel.ref.af.df)
+      short.vars.in.af <- c(snvs.in.af, indels.in.af)
       pdf(paste(args$out_prefix, "af_distribs.short_vars", pdf.suffix, sep="."),
           height=2.25, width=2.5)
       plot.af.distribs(short.af.df, breaks=log10(af.d$breaks), short.ref.af.df,
-                       colors=var.subclass.colors[c("ti", "tv", "del", "ins")],
-                       group.names=var.subclass.abbrevs[c("ti", "tv", "del", "ins")],
+                       colors=var.subclass.colors[short.vars.in.af],
+                       group.names=var.subclass.abbrevs[short.vars.in.af],
                        y.title="Short variant count", lwd=2, common.af=args$common_af)
       dev.off()
     }
