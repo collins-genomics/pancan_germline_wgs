@@ -667,7 +667,7 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotGatksvQcPostImputation.i
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/dfci-g2c.v1.gatksv.qc_targets.tsv",
   "PlotVcfQcMetrics.deduplicate": true,
-  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:cd2ca89",
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:ba3328f",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.gatksv_qc_post_imputation",
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
@@ -871,7 +871,7 @@ cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
 {
   "UnifyGatkCallsets.DefineClusters.n_cpu": 4,
   "UnifyGatkCallsets.DefineClusters.mem_gb": 12,
-  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:f0f503f",
+  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:ba3328f",
   "UnifyGatkCallsets.gatkhc_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
   "UnifyGatkCallsets.gatksv_vcfs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz"],
   "UnifyGatkCallsets.gatksv_vcf_idxs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz.tbi"],
@@ -885,7 +885,7 @@ cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
 }
 EOF
 
-# Submit, monitor, and stage/cleanup SV GT refinement
+# Submit, monitor, and stage/cleanup indelSV integration
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/pancan_germline_wgs/UnifyGatkCallsets.wdl \
   --input-json-template $staging_dir/UnifyGatkCallsets.inputs.template.json \
@@ -1138,9 +1138,9 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotIntegratedIndelSvQcMetri
   "PlotVcfQcMetrics.common_af_cutoff": 0.001,
   "PlotVcfQcMetrics.common_indel_beds": $( collapse_txt $staging_dir/common_indels_bed.uris.list ),
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
-  "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/integrated-indel-sv-qv/dfci-g2c.v1.qc_targets.tsv",
+  "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_targets.tsv",
   "PlotVcfQcMetrics.deduplicate": true,
-  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:e894561",
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:ba3328f",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.integrated_qc",
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,

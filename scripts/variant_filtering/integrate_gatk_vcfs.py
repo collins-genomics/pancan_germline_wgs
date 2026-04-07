@@ -72,7 +72,7 @@ def integrate_records(indels, svs, header):
     else:
         new_rec = indels[0].copy()
     new_rec.translate(header)
-    new_rec.start = start
+    new_rec.pos = start
     new_rec.stop = end
 
     # Retain the union of all FILTERs
@@ -94,7 +94,12 @@ def integrate_records(indels, svs, header):
         new_rec.info['EVIDENCE'] += ('SR', )
     if vc == 'sv':
         new_rec.info['SVLEN'] = int(varlen)
-        new_rec.info['SVTYPE'] = vsc.upper()        
+        new_rec.info['SVTYPE'] = vsc.upper()
+        # Need to coerce deletions to symbolic ALT syntax to enable editing of INFO/END
+        if vsc.upper() == 'DEL':
+            new_rec.ref = 'N'
+            new_rec.alts = ('<DEL>', )
+            new_rec.stop = int(new_rec.pos + varlen)
     else:
         for k in 'SVLEN SVTYPE END'.split():
             if k in new_rec.info.keys():
@@ -122,6 +127,12 @@ def add_sv_fields_to_indel(record, vsc, varlen):
     Adds GATK-SV expected INFO annotations to GATK-HC indel records
     """
 
+    # Need to coerce deletions to symbolic ALT syntax to enable editing of INFO/END
+    if vsc == 'DEL':
+        record.ref = 'N'
+        record.alts = ('<DEL>', )
+
+    # Add all expected SV INFO fields
     record.stop = int(record.pos + varlen)
     record.info['SVTYPE'] = vsc.upper()
     record.info['SVLEN'] = int(varlen)
@@ -228,7 +239,7 @@ def main():
             # Need to create new record against output header
             new_rec = cur_rec.copy()
             new_rec.translate(header)
-
+            
             # Reformat indels being reclassified as SVs
             if out_vc == 'sv' and cur_vc == 'indel':
                 new_rec = add_sv_fields_to_indel(new_rec, vsc, varlen)

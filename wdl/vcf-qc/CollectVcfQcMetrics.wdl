@@ -1346,6 +1346,7 @@ task PreprocessVcf {
     File? site_exclude_samples
     Boolean has_mcnvs = false
     String extra_commands = ""
+    String bcftools_check_ref_behavior = "s"
     File ref_fasta
     File ref_fasta_idx
     Boolean deduplicate = false
@@ -1387,7 +1388,7 @@ task PreprocessVcf {
       ~{vcf} \
     | bcftools norm \
       --fasta-ref ~{ref_fasta} \
-      --check-ref s \
+      --check-ref ~{bcftools_check_ref_behavior} \
       --multiallelics - \
       ~{dedup_cmd} \
       --threads ~{n_threads} \

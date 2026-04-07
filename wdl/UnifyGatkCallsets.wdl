@@ -929,20 +929,19 @@ task ResolveClusters {
   }
 
   Int sort_mem_mb = floor(1000 * (mem_gb - 2))
-  Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 10
+  Int disk_gb = ceil(3.5 * size([sv_vcf, indel_vcf], "GB")) + 10
   String output_prefix = basename(sv_vcf, ".svs.vcf.gz")
 
   command <<<
     set -eu -o pipefail
 
     # Start heartbeat to avoid silent VM death
-    (
-      while true; do
-        echo "[ResolveClusters] still running at $(date)"
-        sleep 60
-      done
-    ) &
+    while true; do
+      echo "[ResolveClusters] still running at $(date)"
+      sleep 60
+    done &
     HEARTBEAT_PID=$!
+    trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
 
     # Ensure VCF indexes localize to same directory as VCFs
     if [ "~{indel_vcf}.tbi" != "~{indel_vcf_idx}" ]; then
@@ -964,10 +963,27 @@ task ResolveClusters {
     fgrep "##CPX" sv.header.vcf >> header.vcf
     tabix -H "~{combined_header}" | fgrep -v "##" >> header.vcf
 
+    # Enforce expected sample order for indel and SV VCFs
+    bcftools query -l "~{combined_header}" > samples.list
+    bcftools view \
+      --samples-file samples.list \
+      --force-samples \
+      -Oz -o input.indels.reordered.vcf.gz \
+      ~{indel_vcf}
+    tabix -p vcf -f input.indels.reordered.vcf.gz
+    rm ~{indel_vcf} 
+    bcftools view \
+      --samples-file samples.list \
+      --force-samples \
+      -Oz -o input.svs.reordered.vcf.gz \
+      ~{sv_vcf}
+    tabix -p vcf -f input.svs.reordered.vcf.gz
+    rm ~{sv_vcf} 
+
     # Integrate indel and SV VCFs
     /opt/pancan_germline_wgs/scripts/variant_filtering/integrate_gatk_vcfs.py \
-      --indel-vcf ~{indel_vcf} \
-      --sv-vcf ~{sv_vcf} \
+      --indel-vcf input.indels.reordered.vcf.gz \
+      --sv-vcf input.svs.reordered.vcf.gz \
       --clusters "~{clusters}" \
       --out-vcf-header header.vcf \
       --out-prefix "~{output_prefix}.unsorted"
@@ -979,9 +995,6 @@ task ResolveClusters {
       tabix -p vcf -f "~{output_prefix}.$vc.vcf.gz"
       bcftools index -n "~{output_prefix}.$vc.vcf.gz" > $vc.variant_count.txt
     done
-
-    kill $HEARTBEAT_PID
-    wait $HEARTBEAT_PID 2>/dev/null || true
   >>>
 
   output {
@@ -1076,7 +1089,7 @@ task ExtractLargeSvs {
 
     echo "Starting bcftools large SV extraction $(date)"
     bcftools view \
-      -i 'SVLEN >= ~{size_cutoff}' \
+      -i 'INFO/SVLEN >= ~{size_cutoff} | INFO/SVTYPE = "CTX"' \
       -Oz -o ~{large_outfile} \
       ~{vcf}
     echo "Finished bcftools large SV extraction $(date)"
@@ -1096,7 +1109,7 @@ task ExtractLargeSvs {
     # input VCF to produce two disjoint output files
     echo "Starting bcftools large SV exclusion $(date)"
     bcftools view \
-      -e 'SVLEN >= ~{size_cutoff}' \
+      -e 'INFO/SVLEN >= ~{size_cutoff} | INFO/SVTYPE = "CTX"' \
       -Oz -o ~{main_outfile} \
       ~{vcf}
     echo "Finished bcftools large SV exclusion $(date)"
