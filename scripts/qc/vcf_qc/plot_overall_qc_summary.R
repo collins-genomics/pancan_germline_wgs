@@ -50,7 +50,9 @@ for(vc in c("all", names(var.class.abbrevs))){
 # Invert dynamic range entries
 invert.dynamic.ranges <- function(ss){
   dr.idxs <- grep("dynamic_range", ss$measure)
-  ss$value[dr.idxs] <- 1 / ss$value[dr.idxs]
+  ss$value[dr.idxs] <- sapply(ss$value[dr.idxs], function(v){
+    if(is.nan(v) | is.infinite(v)){0}else{1 / v}
+  })
   ss$measure[dr.idxs] <- gsub("dynamic_range", "reciprocal_dynamic_range", ss$measure[dr.idxs])
   return(ss)
 }
@@ -829,6 +831,17 @@ args <- parser$parse_args()
 #              "custom_targets" = "~/scratch/dfci-g2c.v1.gatksv.qc_targets.tsv",
 #              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/dfci-g2c.v1.gatk-sv.initial_qc")
+
+# # DEV (indels + SVs)
+# args <- list("stats" = "~/Downloads/summary_plot_inputs/dfci-g2c.v1.integrated_qc.all_qc_summary_metrics.tsv",
+#              "previous_stats" = "~/Downloads/dfci-g2c.v1.initial_qc.all_qc_summary_metrics.tsv",
+#              "site_ref_prefix" = "gnomad-sv_v4.1",
+#              "site_ref_title" = "gnomAD-SV v4.1",
+#              "sample_benchmarking_prefix" = c("external_srwgs", "external_lrwgs"),
+#              "sample_benchmarking_title" = c("External srWGS", "External lrWGS"),
+#              "custom_targets" = "~/Downloads/summary_plot_inputs/dfci-g2c.v1.qc_targets.tsv",
+#              "custom_constants" = NULL,
+#              "out_prefix" = "~/scratch/dfci-g2c.v1.gatk-integrated_qc")
 
 # Load custom constants if optioned
 if(!is.null(args$custom_constants)){
