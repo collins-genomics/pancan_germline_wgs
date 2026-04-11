@@ -1376,6 +1376,16 @@ task PreprocessVcf {
   command <<<
     set -eu -o pipefail
 
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[PreprocessVcf] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+    trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
+
     # Move site exclude samples to working directory, if optioned
     if ~{defined(site_exclude_samples)}; then
       mv ~{select_first([site_exclude_samples])} ./
