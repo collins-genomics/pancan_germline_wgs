@@ -1072,7 +1072,7 @@ task ExtractLargeSvs {
     String bcftools_docker
   }
 
-  Int disk_gb = ceil(4 * size(vcf, "GB")) + 20
+  Int disk_gb = ceil(3 * size(vcf, "GB")) + 20
   String main_outfile = basename(vcf)
   String large_outfile = basename(vcf, ".vcf.gz") + ".large.vcf.gz"
 
