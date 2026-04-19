@@ -109,13 +109,14 @@ def convert_gt(gt):
 
 def integrate_gts(target_record, records, sort_key='GQ', 
                   nocalls_first=True, ref_second=True,
+                  nonref_override_metric=10e10, ref_override_metric=10e10,
                   header=None):
     """
     Merge genotypes across pysam.VariantRecords
     By default, GT selection is prioritized as:
     1. Null / no-call (./.)
-    2. All non-ref GTs
-    3. All ref GTs
+    2. All non-ref GTs (moved ahead of null/no-call if non-ref sort_key is greater than nonref_override_metric)
+    3. All ref GTs (moved ahead of null/no-call if ref sort_key is greater than ref_override_metric)
     Ties are broken by sort_key, and entire FORMAT is retained from winner GT
     Writes new genotypes into target_record
     """
@@ -139,7 +140,8 @@ def integrate_gts(target_record, records, sort_key='GQ',
     # Direct access to target GT fields
     newgts = target_record.samples
 
-    def __sort_gts(gt, tiebreak='GQ', nocalls_first=nocalls_first, ref_second=ref_second):
+    def __sort_gts(gt, tiebreak='GQ', nocalls_first=nocalls_first, ref_second=ref_second,
+                   ref_override=ref_override_metric, nonref_override=nonref_override_metric):
         """
         Custom sorting key function for a list of genotypes according to desired
         genotype retention priority
@@ -149,8 +151,13 @@ def integrate_gts(target_record, records, sort_key='GQ',
         is_nocall = None in g or '.' in g
         g = tuple([int(a) for a in g if a is not None and a != '.'])
         ac = sum(g)
-        is_nonref = ac > 0
         tb = gt.get(tiebreak, -10e10)
+        is_ref = len(g) > 0 and ac == 0
+        is_nonref = ac > 0
+        if is_ref and tb >= ref_override:
+            is_nocall = True
+        elif is_nonref and tb >= nonref_override:
+            is_nocall = True
         if tb is None:
             tb = -10e10
         sort_vals = []

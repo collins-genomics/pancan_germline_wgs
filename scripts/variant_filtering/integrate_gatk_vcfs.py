@@ -107,8 +107,8 @@ def integrate_records(indels, svs, header):
 
     # Integrate genotypes
     new_rec = g2cpy.integrate_gts(new_rec, indels + svs, 
-                                  nocalls_first=False, ref_second=False,
-                                  header=header)
+                                  nocalls_first=True, ref_second=False,
+                                  nonref_override_metric=10, header=header)
 
     # Update frequency annotations
     af_stats = g2cpy.compute_allele_freq_stats(new_rec)

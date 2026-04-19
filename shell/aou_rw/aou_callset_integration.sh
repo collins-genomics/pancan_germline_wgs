@@ -910,7 +910,7 @@ cat << EOF > $staging_dir/CollectPreIntegrationQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
   "CollectVcfQcMetrics.n_for_sample_level_analyses": 5000,
   "CollectVcfQcMetrics.output_prefix": "dfci-g2c.v1.pre_integration_qc.\$CONTIG",
-  "CollectVcfQcMetrics.PreprocessVcf.mem_gb": 15.5,
+  "CollectVcfQcMetrics.PreprocessVcf.mem_gb": 24,
   "CollectVcfQcMetrics.PreprocessVcf.n_cpu": 4,
   "CollectVcfQcMetrics.ref_build": "hg38",
   "CollectVcfQcMetrics.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
@@ -1071,7 +1071,7 @@ for k in $( seq 1 22 ) X Y; do
 done
 
 # Write input .json
-cat << EOF | python -m json.tool > cromshell/inputs/PlotIntegratedIndelSvQcMetrics.inputs.json
+cat << EOF | python -m json.tool > cromshell/inputs/PlotPreIntegrationQcMetricsMetrics.inputs.json
 {
   "PlotVcfQcMetrics.af_distribution_tsvs": $( collapse_txt $staging_dir/af_distrib.uris.list ),
   "PlotVcfQcMetrics.all_sv_beds": $( collapse_txt $staging_dir/all_svs_bed.uris.list ),
@@ -1080,7 +1080,7 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotIntegratedIndelSvQcMetri
   "PlotVcfQcMetrics.common_af_cutoff": 0.001,
   "PlotVcfQcMetrics.common_indel_beds": $( collapse_txt $staging_dir/common_indels_bed.uris.list ),
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
-  "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/dfci-g2c.v1.qc_targets.tsv",
+  "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_targets.tsv",
   "PlotVcfQcMetrics.deduplicate": true,
   "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:e576e36",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.pre_integration_qc",
@@ -1089,13 +1089,12 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotIntegratedIndelSvQcMetri
   "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
   "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 48,
   "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
-  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/PlotQc/dfci-g2c.v1.pre_integration_qc.all_qc_summary_metrics.tsv",
   "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_cohort_prefix": "gnomAD_v4.1",
   "PlotVcfQcMetrics.ref_cohort_plot_title": "gnomAD v4.1",
-  "PlotVcfQcMetrics.sample_ancestry_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/dfci-g2c.v1.qc_ancestry.tsv",
-  "PlotVcfQcMetrics.sample_phenotype_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/dfci-g2c.v1.qc_phenotype.tsv",
+  "PlotVcfQcMetrics.sample_ancestry_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_ancestry.tsv",
+  "PlotVcfQcMetrics.sample_phenotype_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_phenotype.tsv",
   "PlotVcfQcMetrics.sample_benchmark_dataset_prefixes": ["external_srwgs", "external_lrwgs"],
   "PlotVcfQcMetrics.sample_benchmark_dataset_titles": ["external srWGS", "external lrWGS"],
   "PlotVcfQcMetrics.sample_benchmark_ppv_distribs": [[ $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_easy.external_srwgs.uris.list ),
@@ -1135,23 +1134,23 @@ cromshell --no_turtle -t 120 -mc submit --no-validation \
   --options-json code/refs/json/aou.cromwell_options.default.json \
   --dependencies-zip qc.dependencies.zip \
   code/wdl/pancan_germline_wgs/vcf-qc/PlotVcfQcMetrics.wdl \
-  cromshell/inputs/PlotIntegratedIndelSvQcMetrics.inputs.json \
+  cromshell/inputs/PlotPreIntegrationQcMetricsMetrics.inputs.json \
 | jq .id | tr -d '"' \
->> cromshell/job_ids/dfci-g2c.v1.PlotIntegratedIndelSvQcMetrics.job_ids.list
+>> cromshell/job_ids/dfci-g2c.v1.PlotPreIntegrationQcMetricsMetrics.job_ids.list
 
 # Monitor QC visualization workflow
-monitor_workflow $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotIntegratedIndelSvQcMetrics.job_ids.list ) 5
+monitor_workflow $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotPreIntegrationQcMetricsMetrics.job_ids.list ) 5
 
 # Once workflow is complete, stage output
 gsutil -m rm -rf $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/PlotQc
 cromshell -t 120 list-outputs \
-  $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotIntegratedIndelSvQcMetrics.job_ids.list ) \
+  $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotPreIntegrationQcMetricsMetrics.job_ids.list ) \
 | awk '{ print $2 }' \
 | gsutil -m cp -I \
   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/PlotQc/
 
 # Clear Cromwell execution & output buckets for plotting job
-gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotIntegratedIndelSvQcMetrics.job_ids.list \
+gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotPreIntegrationQcMetricsMetrics.job_ids.list \
                 | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell*/PlotVcfQcMetrics/" \
                   '{ print bucket_prefix$1"/**" }' ) \
 > uris_to_delete.list
@@ -1471,7 +1470,7 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotIntegratedIndelSvQcMetri
   "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
   "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 48,
   "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
-  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotQc/dfci-g2c.v1.initial_qc.all_qc_summary_metrics.tsv",
+  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/PlotQc/dfci-g2c.v1.pre_integration_qc.all_qc_summary_metrics.tsv",
   "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_cohort_prefix": "gnomAD_v4.1",
