@@ -152,14 +152,14 @@ def integrate_gts(target_record, records, sort_key='GQ',
         g = tuple([int(a) for a in g if a is not None and a != '.'])
         ac = sum(g)
         tb = gt.get(tiebreak, -10e10)
+        if tb is None:
+            tb = -10e10
         is_ref = len(g) > 0 and ac == 0
         is_nonref = ac > 0
         if is_ref and tb >= ref_override:
             is_nocall = True
         elif is_nonref and tb >= nonref_override:
             is_nocall = True
-        if tb is None:
-            tb = -10e10
         sort_vals = []
         if nocalls_first:
             sort_vals.append(is_nocall)
