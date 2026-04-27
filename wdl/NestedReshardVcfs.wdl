@@ -300,13 +300,13 @@ task ConcatenateIntervalVcfs {
         --threads ~{concat_threads} \
         -Oz -o $iid.concat.vcf.gz
       bcftools index -t $iid.concat.vcf.gz
-
+      echo "  Finished concatenating VCF shards"
       bcftools sort \
         --max-mem "~{sort_mem_mb}M" \
         -Oz -o $iid.sorted.vcf.gz \
         $iid.concat.vcf.gz
       tabix -p vcf -f $iid.sorted.vcf.gz
-
+      echo "  Finished sorting concatenated VCF"
       rm $iid.concat.vcf.gz $iid.concat.vcf.gz.tbi
 
     done < interval_names.list

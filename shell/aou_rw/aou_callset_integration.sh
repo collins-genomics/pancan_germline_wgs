@@ -1194,12 +1194,13 @@ cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
 {
   "UnifyGatkCallsets.DefineClusters.n_cpu": 4,
   "UnifyGatkCallsets.DefineClusters.mem_gb": 12,
-  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:e721bdf",
+  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:5c1f2bc",
   "UnifyGatkCallsets.gatkhc_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
   "UnifyGatkCallsets.gatksv_vcfs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz"],
   "UnifyGatkCallsets.gatksv_vcf_idxs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz.tbi"],
   "UnifyGatkCallsets.genome_file": "gs://dfci-g2c-refs/hg38/contig_genome_files/hg38.\$CONTIG.genome",
   "UnifyGatkCallsets.indel_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.indel.bed.gz",
+  "UnifyGatkCallsets.intervals_per_shard_sv_partition": 1,
   "UnifyGatkCallsets.large_sv_interval_name": "dfci-g2c.v1.sv.\$CONTIG.large",
   "UnifyGatkCallsets.min_interval_size": 1000000,
   "UnifyGatkCallsets.PartitionSvOutputs.reshard_task_mem_gb": 15.5,
@@ -1218,6 +1219,7 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.UnifyGatkCallsets.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
+  --submission-gate 30 \
   --max-attempts 3
 
 
@@ -1286,7 +1288,7 @@ cat << EOF > $staging_dir/CollectIntegratedIndelSvQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.ConcatGenotypeTsvs.disk_gb": 270,
   "CollectVcfQcMetrics.ConcatGenotypeTsvs.mem_gb": 15.5,
   "CollectVcfQcMetrics.ConcatGenotypeTsvs.n_cpu": 4,
-  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:dbc01f2",
+  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:5c1f2bc",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
   "CollectVcfQcMetrics.n_for_sample_level_analyses": 5000,
