@@ -1220,7 +1220,7 @@ code/scripts/manage_chromshards.py \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
   --submission-gate 30 \
-  --max-attempts 3
+  --max-attempts 5
 
 
 ###################################################

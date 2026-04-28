@@ -106,6 +106,7 @@ workflow UnifyGatkCallsets {
       reshard_intervals_bed = MakeClusteringIntervals.intervals_bed,
       interval_suffix = "large_indels",
       rename_variants = true,
+      keep_empty_resharded_vcfs = true,
       vcfs_per_shard = vcfs_per_shard_indel_clustering,
       intervals_per_shard = intervals_per_shard_indel_clustering,
       reshard_task_mem_gb = 12,
