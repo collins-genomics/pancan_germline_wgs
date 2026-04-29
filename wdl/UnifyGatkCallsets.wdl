@@ -46,7 +46,10 @@ workflow UnifyGatkCallsets {
     Int intervals_per_shard_indel_partition = 3    # Parallelization control for final indel partitioning task
     Int vcfs_per_shard_sv_partition = 5            # Parallelization control for ReshardVcf tasks in final SV partitioning
     Int intervals_per_shard_sv_partition = 3       # Parallelization control for final SV partitioning task
+    
     Float final_partition_disk_scalar = 1.5        # Disk sizing parameter for final partitioning task
+    Float sv_partition_concat_mem_gb = 7.5         # Memory for final SV partition concatenation step
+    Int sv_partition_concat_n_cpu = 4              # Cores for final SV partition concatenation step
 
     String g2c_analysis_docker
     String linux_docker = "ubuntu:plucky-20251001"
@@ -266,8 +269,8 @@ workflow UnifyGatkCallsets {
       keep_empty_resharded_vcfs = false,
       vcfs_per_shard = vcfs_per_shard_sv_partition,
       intervals_per_shard = intervals_per_shard_sv_partition,
-      concatenate_task_mem_gb = 7.5,
-      concatenate_task_n_cpu = 4,
+      concatenate_task_mem_gb = sv_partition_concat_mem_gb,
+      concatenate_task_n_cpu = sv_partition_concat_n_cpu,
       g2c_analysis_docker = g2c_analysis_docker,
       linux_docker = linux_docker
   }
