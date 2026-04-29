@@ -40,9 +40,11 @@ workflow UnifyGatkCallsets {
     File indel_partition_intervals
     File sv_partition_intervals
     String large_sv_interval_name = "large_svs"    # Optional custom name for the extra "large SV" shard
-    Int vcfs_per_shard_final_partition = 20        # Parallelization control for ReshardVcf tasks in final partitioning
+    Int vcfs_per_shard_snv_partition = 20          # Parallelization control for ReshardVcf tasks in final SNV partitioning
     Int intervals_per_shard_snv_partition = 3      # Parallelization control for final SNV partitioning task
+    Int vcfs_per_shard_indel_partition = 20        # Parallelization control for ReshardVcf tasks in final indel partitioning
     Int intervals_per_shard_indel_partition = 3    # Parallelization control for final indel partitioning task
+    Int vcfs_per_shard_sv_partition = 5            # Parallelization control for ReshardVcf tasks in final SV partitioning
     Int intervals_per_shard_sv_partition = 3       # Parallelization control for final SV partitioning task
     Float final_partition_disk_scalar = 1.5        # Disk sizing parameter for final partitioning task
 
@@ -220,7 +222,7 @@ workflow UnifyGatkCallsets {
       reshard_intervals_bed = snv_partition_intervals,
       rename_variants = true,
       keep_empty_resharded_vcfs = false,
-      vcfs_per_shard = vcfs_per_shard_final_partition,
+      vcfs_per_shard = vcfs_per_shard_snv_partition,
       intervals_per_shard = intervals_per_shard_snv_partition,
       reshard_task_mem_gb = 12,
       reshard_task_n_cpu = 4,
@@ -241,7 +243,7 @@ workflow UnifyGatkCallsets {
       resharded_vcf_header = select_first(select_all(ResolveClusters.integrated_indel_vcf)),
       rename_variants = true,
       keep_empty_resharded_vcfs = false,
-      vcfs_per_shard = vcfs_per_shard_final_partition,
+      vcfs_per_shard = vcfs_per_shard_indel_partition,
       intervals_per_shard = intervals_per_shard_indel_partition,
       reshard_task_mem_gb = 12,
       reshard_task_n_cpu = 4,
@@ -262,8 +264,10 @@ workflow UnifyGatkCallsets {
       resharded_vcf_header = select_first(select_all(ResolveClusters.integrated_sv_vcf)),
       rename_variants = true,
       keep_empty_resharded_vcfs = false,
-      vcfs_per_shard = vcfs_per_shard_final_partition,
+      vcfs_per_shard = vcfs_per_shard_sv_partition,
       intervals_per_shard = intervals_per_shard_sv_partition,
+      concatenate_task_mem_gb = 7.5,
+      concatenate_task_n_cpu = 4,
       g2c_analysis_docker = g2c_analysis_docker,
       linux_docker = linux_docker
   }

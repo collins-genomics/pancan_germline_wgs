@@ -37,6 +37,9 @@ workflow NestedReshardVcfs {
     Float reshard_task_mem_gb = 7.5
     Int reshard_task_n_cpu = 4
 
+    Float concatenate_task_mem_gb = 3.5
+    Int concatenate_task_n_cpu = 2
+
     String g2c_analysis_docker
     String linux_docker = "ubuntu:plucky-20251001"
   }
@@ -128,6 +131,8 @@ workflow NestedReshardVcfs {
       input:
         vcfs = ReadIntervalVcfShard.vcf_uris,
         vcf_idxs = ReadIntervalVcfShard.vcf_tbi_uris,
+        mem_gb = concatenate_task_mem_gb,
+        n_cpu = concatenate_task_n_cpu,
         bcftools_docker = g2c_analysis_docker
     }
   }
@@ -350,15 +355,18 @@ task MakeEmptyVcfs {
       ~{template_vcf}
     tabix -p vcf -f header.vcf.gz
 
+    mkdir outputs
+
     while read iid; do
-      cp header.vcf.gz $iid.vcf.gz
-      cp header.vcf.gz.tbi $iid.vcf.gz.tbi
+      cp header.vcf.gz "outputs/$iid.sorted.vcf.gz"
+      cp header.vcf.gz.tbi "outputs/$iid.sorted.vcf.gz.tbi"
     done < ~{empty_interval_names}
+    rm header.vcf.gz ~{template_vcf}
   >>>
 
   output {
-    Array[File] empty_vcfs = glob("*.vcf.gz")
-    Array[File] empty_vcf_idxs = glob("*.vcf.gz.tbi")
+    Array[File] empty_vcfs = glob("outputs/*.sorted.vcf.gz")
+    Array[File] empty_vcf_idxs = glob("outputs/*.sorted.vcf.gz.tbi")
   }
 
   runtime {
