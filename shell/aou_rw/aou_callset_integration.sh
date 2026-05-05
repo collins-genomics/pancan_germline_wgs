@@ -1206,8 +1206,7 @@ cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
   "UnifyGatkCallsets.PartitionSvOutputs.reshard_task_mem_gb": 15.5,
   "UnifyGatkCallsets.snv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.snv.bed.gz",
   "UnifyGatkCallsets.sv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.sv.bed.gz",
-  "UnifyGatkCallsets.sv_partition_concat_mem_gb": 12,
-  "UnifyGatkCallsets.vcfs_per_shard_sv_partition": 1
+  "UnifyGatkCallsets.vcfs_per_shard_sv_partition": 2
 }
 EOF
 

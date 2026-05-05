@@ -106,9 +106,12 @@ def integrate_records(indels, svs, header):
                 new_rec.info.pop(k)
 
     # Integrate genotypes
-    new_rec = g2cpy.integrate_gts(new_rec, indels + svs, 
+    # TODO: implement consensus integration here, needs to be done in a way
+    # where consensus can be drawn between SVs and indels separately
+    new_rec = g2cpy.integrate_gts(new_rec, [indels, svs],
                                   nocalls_first=True, ref_second=False,
-                                  nonref_override_metric=10, header=header)
+                                  nonref_override_metric=10, 
+                                  collapse_formats=True, header=header)
 
     # Update frequency annotations
     af_stats = g2cpy.compute_allele_freq_stats(new_rec)
