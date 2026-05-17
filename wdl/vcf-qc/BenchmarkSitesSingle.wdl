@@ -471,6 +471,14 @@ task CompareSites {
   command <<<
     set -eu -o pipefail
 
+    # Start heartbeat to avoid silent VM death
+    while true; do
+      echo "[CompareSites] still running at $(date)"
+      sleep 60
+    done &
+    HEARTBEAT_PID=$!
+    trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
+
     /opt/pancan_germline_wgs/scripts/qc/vcf_qc/compare_sites.py \
       -a ~{query_bed} \
       -b ~{ref_bed} \

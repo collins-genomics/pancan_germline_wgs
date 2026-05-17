@@ -1219,9 +1219,9 @@ code/scripts/manage_chromshards.py \
   --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
   --status-tsv cromshell/progress/dfci-g2c.v1.UnifyGatkCallsets.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
-  --outer-gate 60 \
-  --submission-gate 30 \
-  --max-attempts 4
+  --outer-gate 240 \
+  --submission-gate 240 \
+  --max-attempts 3
 
 
 ###################################################
@@ -1276,7 +1276,7 @@ cat << EOF > $staging_dir/CollectIntegratedIndelSvQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.benchmark_interval_beds": ["gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.easy.\$CONTIG.bed.gz",
                                                   "gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz"],
   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
-  "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.0,
+  "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.5,
   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_mem_gb": 3.75,
   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_n_cpu": 2,
   "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 40,
