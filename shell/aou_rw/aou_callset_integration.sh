@@ -1276,6 +1276,7 @@ cat << EOF > $staging_dir/CollectIntegratedIndelSvQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.benchmark_interval_beds": ["gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.easy.\$CONTIG.bed.gz",
                                                   "gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz"],
   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
+  "CollectVcfQcMetrics.BenchmarkSamples.indel_mem_scalar": 2.5,
   "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.5,
   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_mem_gb": 3.75,
   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_n_cpu": 2,

@@ -38,6 +38,9 @@ workflow BenchmarkSamples {
     Int min_samples_per_shard = 10
     Float common_af_cutoff = 0.01
 
+    Float snv_mem_scalar = 2.0
+    Float indel_mem_scalar = 1.0
+
     String bcftools_docker
     String g2c_analysis_docker
   }
@@ -144,6 +147,8 @@ workflow BenchmarkSamples {
         total_shards = n_shards_per_vcf,
         min_samples_per_shard = min_samples_per_shard,
         common_af_cutoff = common_af_cutoff,
+        snv_mem_scalar = snv_mem_scalar,
+        indel_mem_scalar = indel_mem_scalar,
         bcftools_docker = bcftools_docker,
         g2c_analysis_docker = g2c_analysis_docker
     }
