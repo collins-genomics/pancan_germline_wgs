@@ -38,6 +38,11 @@ parser$add_argument("--ref-title", metavar="path", type="character",
                     help="String title for comparison dataset/cohort")
 parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric",
                     help="Allele frequency threshold for common variants")
+parser$add_argument("--subset-samples", metavar=".txt",
+                    help=paste("Optional flat .txt file with a list of sample IDs",
+                               "to keep. By default, all samples will be retained."))
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -51,21 +56,42 @@ args <- parser$parse_args()
 #              "set_name" = c("Easy", "Hard"),
 #              "ref_title" = "external srWGS",
 #              "common_af" = 0.001,
+#              "subset_samples" = NULL,
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/g2c.qc.test")
 
 # # DEV (single vc):
-# args <- list("sens_tsv" = c("~/scratch/dbg_dat/dfci-ufc.sv.v1.initial_qc.external_lrwgs.Easy.ppv_by_freq.merged.tsv.gz",
-#                             "~/scratch/dbg_dat/dfci-ufc.sv.v1.initial_qc.external_lrwgs.Hard.ppv_by_freq.merged.tsv.gz"),
-#              "ppv_tsv" = c("~/scratch/dbg_dat/dfci-ufc.sv.v1.initial_qc.external_lrwgs.Easy.sensitivity_by_freq.merged.tsv.gz",
-#                            "~/scratch/dbg_dat/dfci-ufc.sv.v1.initial_qc.external_lrwgs.Hard.sensitivity_by_freq.merged.tsv.gz"),
+# args <- list("sens_tsv" = c("~/scratch/psb_dbg_dat/dfci-g2c.v1.initial_gatksv_qc.external_lrwgs.Easy.sensitivity_by_freq.merged.tsv.gz",
+#                             "~/scratch/psb_dbg_dat/dfci-g2c.v1.initial_gatksv_qc.external_lrwgs.Hard.sensitivity_by_freq.merged.tsv.gz"),
+#              "ppv_tsv" = c("~/scratch/psb_dbg_dat/dfci-g2c.v1.initial_gatksv_qc.external_lrwgs.Easy.ppv_by_freq.merged.tsv.gz",
+#                            "~/scratch/psb_dbg_dat/dfci-g2c.v1.initial_gatksv_qc.external_lrwgs.Hard.ppv_by_freq.merged.tsv.gz"),
 #              "set_name" = c("Easy", "Hard"),
 #              "ref_title" = "external lrWGS",
-#              "common_af" = 0.01,
-#              "out_prefix" = "~/scratch/ufc.sv.qc.test")
+#              "common_af" = 0.001,
+#              "subset_samples" = NULL,
+#              "custom_constants" = NULL,
+#              "out_prefix" = "~/scratch/dfci-g2c.v1.initial_gatksv_qc.external_lrwgs.sample_benchmarking")
 
-# Load sensitivity & PPV data
-sens.dat <- load.gt.benchmark.tsvs(args$sens_tsv, args$set_name)
-ppv.dat <- load.gt.benchmark.tsvs(args$ppv_tsv, args$set_name)
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
+
+# Load list of samples to retain, if optioned
+if(!is.null(args$subset_samples)){
+  keep.samples <- unique(read.table(args$subset_samples, header=F)[, 1])
+}else{
+  keep.samples <- NULL
+}
+
+# Load PPV data
+ppv.dat <- load.gt.benchmark.tsvs(args$ppv_tsv, args$set_name,
+                                  keep.samples=keep.samples)
+
+# Load sensitivity data only for VCs also present in PPV data
+vcs <- unique(as.character(sapply(ppv.dat, function(d){d$class})))
+sens.dat <- load.gt.benchmark.tsvs(args$sens_tsv, args$set_name,
+                                   keep.samples=keep.samples, keep.vcs=vcs)
 
 # Get nonredundant list of samples considered in either sensitivity or PPV
 samples <- c()

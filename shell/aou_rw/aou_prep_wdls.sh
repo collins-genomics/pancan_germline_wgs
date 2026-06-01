@@ -19,8 +19,8 @@ WRKDIR=`mktemp -d`
 cd $WRKDIR
 
 # Clone G2C repo & checkout branch of interest
-export g2c_branch=main
-git clone git@github.com:vanallenlab/pancan_germline_wgs.git --branch=$g2c_branch
+export g2c_branch=posthoc_filtering
+git clone git@github.com:collins-genomics/pancan_germline_wgs.git --branch=$g2c_branch
 
 # Organize G2C WDLs
 mkdir wdl wdl/pancan_germline_wgs
@@ -43,7 +43,8 @@ if [ $# -gt 0 ] && [ $1 == "all" ]; then
   git clone git@github.com:broadinstitute/warp.git
 
   # Make & populate directory of all WDLs and other reference files
-  for dir in wdl wdl/pancan_germline_wgs wdl/gatk-sv wdl/gatk-hc legacy_mingq_wdl; do
+  for dir in wdl wdl/pancan_germline_wgs wdl/gatk-sv wdl/gatk-hc \
+    legacy_mingq_wdl wdl/gatk-sv/svannotation_v1.1; do
     if [ -e $dir ]; then rm -rf $dir; fi
     mkdir $dir
   done
@@ -57,6 +58,19 @@ if [ $# -gt 0 ] && [ $1 == "all" ]; then
   git checkout origin/xz_fixes_3_rlc_mod && \
   cd - > /dev/null && \
   cp gatk-sv/wdl/*.wdl $WRKDIR/legacy_mingq_wdl/
+
+  # Add GATK-SV annotation workflow from v1.1 to account for bugfixes since v1.0.1
+  cd gatk-sv && \
+  git checkout v1.1 && \
+  cd - > /dev/null && \
+  cp gatk-sv/wdl/AnnotateVcf.wdl \
+     gatk-sv/wdl/Structs.wdl \
+     gatk-sv/wdl/ShardedAnnotateVcf.wdl \
+     gatk-sv/wdl/TasksMakeCohortVcf.wdl \
+     gatk-sv/wdl/Utils.wdl \
+     gatk-sv/wdl/AnnotateFunctionalConsequences.wdl \
+     gatk-sv/wdl/AnnotateExternalAFPerShard.wdl \
+     wdl/gatk-sv/svannotation_v1.1/
 
   # Override any GATK WDLs with their corresponding custom G2C copies
   # This is rarely necessary but was deemed the easiest solution for handling 

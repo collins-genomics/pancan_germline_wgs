@@ -27,7 +27,8 @@ load.constants("all")
 # Data Functions #
 ##################
 # Load a site metrics BED file and subset to minimal required columns
-read.bed <- function(bed.in, common_af=0, autosomes.only=T){
+read.bed <- function(bed.in, common_af=0, deduplicate=FALSE, autosomes.only=T){
+  # Read and clean data
   df <- read.table(bed.in, header=T, sep="\t", comment.char="",
                    check.names=F, quote="")
   if(autosomes.only){
@@ -37,8 +38,26 @@ read.bed <- function(bed.in, common_af=0, autosomes.only=T){
   df[, keep.cols] <- as.data.frame(apply(df[, keep.cols], 2, as.numeric))
   df <- df[which(df$af >= common_af), c("vid", keep.cols)]
   df <- df[complete.cases(df), ]
+  if(deduplicate){
+    df <- df[which(!duplicated(df$vid)), ]
+  }
+
+  # Compute HWE ternary coordinates
   df[, c("hwe.x", "hwe.y")] <- t(apply(df[, c("freq_het", "freq_hom")], 1,
                                        function(freqs){calc.hwe.xy(freqs[1], freqs[2])}))
+
+  # Compute Euclidean distance from HWE expectations
+  df$freq_ref <- 1 - apply(df[, c("freq_het", "freq_hom")], 1, sum, na.rm=T)
+  df$exp_hom <- df$af^2
+  df$exp_het <- 2 * df$af * (1-df$af)
+  df$exp_ref <- (1-df$af)^2
+  df$hwe_dist <- apply(df, 1, function(rv){
+    obs <- as.numeric(rv[c("freq_ref", "freq_het", "freq_hom")])
+    exp <- as.numeric(rv[c("exp_ref", "exp_het", "exp_hom")])
+    sqrt(sum((obs - exp)^2))
+  })
+
+  # Clean and return data
   rownames(df) <- df$vid; df$vid <- NULL
   return(as.data.frame(df))
 }
@@ -55,13 +74,17 @@ hwe.topo.pal <- function(N){
 # HWE ternary plot
 hwe.plot <- function(df, title="All variants", pt.cex=NULL, pt.pch=NULL,
                      pt.alpha=NULL, style="scatter", max.points=1000000,
-                     parmar=c(1.75, 2, 1.25, 1)){
+                     true.n.sites=NULL, parmar=c(1.75, 2, 1.25, 1)){
   # Clean input data and determine overall statistics
   df <- df[which(!is.na(df$hwe.x) & !is.na(df$hwe.y) & !is.na(df$hwe)), ]
   bonf.p <- 0.05 / nrow(df)
   n.all <- nrow(df)
   n.pass <- sum(df$hwe >= bonf.p)
   pct.pass <- n.pass / n.all
+  if(!is.null(true.n.sites)){
+    n.all <- true.n.sites
+    n.pass <- round(pct.pass * true.n.sites, 0)
+  }
 
   # Downsample scatterplot to max.points if more complete cases are provided
   if(style == "scatter" & nrow(df) > max.points){
@@ -172,7 +195,7 @@ hwe.plot <- function(df, title="All variants", pt.cex=NULL, pt.pch=NULL,
 
   # Add title & subtitle
   mtext(3, line=0.4, text=title)
-  n.formatted <- clean.numeric.labels(c(n.pass, n.all), acceptable.decimals=2)
+  n.formatted <- clean.numeric.labels(c(n.pass, n.all))
   n.formatted[1] <- gsub("k|M|B|T", "", n.formatted[1])
   subtitle <- paste(n.formatted[1], " / ",
                     n.formatted[2], " (", round(100*pct.pass, 1),
@@ -279,8 +302,8 @@ ld.plot <- function(df, ld, vc2, title, ld.cutoffs=c(0.2, 0.5, 0.8),
 }
 
 # Plot wrapper function for all site-level pointwise plots
-pointwise.plots <- function(df, ld, out.prefix, fname.suffix="all",
-                            title="All variant"){
+pointwise.plots <- function(df, ld, n.sites, out.prefix, fname.suffix="all",
+                            title="All variant", hwe.topo=FALSE){
 
   ss.df <- data.frame("analysis"=character(), "measure"=character(),
                       "value"=numeric(), "n"=numeric())
@@ -289,14 +312,23 @@ pointwise.plots <- function(df, ld, out.prefix, fname.suffix="all",
   # HWE scatterplot as .png
   png(paste(out.prefix, fname.suffix, "hwe.png", sep="."),
       height=2.25*300, width=2.25*300, res=300)
-  m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""))
+  m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""), true.n.sites=n.sites)
   dev.off()
   ss.df[1, ] <- c(paste(ss.prefix, "common_hwe", sep="."), "pct_pass", m.tmp)
 
+  # Also compute AF-weighted mean HWE accuracy
+  hwe.weights <- 2 * (0.5 - abs(0.5 - df$af))
+  mean.hwe.acc <- 1 - weighted.mean(df$hwe_dist, w=hwe.weights)
+  ss.df[nrow(ss.df)+1, ] <- c(paste(ss.prefix, "common_hwe", sep="."),
+                            "weighted_accuracy", mean.hwe.acc, length(df$hwe_dist))
+
   # HWE topo heatmap as .pdf
-  pdf(paste(out.prefix, fname.suffix, "hwe.topo.pdf", sep="."), height=2.25, width=2.25)
-  m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""), style="topo")
-  dev.off()
+  if(hwe.topo){
+    pdf(paste(out.prefix, fname.suffix, "hwe.topo.pdf", sep="."), height=2.25, width=2.25)
+    m.tmp <- hwe.plot(df, title=paste(title, "s", sep=""), style="topo",
+                      true.n.sites=n.sites)
+    dev.off()
+  }
 
   # Exit now if LD stats are not provided
   if(is.null(ld)){
@@ -307,8 +339,10 @@ pointwise.plots <- function(df, ld, out.prefix, fname.suffix="all",
   ld.sub <- ld[which(ld$vid %in% rownames(df)), ]
   n.tagged <- length(unique(ld.sub[which(ld.sub$ld_r2 >= 0.5), "vid"]))
   n.elig <- length(unique(ld.sub$vid))
+  elig.rate <- n.elig / nrow(df)
+  est.true.n.elig <- round(elig.rate * n.sites, 0)
   ss.df[nrow(ss.df)+1, ] <- c(paste(ss.prefix, "common_ld", "any", sep="."),
-                              "tag_rate", n.tagged / n.elig, n.elig)
+                              "tag_rate", n.tagged / n.elig, est.true.n.elig)
 
   # Peak LD vs. AF as topo .pdf (one for each other variant class)
   for(vc2 in c("any", unique(ld$other_vc))){
@@ -317,7 +351,7 @@ pointwise.plots <- function(df, ld, out.prefix, fname.suffix="all",
     m.tmp <- ld.plot(df, ld, vc2, title=title)
     dev.off()
     ss.df[nrow(ss.df)+1, ] <- c(paste(ss.prefix, "common_ld", vc2, sep="."),
-                                "mean_peak_r2", m.tmp)
+                                "mean_peak_r2", m.tmp[1], est.true.n.elig)
   }
 
   return(ss.df)
@@ -331,16 +365,38 @@ pointwise.plots <- function(df, ld, out.prefix, fname.suffix="all",
 parser <- ArgumentParser(description="Plot pointwise variant metrics")
 parser$add_argument("--snvs", metavar=".bed", type="character",
                     help="SNV site metrics from clean_site_metrics.py")
+parser$add_argument("--true-n-snvs", metavar="int", type="numeric",
+                    help=paste("Option to specify true number of SNVs in full",
+                               "dataset, which will be used for accurate plot",
+                               "titles. Only necessary if --snvs has been",
+                               "downsampled prior to this script"))
 parser$add_argument("--indels", metavar=".bed", type="character",
                     help="Indel site metrics from clean_site_metrics.py")
+parser$add_argument("--true-n-indels", metavar="int", type="numeric",
+                    help=paste("Option to specify true number of indels in full",
+                               "dataset, which will be used for accurate plot",
+                               "titles. Only necessary if --indels has been",
+                               "downsampled prior to this script"))
 parser$add_argument("--svs", metavar=".bed", type="character",
                     help="SV site metrics from clean_site_metrics.py")
+parser$add_argument("--true-n-svs", metavar="int", type="numeric",
+                    help=paste("Option to specify true number of SVs in full",
+                               "dataset, which will be used for accurate plot",
+                               "titles. Only necessary if --svs has been",
+                               "downsampled prior to this script"))
 parser$add_argument("--combine", action="store_true", default=FALSE,
                     help="Also generate a combined set of plots for all variant types")
+parser$add_argument("--deduplicate", action="store_true", default=FALSE,
+                    help="Deduplicate identical variants before performing QC")
 parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric",
                     help="Allele frequency threshold for common variants")
 parser$add_argument("--ld-stats", metavar=".tsv", type="character",
                     help="Peak LD R2 per variant for each other variant class")
+parser$add_argument("--hwe-topo-heatmap", action="store_true", default=FALSE,
+                    help=paste("Also generate a topographical heatmap of",
+                               "Hardy-Weinberg density"))
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -348,11 +404,17 @@ args <- parser$parse_args()
 
 # # DEV:
 # args <- list("snvs" = "~/scratch/dfci-g2c.v1.chr22.0.norm.posthoc_filtered.sites.snv.sites.common.bed.gz",
+#              "true_n_snvs" = NULL,
 #              "indels" = "~/scratch/dfci-g2c.v1.chr22.0.norm.posthoc_filtered.sites.indel.sites.common.bed.gz",
+#              "true_n_indels" = NULL,
 #              "svs" = "~/scratch/dfci-g2c.v1.chr22.0.norm.posthoc_filtered.sites.sv.sites.common.bed.gz",
+#              "true_n_svs" = NULL,
 #              "combine" = TRUE,
+#              "deduplicate" = TRUE,
 #              "common_af" = 0.001,
 #              "ld_stats" = "~/scratch/renamed.common.peak_ld_by_vc.tsv.gz",
+#              "hwe_topo_heatmap" = FALSE,
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/qc.test")
 
 # Ensure at least one of --snvs, --indels, or --svs is present
@@ -360,10 +422,18 @@ if(is.null(args$snvs) & is.null(args$indels) & is.null(args$svs)){
   stop("At least one of --snvs, --indels, or --svs must be provided")
 }
 
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
+
 # Load LD stats, if provided
 if(!is.null(args$ld_stats)){
   ld <- read.table(args$ld_stats, header=T, sep="\t", check.names=F,
                    quote="", comment.char="")
+  if(args$deduplicate){
+    ld <- ld[which(!duplicated(ld[, 1:2])), ]
+  }
   colnames(ld)[1] <- gsub("#", "", colnames(ld)[1])
 }else{
   ld <- NULL
@@ -372,51 +442,66 @@ if(!is.null(args$ld_stats)){
 # Load & plot SNVs, if provided
 if(!is.null(args$snvs)){
   # Load SNV data
-  snv.df <- read.bed(args$snvs, args$common_af)
+  snv.df <- read.bed(args$snvs, args$common_af, args$deduplicate)
+  n.snvs <- if(!is.null(args$true_n_snvs)){args$true_n_snvs}else{nrow(snv.df)}
 
   # Plot SNV metrics
-  snv.ss <- pointwise.plots(snv.df, ld, args$out_prefix, fname.suffix="snv",
-                            title="Common SNV")
+  snv.ss <- pointwise.plots(snv.df, ld, n.snvs, args$out_prefix,
+                            fname.suffix="snv", title="Common SNV",
+                            args$hwe_topo_heatmap)
 }else{
   snv.df <- NULL
   snv.ss <- NULL
+  n.snvs <- 0
 }
 
 # Load & plot indels, if provided
 if(!is.null(args$indels)){
   # Load indel data
-  indel.df <- read.bed(args$indels, args$common_af)
+  indel.df <- read.bed(args$indels, args$common_af, args$deduplicate)
+  n.indels <- if(!is.null(args$true_n_indels)){args$true_n_indels}else{nrow(indel.df)}
 
   # Plot indel metrics
-  indel.ss <- pointwise.plots(indel.df, ld, args$out_prefix, fname.suffix="indel",
-                              title="Common indel")
+  indel.ss <- pointwise.plots(indel.df, ld, n.indels, args$out_prefix,
+                              fname.suffix="indel", title="Common indel",
+                              args$hwe_topo_heatmap)
 
 }else{
   indel.df <- NULL
   indel.ss <- NULL
+  n.indels <- 0
 }
 
 # Load & plot SVs, if provided
 if(!is.null(args$svs)){
   # Load SV data
-  sv.df <- read.bed(args$svs, args$common_af)
+  sv.df <- read.bed(args$svs, args$common_af, args$deduplicate)
+  n.svs <- if(!is.null(args$true_n_svs)){args$true_n_svs}else{nrow(sv.df)}
 
   # Plot SV metrics
-  sv.ss <- pointwise.plots(sv.df, ld, args$out_prefix, fname.suffix="sv",
-                           title="Common SV")
+  sv.ss <- pointwise.plots(sv.df, ld, n.svs, args$out_prefix,
+                           fname.suffix="sv", title="Common SV",
+                           args$hwe_topo_heatmap)
 }else{
   sv.df <- NULL
   sv.ss <- NULL
+  n.svs <- 0
 }
 
 # Combine & plot all variant types, if optioned
 if(args$combine){
   # Merge all data
   all.df <- do.call("rbind", list(snv.df, indel.df, sv.df))
+  rm(snv.df, indel.df, sv.df)
+  if(args$deduplicate){
+    all.df <- all.df[which(!duplicated(rownames(all.df))), ]
+  }
+  n.all <- n.snvs + n.indels + n.svs
 
   # Plot all metrics
-  all.ss <- pointwise.plots(all.df, ld, args$out_prefix, fname.suffix="all",
-                            title="All common variant")
+  all.ss <- pointwise.plots(all.df, ld, n.all, args$out_prefix,
+                            fname.suffix="all", title="All common variant",
+                            args$hwe_topo_heatmap)
 }else{
   all.ss <- NULL
 }

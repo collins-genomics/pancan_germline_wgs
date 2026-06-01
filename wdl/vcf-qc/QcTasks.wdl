@@ -150,6 +150,43 @@ task BenchmarkGenotypes {
 }
 
 
+# Get the number of records present in a BED file
+task CheckBedSize {
+  input {
+    File bed
+    String concat_command = "zcat"
+    String linux_docker = "ubuntu:plucky-20251001"
+  }
+
+  Int disk_gb = ceil(2 * size(bed, "GB")) + 5
+
+  command <<<
+    set -eu -o pipefail
+
+    ~{concat_command} ~{bed} \
+    | cut -f1 | grep -ve '^#' | wc -l \
+    > line_count.txt
+
+    echo -e "Number of lines:\n"
+    cat line_count.txt
+  >>>
+
+  output {
+    Int num_records = read_int("line_count.txt")
+    File line_count_file = "line_count.txt"
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    maxRetries: 1
+    disks: "local-disk ~{disk_gb} HDD"
+    preemptible: 3
+  }
+}
+
+
 task CollectSampleGenotypeMetrics {
   input {
     File vcf
@@ -253,7 +290,7 @@ task CollectSiteMetrics {
     > ~{out_prefix}.all.sites.bed.gz || true
     tabix -p bed -f ~{out_prefix}.all.sites.bed.gz
 
-    # Concatenate all common variant IDs for downstrea
+    # Concatenate all common variant IDs for downstream
     # compatability with LD-based analyses
     find ./ -name "~{out_prefix}.*.sites.common.bed.gz" \
     | xargs -I {} zcat {} \
@@ -300,9 +337,14 @@ task ConcatGenotypeTsvs {
     Array[File] tsvs
     String output_prefix
     String g2c_analysis_docker
+
+    Int? disk_gb
+    Float mem_gb = 3.5
+    Int n_cpu = 2
   }
 
-  Int disk_gb = ceil(2 * size(tsvs, "GB")) + 10
+  Int default_disk_gb = ceil(4 * size(tsvs, "GB")) + 25
+  Int use_disk_gb = select_first([disk_gb, default_disk_gb])
   String outdir = output_prefix + "_sample_genotypes"
 
   command <<<
@@ -325,14 +367,17 @@ task ConcatGenotypeTsvs {
 
   runtime {
     docker: g2c_analysis_docker
-    memory: "3.5 GB"
-    cpu: 2
-    disks: "local-disk ~{disk_gb} HDD"
+    memory: "~{mem_gb} GB"
+    cpu: n_cpu
+    disks: "local-disk ~{use_disk_gb} HDD"
+    bootDiskSizeGb: 20
     preemptible: 3
+    maxRetries: 1
   }
 }
 
 
+# Duplicated from Utilities.wdl
 task ConcatTextFiles {
   input {
     Array[File] shards
@@ -424,6 +469,157 @@ task ConcatVcfs {
     cpu: cpu_cores
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"
     preemptible: 3
+  }
+}
+
+
+# Uniformly downsamples a bgzipped BED according to a desired ratio
+task DownsampleBed {
+  input {
+    File bed
+    Int downsample_ratio
+    Boolean return_record_ids = false
+    String docker
+
+    Float mem_gb = 3.5
+    Int n_cpu = 2
+  }
+
+  String outfile = basename(bed, ".bed.gz") + ".downsampled.bed.gz"
+  String rid_outfile = basename(bed, ".bed.gz") + ".downsampled_record_names.list"
+  Int disk_gb = ceil(3 * size(bed, "GB")) + 5
+
+  command <<<
+    set -eu -o pipefail
+
+    if [ ~{downsample_ratio} -eq 1 ]; then
+      mv ~{bed} ~{outfile}
+      echo "false" > was_downsampled.txt
+    else
+      zcat ~{bed} \
+      | sed -n '1~~{downsample_ratio}p' \
+      | bgzip -c \
+      > ~{outfile}
+      echo "true" > was_downsampled.txt
+    fi
+
+    # Index output file to ensure correctness
+    tabix -f -p bed ~{outfile}
+
+    # Make a list of record IDs, if optioned
+    if ~{return_record_ids}; then
+      zcat ~{outfile} \
+      | grep -v '^#' \
+      | cut -f4 \
+      | sort -V \
+      | uniq \
+      > ~{rid_outfile}
+    fi
+  >>>
+
+  output {
+    File downsampled_bed = outfile
+    File downsampled_bed_idx = "~{outfile}.tbi"
+    Boolean was_downsampled = read_boolean("was_downsampled.txt")
+    File? downsampled_record_ids = rid_outfile
+  }
+
+  runtime {
+    docker: docker
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
+# Generic task to filter a text file by only retaining rows that overlap entries in one or more key files
+task FilterTextFileByColumn {
+  input {
+    File input_txt
+    Array[File] key_files
+    Int column_number = 1
+    String delimiter = "\t"
+
+    String outfile_name
+    String postprocessing_command = ""
+    
+    String g2c_analysis_docker
+    Float mem_gb = 3.5
+    Int n_cpu = 2
+  }
+
+  Int disk_gb = ceil(2.5 * size(flatten([[input_txt], key_files]), "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    # Collapse key files
+    while read kf; do
+      cat $kf
+    done < ~{write_lines(key_files)} \
+    | sort -V | uniq \
+    > keys.list
+
+    # Filter input file
+    /opt/pancan_germline_wgs/scripts/utilities/filter_txt_by_column.py \
+      ~{input_txt} \
+      keys.list \
+      --column-number ~{column_number} \
+      --delimiter "~{delimiter}" \
+    ~{postprocessing_command} \
+    > ~{outfile_name}
+  >>>
+
+  output {
+    File filtered_txt = outfile_name
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
+# Extract the unique list of feature names from a BED file
+task GetBedFeatureNames {
+  input {
+    File bed
+    String linux_docker = "ubuntu:plucky-20251001"
+  }
+
+  Int disk_gb = ceil(1.5 * size(bed, "GB")) + 5
+  String outfile = basename(bed, ".bed.gz") + ".feature_names.list"
+
+  command <<<
+    set -eu -o pipefail
+
+    zcat ~{bed} \
+    | grep -v '^#' \
+    | cut -f4 \
+    | sort -V \
+    | uniq \
+    > ~{outfile}
+  >>>
+
+  output {
+    File feature_names = outfile
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 2
+    maxRetries: 1
   }
 }
 
@@ -744,6 +940,10 @@ task ShardIntervals {
     Int n_shards
     String prefix
     String g2c_analysis_docker
+
+    Float mem_gb = 3.75
+    Int n_cpu = 2
+    Int? disk_gb
   }
 
   Int default_disk_gb = ceil(10 * size(intervals_bed, "GB")) + 5
@@ -810,10 +1010,11 @@ task ShardIntervals {
 
   runtime {
     docker: g2c_analysis_docker
-    memory: "1.75 GB"
-    cpu: 1
-    disks: "local-disk ~{default_disk_gb} HDD"
-    preemptible: 3
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + select_first([disk_gb, default_disk_gb]) +" HDD"
+    preemptible: 1
+    maxRetries: 1
   }
 }
 
@@ -859,7 +1060,7 @@ task ShardTextFile {
 }
 
 
-# Duplicated from Utilities.wdl
+# Originally duplicated (but since diverged) from Utilities.wdl
 task ShardVcf {
   input {
     File vcf
@@ -867,14 +1068,26 @@ task ShardVcf {
     Int records_per_shard
     String bcftools_docker
     Int? disk_gb
+    Float mem_gb = 3.75
+    Int n_cpu = 2
     Int n_preemptible = 3
   }
 
   String out_prefix = basename(vcf, ".vcf.gz") + ".sharded"
-  Int use_disk_gb = select_first([disk_gb, ceil(5 * size(vcf, "GB")) + 20])
+  Int use_disk_gb = select_first([disk_gb, ceil(4 * size(vcf, "GB")) + 20])
 
   command <<<
     set -eu -o pipefail
+
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[ShardVcf] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+    trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
 
     # Make an empty shard in case the input VCF is totally empty
     bcftools view -h ~{vcf} | bgzip -c > "~{out_prefix}.0.vcf.gz"
@@ -898,10 +1111,10 @@ task ShardVcf {
   }
 
   runtime {
-    cpu: 2
-    memory: "3.75 GiB"
-    disks: "local-disk " + use_disk_gb + " HDD"
-    bootDiskSizeGb: 10
+    cpu: n_cpu
+    memory: mem_gb + " GiB"
+    disks: "local-disk " + use_disk_gb + " SSD"
+    bootDiskSizeGb: 15
     docker: bcftools_docker
     preemptible: n_preemptible
     maxRetries: 1
@@ -1062,4 +1275,35 @@ task SumCompressedDistribs {
   }
 }
 
+
+# Transpose a Terra-style nested benchmarking array
+task TransposeTerraBenchmarkingArray {
+  input {
+    Array[Array[Array[File?]]] input_array
+    String g2c_analysis_docker
+  }
+
+  File input_json = write_json(input_array)
+
+  command <<<
+    set -eu -o pipefail
+
+    /opt/pancan_germline_wgs/scripts/qc/vcf_qc/transpose_terra_benchmarking_array.py \
+      ~{input_json} \
+      transposed.json
+  >>>
+
+  output {
+    Array[Array[Array[File?]]] output_array = read_json("transposed.json")
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: "1.7 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 3
+    max_retries: 1
+  }
+}
 

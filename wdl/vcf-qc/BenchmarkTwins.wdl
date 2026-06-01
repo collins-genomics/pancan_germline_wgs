@@ -113,6 +113,7 @@ task MakeVidMap {
   input {
     File sites_bed
     String prefix
+    String linux_docker = "ubuntu:plucky-20251001"
   }
 
   String vid_map_fname = "~{prefix}.vid_map.tsv.gz"
@@ -133,7 +134,7 @@ task MakeVidMap {
   }
 
   runtime {
-    docker: "marketplace.gcr.io/google/ubuntu1804"
+    docker: linux_docker
     memory: "1.75 GB"
     cpu: 1
     disks: "local-disk ~{disk_gb} HDD"

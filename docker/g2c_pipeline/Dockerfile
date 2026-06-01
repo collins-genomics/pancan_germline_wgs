@@ -36,7 +36,7 @@ RUN Rscript -e 'install.packages("argparse", repos="https://cran.rstudio.com")'
 # Clone pancan_germline_wgs repo, check out specified hash, and install helper python library
 ARG G2C_TAG=main
 RUN git clone \
-    https://github.com/vanallenlab/pancan_germline_wgs.git \
+    https://github.com/collins-genomics/pancan_germline_wgs.git \
     opt/pancan_germline_wgs && \
     cd opt/pancan_germline_wgs && \
     git pull && \

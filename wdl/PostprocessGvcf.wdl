@@ -10,8 +10,8 @@
 version 1.0
 
 
-import "https://raw.githubusercontent.com/vanallenlab/pancan_germline_wgs/main/wdl/ReheaderGvcf.wdl" as Reheader
-import "https://raw.githubusercontent.com/vanallenlab/pancan_germline_wgs/main/wdl/ReblockGvcf.wdl" as Reblock
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/main/wdl/ReheaderGvcf.wdl" as Reheader
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/main/wdl/ReblockGvcf.wdl" as Reblock
 
 
 workflow PostprocessGvcf {

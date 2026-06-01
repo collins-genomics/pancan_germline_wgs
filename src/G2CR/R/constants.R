@@ -54,10 +54,10 @@ create.cancer.colors <- function(cancers, n.shades=2, saturation.range=c(0.3, 0.
                                        value.range=value.range, period=period)
   names(cancer.colors) <- cancers
   cancer.colors["oral_cavity"] <- cancer.colors["oral"]
-  cancer.colors["control"] <- "#D6D6D6"
+  cancer.colors[c("control", "Control")] <- "#D6D6D6"
   cancer.colors["multiple"] <- cancer.colors["other"] <- cancer.colors["pancan"]
   cancer.colors[c("unknown", "not_specified", "NA")] <- "gray95"
-  cancer.colors[c("pancan", "all", "case")] <- "#C43825"
+  cancer.colors[c("pancan", "all", "case", "Case")] <- "#C43825"
 
   # Visualize cancer colors to screen, if optioned
   if(plot.colors){
@@ -432,6 +432,7 @@ load.constants <- function(subset="all", envir=.GlobalEnv){
     "cancer.names" = c("pancan" = "Pan-cancer",
                        "all" = "All cancer",
                        "case" = "Cancer",
+                       "Case" = "Cancer",
                        "prostate" = "Prostate",
                        "breast" = "Breast",
                        "lung" = "Lung",
@@ -453,6 +454,7 @@ load.constants <- function(subset="all", envir=.GlobalEnv){
                        "other" = "Other",
                        "multiple" = "Multiple cancers",
                        "control" = "Control",
+                       "Control" = "Control",
                        "unknown" = "Unknown",
                        "not_specified" = "Unknown",
                        "NA" = "Unknown"),
@@ -553,7 +555,32 @@ load.constants <- function(subset="all", envir=.GlobalEnv){
                           "stjude" = "cancer",
                           "ufc" = "cancer",
                           "wcdt" = "cancer",
-                          "other" = "other")
+                          "other" = "other"),
+    "cohort.realigned" = c("apollo" = FALSE,
+                           "aou" = FALSE,
+                           "biome" = FALSE,
+                           "ceph" = TRUE,
+                           "copdgene" = FALSE,
+                           "cptac" = FALSE,
+                           "eagle" = FALSE,
+                           "gmkf" = FALSE,
+                           "gtex" = FALSE,
+                           "hcmi" = FALSE,
+                           "hgsvc" = FALSE,
+                           "hmf" = TRUE,
+                           "icgc" = FALSE,
+                           "lcins" = TRUE,
+                           "mesa" = FALSE,
+                           "proactive-core" = FALSE,
+                           "proactive-other" = FALSE,
+                           "proactive" = FALSE,
+                           "stjude" = FALSE,
+                           "ufc" = TRUE,
+                           "wcdt" = FALSE),
+    "vc.to.vsc.map" = list("snv" = c("ti", "tv"),
+                           "indel" = c("ins", "del"),
+                           "sv" = c("DEL", "DUP", "CNV", "INS", "INV",
+                                    "CPX", "CTX", "BND", "OTH"))
   )
 
   # Assign constants to global environment

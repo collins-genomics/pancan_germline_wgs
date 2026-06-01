@@ -8,6 +8,123 @@
 
 version 1.0
 
+# Write an array of strings to a text file
+task ArrayToTxt {
+  input {
+    Array[String] strings
+    String outfile
+    String linux_docker = "ubuntu:plucky-20251001"
+  }
+
+  command <<<
+    set -e -o pipefail
+    cat ~{write_lines(strings)} > ~{outfile}
+  >>>
+
+  output {
+    File array_txt = outfile
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 1
+    maxRetries: 1
+  }  
+}
+
+
+# Compute a BEDGraph of feature density from one or more BED files
+task CalcBedDensity {
+  input {
+    Array[File] beds
+    String bed_concat_cmd = "zcat"
+
+    File genome_file # BEDTools-style genome file
+
+    String output_prefix
+    
+    String bedtools_docker
+  }
+
+  Int disk_gb = ceil(2 * size(beds, "GB")) + 10
+  String outfile = output_prefix + ".density.bed.gz"
+
+  command <<<
+    set -eu -o pipefail
+
+    cat ~{write_lines(beds)} \
+    | xargs -I {} ~{bed_concat_cmd} {} \
+    | awk -v OFS="\t" '{ print $1, $2, $3 }' \
+    | sort -Vk1,1 -k2,2n -k3,3n \
+    | bedtools genomecov -bg -g ~{genome_file} -i - \
+    | bgzip -c \
+    > "~{outfile}"
+  >>>
+
+  output {
+    File density_bed = "~{outfile}"
+  }
+
+  runtime {
+    docker: bedtools_docker
+    memory: "3.75 GB"
+    cpu: 2
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
+
+
+task ConcatTextFiles {
+  input {
+    Array[File] shards
+    String concat_command = "cat"
+    String? sort_command
+    String? compression_command
+    Boolean input_has_header = false
+    String output_filename
+
+    Float mem_gb = 1.75
+    Int n_cpu = 1
+    Int? disk_gb
+    String docker
+  }
+
+  Int disk_gb_use = select_first([disk_gb, ceil(2 * size(shards, "GB")) + 10])
+  String sort = if defined(sort_command) then " | " + select_first([sort_command, ""]) else ""
+  String compress = if defined(compression_command) then " | " + select_first([compression_command, ""]) else ""
+  String posthoc_cmds = if input_has_header then sort + " | fgrep -xvf header.txt | cat header.txt - " + compress else sort + compress
+
+  command <<<
+    set -euo pipefail
+
+    if [ "~{input_has_header}" == "true" ]; then
+      ~{concat_command} ~{shards[0]} \
+      | head -n1 > header.txt || true
+    else
+      touch header.txt
+    fi
+
+    cat ~{write_lines(shards)} | xargs -I {} ~{concat_command} {} ~{posthoc_cmds} > ~{output_filename} || true
+  >>>
+
+  output {
+    File merged_file = "~{output_filename}"
+  }
+
+  runtime {
+    docker: docker
+    memory: "~{mem_gb} GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb_use + " HDD"
+    preemptible: 3
+  }
+}
+
 
 task ConcatVcfs {
   input {
@@ -17,9 +134,12 @@ task ConcatVcfs {
 
     String bcftools_concat_options = ""
 
+    Boolean check_index_localization = false # If true, will check that vcf_idxs are in the same localization directory as vcfs
+
     Float mem_gb = 3.5
     Int cpu_cores = 2
     Int? disk_gb
+    Int boot_disk_gb = 10
 
     String bcftools_docker
   }
@@ -31,14 +151,64 @@ task ConcatVcfs {
   command <<<
     set -eu -o pipefail
 
+    cat ~{write_lines(vcfs)} > vcfs.list
+
+    if ~{check_index_localization}; then
+      cat ~{write_lines(vcf_idxs)} > idxs.list
+      while read vcf; do
+        expected_tbi=$( echo $vcf | awk '{ print $1".tbi" }' )
+        if ! [ -s $expected_tbi ]; then
+          loc_idx=$( fgrep $( basename $expected_tbi ) idxs.list )
+          if [ -z $loc_idx ]; then
+            echo -e "\nUnable to find corresponding tabix index for $vcf\n"
+            exit 1
+          else
+            mv "$loc_idx" "$expected_tbi"
+          fi
+        fi
+      done < vcfs.list
+    fi
+
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[ConcatVcfs] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+
+    # To avoid segfaults, we must ensure all VCFs are non-empty
+    if [ $( cat vcfs.list | wc -l ) -gt 1 ]; then
+      while read vcf; do
+        if [ $( bcftools index -n $vcf ) -gt 0 ]; then
+          echo $vcf
+        fi
+      done < vcfs.list > vcfs.list2
+      mv vcfs.list2 vcfs.list
+    fi
+    n_vcfs=$( cat vcfs.list | wc -l )
+    if [ $n_vcfs -lt 2 ]; then
+      if [ $n_vcfs -eq 0 ]; then
+        bcftools view --header-only ~{vcfs[0]} -Oz -o ~{out_filename}
+      else
+        cp ~{vcfs[0]} ~{out_filename}
+      fi
+      tabix -p vcf -f ~{out_filename}
+      exit 0
+    fi
+
     bcftools concat \
       ~{bcftools_concat_options} \
-      --file-list ~{write_lines(vcfs)} \
+      --file-list vcfs.list \
       -O z \
       -o ~{out_filename} \
       --threads ~{cpu_cores}
 
     tabix -p vcf -f ~{out_filename}
+
+    kill $HEARTBEAT_PID
+    wait $HEARTBEAT_PID 2>/dev/null || true
   >>>
 
   output {
@@ -51,6 +221,7 @@ task ConcatVcfs {
     memory: mem_gb + " GB"
     cpu: cpu_cores
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"
+    bootDiskSizeGb: boot_disk_gb
     preemptible: 3
   }
 }
@@ -99,7 +270,7 @@ task CountRecordsInVcf {
       tabix -p vcf -f ~{vcf}
     fi
 
-    bcftools query -f '%CHROM\n' ~{vcf} | wc -l > record_count.txt
+    bcftools index -n ~{vcf} > record_count.txt
   >>>
 
   output {
@@ -239,6 +410,111 @@ task GetContigsFromVcfHeader {
 }
 
 
+task GetSamplesFromVcfHeader {
+  input {
+    File vcf
+    File vcf_idx
+    String bcftools_docker
+  }
+
+  String out_filename = basename(vcf, ".vcf.gz") + ".samples.list"
+  Int disk_gb = ceil(1.2 * size(vcf, "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    if [ "~{vcf_idx}" != "~{vcf}.tbi" ]; then
+      ln -s ~{vcf_idx} ~{vcf}.tbi
+    fi
+
+    bcftools query -l ~{vcf} > ~{out_filename}
+  >>>
+
+  output {
+    File sample_list = out_filename
+    Int n_samples = length(read_lines(out_filename))
+  }
+
+  runtime {
+    docker: bcftools_docker
+    memory: "3.75 GB"
+    cpu: 2
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+  }
+}
+
+
+task GetVcfHeader {
+  input {
+    File vcf
+    File vcf_idx
+    String bcftools_docker
+  }
+
+  String out_filename = basename(vcf, ".vcf.gz") + ".header.vcf.gz"
+  Int disk_gb = ceil(1.2 * size(vcf, "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    if [ "~{vcf_idx}" != "~{vcf}.tbi" ]; then
+      cp ~{vcf_idx} "~{vcf}.tbi"
+    fi
+
+    bcftools view \
+      --header-only \
+      -Oz -o "~{out_filename}" \
+      ~{vcf}
+  >>>
+
+  output {
+    File header = "~{out_filename}"
+  }
+
+  runtime {
+    docker: bcftools_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
+task IntersectTextFiles {
+  input {
+    Array[File] files
+    String outfile = "intersection.txt"
+    Int disk_gb = 20
+    String docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+
+    cat ~{files[0]} > "~{outfile}"
+    while read fid; do
+      fgrep -xf $fid "~{outfile}" > "~{outfile}2"
+      mv "~{outfile}2" "~{outfile}"
+    done < ~{write_lines(files)}
+  >>>
+
+  output {
+    File intersection_file = "~{outfile}"
+  }
+
+  runtime {
+    docker: docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+  }
+}
+
+
 task MakeTabixIndex {
   input {
     File input_file
@@ -276,6 +552,316 @@ task MakeTabixIndex {
 }
 
 
+task Max {
+  input {
+    Array[Float] values
+  }
+
+  command <<<
+    cat ~{write_lines(values)} \
+    | sort -nrk1,1 | head -n1
+  >>>
+
+  output {
+    Float max = read_float(stdout())
+  }
+
+  runtime {
+    docker: "ubuntu:plucky-20251001"
+    memory: "1.7 GB"
+    cpu: 1
+    disks: "local-disk 10 HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
+# Extract URIs of VCFs and indexes from a flat text file of URI strings
+# Useful in combination with WriteVcfInfo and ShardTextFile for parallelizing tasks over very large input arrays
+task ReadVcfInfo {
+  input {
+    File vcf_info # Either a .txt file with VCF URIs or a two-column .tsv of VCF and tabix URIs.
+                  # If provided as a single-column .txt file, we assume tabix indexes exist in the same bucket.
+    String linux_docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+
+    max_fields=$( awk -v FS="\t" '{ print NF }' ~{vcf_info} \
+                  | sort -nrk1,1 | sed -n '1p' )
+
+    if [ $max_fields -gt 1 ]; then
+      awk -v FS="\t" '{ print $1 }' ~{vcf_info} > vcf_uris.list
+      awk -v FS="\t" '{ print $2 }' ~{vcf_info} > index_uris.list
+    else
+      cp ~{vcf_info} vcf_uris.list
+      awk '{ print $1".tbi" }' ~{vcf_info} > index_uris.list
+    fi
+  >>>
+
+  output {
+    Array[String] vcf_uris = read_lines("vcf_uris.list")
+    Array[String] vcf_tbi_uris = read_lines("index_uris.list")
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
+
+
+task ReheaderVcf {
+  input {
+    File vcf
+    File vcf_idx
+    File new_header
+    String bcftools_docker
+  }
+
+  String out_filename = basename(vcf, ".vcf.gz") + ".reheadered.vcf.gz"
+  Int disk_gb = ceil(2.5 * size(vcf, "GB")) + 15
+
+  command <<<
+    set -eu -o pipefail
+
+    if [ "~{vcf_idx}" != "~{vcf}.tbi" ]; then
+      cp ~{vcf_idx} "~{vcf}.tbi"
+    fi
+
+    bcftools query -l ~{new_header} > samples.list
+
+    bcftools view \
+      --samples-file samples.list \
+      --force-samples \
+      ~{vcf} \
+    | bcftools reheader \
+      -h ~{new_header} \
+    | bcftools view \
+      -Oz -o "~{out_filename}"
+    tabix -p vcf -f "~{out_filename}"
+  >>>
+
+  output {
+    File reheadered_vcf = "~{out_filename}"
+    File reheadered_vcf_idx = "~{out_filename}.tbi"
+  }
+
+  runtime {
+    docker: bcftools_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
+# Reshard one or more input VCFs across prespecified intervals
+task ReshardVcfs {
+  input {
+    Array[File] vcfs
+    Array[File] vcf_idxs
+    File intervals_bed
+    Boolean intervals_are_compressed = true
+    String? interval_suffix
+    File? output_header
+
+    Boolean rename = false
+    Boolean delete_empty = false
+
+    String g2c_analysis_docker
+
+    Int? disk_gb
+    Float mem_gb = 7.5
+    Float max_sort_mem_gb = 6.0
+    Int n_cpu = 4
+    Int boot_gb = 15
+    Int n_preemptible = 1
+    Int ulimit = 4096
+  }
+
+  String rename_cmd = if rename then "| /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py" else ""
+  String int_cat_cmd = if intervals_are_compressed then "zcat" else "cat"
+  String int_bgzip_cmd = if intervals_are_compressed then "| bgzip -c" else ""
+  String int_bed_loc = basename(intervals_bed)
+  String out_header_cmd = if defined(output_header) then "--out-header " + basename(select_first(select_all([output_header]))) else ""
+
+  Int default_disk_gb = ceil(2 * size(vcfs, "GB")) + 20
+  Int disk_gb_use = select_first([disk_gb, default_disk_gb])
+  Int sort_mem_mb_default = floor(1000 * (mem_gb - 3.5))
+  Int sort_mem_mb_lower = if sort_mem_mb_default < 1000 then 1000 else sort_mem_mb_default
+  Int max_sort_mem_mb = floor(1000 * max_sort_mem_gb)
+  Int sort_mem_mb = if sort_mem_mb_lower > max_sort_mem_mb then max_sort_mem_mb else sort_mem_mb_lower
+
+  command <<<
+    set -eu -o pipefail
+
+    # Update and report ulimit for debugging purposes
+    ulimit -n ~{ulimit} || true
+    echo -e "\nVM ulimit: $( ulimit -n )\n"
+
+    # Exit with non-zero status if input array is empty
+    if [ ~{length(vcfs)} -eq 0 ]; then
+      echo "Error: input VCF array is empty. Need to provide at least one VCF. Exiting"
+      sleep 60s
+      exit 1
+    fi
+
+    # Relocate output header to pwd if provided
+    if ~{defined(output_header)}; then
+      cp ~{default=" " output_header} ./
+    fi
+
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[ReshardVcfs] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+
+    # Relocate intervals to pwd, adding a suffix if optioned
+    if ~{defined(interval_suffix)}; then
+      ~{int_cat_cmd} ~{intervals_bed} \
+      | awk -v suf="~{interval_suffix}" -v FS="\t" -v OFS="\t" \
+        '{ print $1, $2, $3, $4"."suf }' \
+      ~{int_bgzip_cmd} \
+      > ~{int_bed_loc}
+    else
+      cp ~{intervals_bed} ~{int_bed_loc}
+    fi
+
+    # Relocate VCF indexes to ensure they match their corresponding VCF
+    cat ~{write_lines(vcfs)} > vcf.inputs.list
+    cat ~{write_lines(vcf_idxs)} > tbi.inputs.list
+    while read vcf; do
+      exp_tbi="$vcf.tbi"
+      if [ $( fgrep -w $exp_tbi tbi.inputs.list | wc -l ) -eq 0 ]; then
+        tbi_base="$( basename $vcf ).tbi"
+        cp $( fgrep $tbi_base $tbi.inputs.list ) $exp_tbi
+      fi
+    done < vcf.inputs.list
+
+    # Reshard variants
+    /opt/pancan_germline_wgs/scripts/utilities/reshard_vcfs.py \
+      --vcf-list vcf.inputs.list \
+      ~{out_header_cmd} \
+      --intervals ~{int_bed_loc}
+
+    # To reduce disk pressure, we delete the localized copies of raw VCFs
+    xargs -a vcf.inputs.list rm
+
+    # Next, we sort, deduplicate, rename, and reindex each sharded VCF
+    mkdir clean_outputs
+    ~{int_cat_cmd} ~{int_bed_loc} > intervals.tmp
+    while read chrom start end iid; do
+      vcf="$iid.vcf.gz"
+
+      # Delete empty VCFs if optioned
+      if ~{delete_empty}; then
+        if [ $( bcftools query -f '%ID\n' $vcf | sed -n '10p' | wc -l ) -eq 0 ]; then
+          echo -e "$vcf contains no records; removing because 'delete_empty' is 'true'..."
+          rm $vcf
+          continue
+        fi
+      fi
+
+      # Sort, deduplicate, and rename records
+      echo "Sorting $vcf"
+      ls -lh $vcf
+
+      bcftools sort \
+        --max-mem "~{sort_mem_mb}M" \
+        -Oz -o $iid.sorted.vcf.gz \
+        $vcf
+      tabix -p vcf -f $iid.sorted.vcf.gz
+      
+      bcftools norm \
+        -d exact \
+        --threads ~{n_cpu} \
+        $iid.sorted.vcf.gz \
+      ~{rename_cmd} \
+      | bcftools view \
+        -Oz -o $iid.clean.vcf.gz
+
+      mv $iid.clean.vcf.gz $vcf
+      rm $iid.sorted.vcf.gz $iid.sorted.vcf.gz.tbi
+
+      tabix -p vcf -f $vcf
+
+      mv $vcf clean_outputs/
+      mv $vcf.tbi clean_outputs/
+    done < intervals.tmp
+
+    kill $HEARTBEAT_PID
+    wait $HEARTBEAT_PID 2>/dev/null || true
+  >>>
+
+  output {
+    Array[File?] resharded_vcfs = glob("clean_outputs/*vcf.gz")
+    Array[File?] resharded_vcf_idxs = glob("clean_outputs/*vcf.gz.tbi")
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb_use + " SSD"
+    bootDiskSizeGb: boot_gb
+    preemptible: n_preemptible
+    maxRetries: 1
+  }
+}
+
+
+task ShardTextFile {
+  input {
+    File input_file
+    Int? n_splits              # One of either n_splits or lines_per_split must be provided
+    Int? lines_per_split       # If both are provided, n_splits will be used
+    String out_prefix
+    Boolean shuffle = false
+    Float mem_gb = 1.75
+    String g2c_analysis_docker
+  }
+
+  Int disk_gb = ceil(3 * size(input_file, "GB")) + 10
+  String split_cmd = if defined(n_splits) then "-S ~{select_first([n_splits])}" else "-L ~{select_first([lines_per_split])}"
+  String shuffle_cmd = if shuffle then "--shuffle" else ""
+
+  command <<<
+    set -eu -o pipefail
+
+    /opt/pancan_germline_wgs/scripts/utilities/evenSplitter.R \
+      ~{split_cmd} \
+      ~{shuffle_cmd} \
+      ~{input_file} \
+      ~{out_prefix}
+  >>>
+
+  output {
+    Array[File] shards = glob("~{out_prefix}*")
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: "~{mem_gb} GB"
+    cpu: 1
+    disks: "local-disk ~{disk_gb} HDD"
+    preemptible: 3
+  }
+}
+
+
 task ShardVcf {
   input {
     File vcf
@@ -287,7 +873,7 @@ task ShardVcf {
   }
 
   String out_prefix = basename(vcf, ".vcf.gz") + ".sharded"
-  Int use_disk_gb = select_first([disk_gb, ceil(5 * size(vcf, "GB")) + 20])
+  Int use_disk_gb = select_first([disk_gb, ceil(5 * size(vcf, "GB")) + 15])
 
   command <<<
     set -eu -o pipefail
@@ -329,8 +915,13 @@ task ShardVcf {
 task SplitIntervalList {
   input {
     File interval_list
-    String linux_docker = "marketplace.gcr.io/google/ubuntu1804"
-    Int n_preemptible = 3
+    String linux_docker = "ubuntu:plucky-20251001"
+
+    Float mem_gb = 3.5
+    Int n_cpu = 2
+    Int disk_gb = 25
+    Int n_retries = 1
+    Int n_preemptible = 1
   }
 
   command <<<
@@ -354,12 +945,12 @@ task SplitIntervalList {
   }
 
   runtime {
-    cpu: 1
-    memory: "1.75 GiB"
-    disks: "local-disk 25 HDD"
+    cpu: n_cpu
+    memory: mem_gb + " GiB"
+    disks: "local-disk " + disk_gb + " HDD"
     docker: linux_docker
     preemptible: n_preemptible
-    maxRetries: 1
+    maxRetries: n_retries
   }
 }
 
@@ -424,7 +1015,6 @@ task StreamSamplesFromVcfHeader {
   }
 
   String out_filename = basename(vcf, ".vcf.gz") + ".samples.list"
-  Int disk_gb = ceil(1.2 * size(vcf, "GB")) + 10
 
   parameter_meta {
     vcf: {
@@ -442,16 +1032,43 @@ task StreamSamplesFromVcfHeader {
   >>>
 
   output {
-    String sample_list = out_filename
+    File sample_list = out_filename
     Int n_samples = length(read_lines(out_filename))
   }
 
   runtime {
     docker: bcftools_docker
-    memory: "3.75 GB"
-    cpu: 2
-    disks: "local-disk " + disk_gb + " HDD"
+    memory: "1.7 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
     preemptible: 3
+  }
+}
+
+
+task Sum {
+  input {
+    Array[Float] values
+    String linux_docker = "ubuntu:plucky-20251001"
+  }
+
+  command <<<
+    set -eu -o pipefail
+    values_file="~{write_lines(values)}"
+    awk '{ sum+=$1 }END{ print sum }' "$values_file" > sum.txt
+  >>>
+
+  output {
+    Float sum = read_float("sum.txt")
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.7 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 3
+    maxRetries: 1
   }
 }
 
@@ -489,3 +1106,39 @@ task SumSvCountsPerSample {
     preemptible: 3
   }
 }
+
+
+# Writes a two-column .tsv of VCF and index information
+task WriteVcfInfo {
+  input {
+    Array[String] vcf_uris
+    Array[String] tbi_uris
+    String output_prefix
+    String docker
+  }
+
+  String outfile = output_prefix + ".vcf_info.tsv"
+
+  command <<<
+    set -eu -o pipefail
+
+    paste \
+      ~{write_lines(vcf_uris)} \
+      ~{write_lines(tbi_uris)} \
+    > ~{outfile}
+  >>>
+
+  output {
+    File vcf_info_tsv = outfile
+  }
+
+  runtime {
+    docker: docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 25 HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
+

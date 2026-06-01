@@ -1,6 +1,7 @@
 # DFCI G2C Database
 
-Copyright (c) 2023-Present, [Ryan L. Collins](mailto:Ryan_Collins@dfci.harvard.edu) and the Van Allen, Gusev, and Haigis laboratories at Dana-Farber Cancer Institute.  
+Copyright (c) 2023-Present, [Ryan L. Collins](mailto:Ryan_Collins@dfci.harvard.edu) and the [Collins Genomics Lab](https://labs.dana-farber.org/collins-genomics/) and [Van Allen Lab](https://labs.dana-farber.org/vanallenlab/) at the Dana-Farber Cancer Institute.  
+
 Distributed under terms of the [GNU GPL v2.0 License](/LICENSE) (see `LICENSE`).  
 
 

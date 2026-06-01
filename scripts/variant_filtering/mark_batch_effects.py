@@ -81,6 +81,10 @@ def collect_batch_effect_info(record, group_map):
             continue
 
         gids = group_map.get(sid)
+        
+        if gids is None:
+            continue
+
         if len(gids) == 0:
             continue
 

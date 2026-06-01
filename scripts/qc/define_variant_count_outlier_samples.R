@@ -68,10 +68,12 @@ plot.count.distrib <- function(vals, thresholds, n.fail, n.samples, pdf.out, tit
   density.w.outliers(vals, style="hist", color=DFCI.colors[["darkblue"]],
                      title=title, title.line=0.9, x.title="Variants",
                      x.title.line=-0.1, x.label.units="count",
+                     min.x.label.length=2,
                      y.title="Samples", y.title.line=1.5,
                      parmar=c(1.85, 3.4, 1.9, 0.75))
   abline(v=thresholds, lwd=2, col=DFCI.colors[["yellow"]])
-  mtext(paste(prettyNum(n.fail, big.mark=","), " samples (", out.pct.lab,
+  mtext(paste(prettyNum(n.fail, big.mark=","), " sample",
+              if(n.fail!=1){"s"}else{""}, " (", out.pct.lab,
               ") failed", sep=""),
         3, cex=5/6, font=3, col=DFCI.colors[["yellow"]], line=0.1)
   dev.off()
@@ -101,13 +103,13 @@ parser$add_argument("--out-prefix", metavar="path", type="character", required=T
 args <- parser$parse_args()
 
 # # DEV:
-# args <- list("counts_tsv" = "~/scratch/dfci-g2c.05_sv_counts.manta.tsv",
-#              "sample_labels_tsv" = NULL,
-#              "n_iqr" = 6,
+# args <- list("counts_tsv" = "~/scratch/sv_count_dbg/dfci-ufc.v1.postCleanupPart1.counts.subsetted.collapsed.tsv",
+#              "sample_labels_tsv" = "~/scratch/sv_count_dbg/dfci-g2c.intake_pop_labels.aou_split.tsv",
+#              "n_iqr" = 3,
 #              "no_lower_filter" = FALSE,
 #              "plot" = TRUE,
-#              "plot_title_prefix" = "Manta",
-#              "out_prefix" = "~/scratch/dfci-g2c.05B")
+#              "plot_title_prefix" = "UFC-SV",
+#              "out_prefix" = "~/scratch/dfci-ufc.v1.sv")
 
 # Read count data
 counts <- load.counts(args$counts_tsv)

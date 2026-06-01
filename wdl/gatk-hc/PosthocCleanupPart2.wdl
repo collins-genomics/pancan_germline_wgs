@@ -14,29 +14,78 @@
 version 1.0
 
 
+import "Utilities.wdl" as Utils
+
+
 workflow PosthocCleanupPart2 {
   input {
-    Array[File] vcfs
-    Array[File] vcf_idxs
+    # Input can be specified in two ways: 
+    # 1. Arrays of VCFs & tabix indexes:
+    Array[File]? vcfs
+    Array[File]? vcf_idxs
+    # 2. Or a two-column .tsv of VCF and index GCS URIs
+    File? vcf_info_tsv
+
     File exclude_samples_list
-    String bcftools_docker
+
+    # Parallelization control (makes workflow metadata easier to query)
+    Int vcfs_per_shard = 10
+
+    String linux_docker
+    String g2c_analysis_docker
   }
 
-  Array[Pair[File, File]] vcf_infos = zip(vcfs, vcf_idxs)
-
-  scatter ( vcf_info in vcf_infos ) {
-    call CleanupPart2 {
+  
+  # If inputs are defined as arrays, write as .tsv for subsequent chunking
+  if ( ! defined(vcf_info_tsv) ) {
+    call Utils.VcfArrayToTsv {
       input:
-        vcf = vcf_info.left,
-        vcf_idx = vcf_info.right,
-        exclude_samples_list = exclude_samples_list,
-        docker = bcftools_docker
+        vcfs = select_first([vcfs, []]),
+        vcf_idxs = select_first([vcf_idxs, []]),
+        output_prefix = "PosthocCleanupPart2",
+        docker = linux_docker
+    }
+  }
+
+  # Shard VCF URI list
+  call Utils.ShardTextFile as ShardVcfList {
+    input:
+      input_file = select_first([vcf_info_tsv, VcfArrayToTsv.vcf_info_tsv]),
+      lines_per_split = vcfs_per_shard,
+      out_prefix = "PosthocCleanupPart2.",
+      g2c_analysis_docker = g2c_analysis_docker
+  }
+  Int n_chunks = length(ShardVcfList.shards)
+
+  # Scatter over sharded VCF lists
+  scatter ( i in range(n_chunks) ) {
+    # Extract URIs from sharded file as array of strings and indexes
+    call Utils.ExtractVcfArrays {
+      input:
+        vcf_info = ShardVcfList.shards[i],
+        linux_docker = g2c_analysis_docker
+    }
+
+    Array[Pair[File, File]] inner_vcf_infos = zip(ExtractVcfArrays.vcf_uris, 
+                                                  ExtractVcfArrays.vcf_tbi_uris)
+    scatter ( j in range(length(inner_vcf_infos)) ) {
+
+      File in_vcf_shard = inner_vcf_infos[j].left
+      File in_vcf_shard_idx = inner_vcf_infos[j].right
+
+      call CleanupPart2 {
+        input:
+          vcf = in_vcf_shard,
+          vcf_idx = in_vcf_shard_idx,
+          exclude_samples_list = exclude_samples_list,
+          docker = g2c_analysis_docker
+      }
     }
   }
 
   output {
-    Array[File] filtered_vcfs = CleanupPart2.filtered_vcf
-    Array[File] filtered_vcf_idxs = CleanupPart2.filtered_vcf_idx
+    Array[File] filtered_vcfs = flatten(CleanupPart2.filtered_vcf)
+    Array[File] filtered_vcf_idxs = flatten(CleanupPart2.filtered_vcf_idx)
   }
 }
 

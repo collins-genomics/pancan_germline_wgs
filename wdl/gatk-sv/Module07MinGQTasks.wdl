@@ -419,6 +419,7 @@ task CollectTrioSVdat {
     File famfile
     String filter_metric = "GQ"
     Array[String] gather_trio_geno_options = []
+    File? script
     String sv_pipeline_base_docker
     RuntimeAttr? runtime_attr_override
   }
@@ -507,7 +508,7 @@ task CollectTrioSVdat {
           >> $famID.RD_genotype_update.txt || true
 
           # Get variant stats
-          /opt/sv-pipeline/scripts/downstream_analysis_and_filtering/gather_trio_genos.py \
+          python ~{default="/opt/sv-pipeline/scripts/downstream_analysis_and_filtering/gather_trio_genos.py" script} \
             --ac-adj $famID.RD_genotype_update.txt \
             --metric ~{filter_metric} \
             ~{sep=" " gather_trio_geno_options} \
@@ -748,6 +749,7 @@ task FilterGTs {
     String PCR_status
     Float maxNCR
     Array[String] filter_GT_options = []
+    File? script
     String sv_pipeline_base_docker
     RuntimeAttr? runtime_attr_override    
   }
@@ -764,7 +766,7 @@ task FilterGTs {
   command <<<
     set -eu -o pipefail
 
-    cmd="/opt/sv-pipeline/scripts/downstream_analysis_and_filtering/filter_GTs_by_metric.py "
+    cmd="python ~{default='/opt/sv-pipeline/scripts/downstream_analysis_and_filtering/filter_GTs_by_metric.py' script}"
     cmd="$cmd ~{sep=' ' filter_GT_options} "
     cmd="$cmd --max-ncr ~{maxNCR} --simplify-INS-SVTYPEs --cleanAFinfo "
     cmd="$cmd --prefix \"~{PCR_status}\" ~{vcf} ~{minMetric_lookup_table} stdout"

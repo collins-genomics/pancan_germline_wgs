@@ -1,7 +1,7 @@
 Package: G2CR
 Type: Package
 Title: Dana-Farber Germline Genomics of Cancer Database
-Version: 0.2.0
+Version: 0.3.0
 Author: Ryan Collins <Ryan_Collins@dfci.harvard.edu>
 Maintainer: Ryan Collins <Ryan_Collins@dfci.harvard.edu>
 Description: This package contains various utility functions used in the
@@ -23,6 +23,7 @@ Suggests:
     argparse,
     caret,
     DescTools,
+    glmnet,
     MASS,
     readxl,
     survival,

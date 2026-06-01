@@ -763,13 +763,12 @@ submit_cohort_module 19
 
 # Note: this module only needs to be run once in one workspace for the whole cohort
 
-# Write template input .json for hard filters, part 1
+# Write template input .json for reclustering
 staging_dir=staging/posthoc_recluster
-if [ -e $staging_dir ]; then rm -rf $staging_dir; fi
-mkdir $staging_dir
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 cat << EOF > $staging_dir/CollapseRedundantSvs.inputs.template.json
 {
-  "CollapseRedundantSvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:0fe6e7d",
+  "CollapseRedundantSvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:e246265",
   "CollapseRedundantSvs.vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/19/\$CONTIG/RecalibrateGq/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.vcf.gz",
   "CollapseRedundantSvs.vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/19/\$CONTIG/RecalibrateGq/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.vcf.gz.tbi"
 }
@@ -784,6 +783,7 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.CollapseRedundantSvs.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
+  --submission-gate 0 \
   --max-attempts 3
 
 # Confirm that the reclustering procedure didn't result in major VCF changes
@@ -799,3 +799,54 @@ for k in $( seq 1 22 ) X Y; do
     | bcftools query -f '%ID\n' | wc -l
   done | paste - - - | awk -v OFS="\t" '{ print $1, $2, $3, $3-$2, 100*(($3-$2)/$2)"%" }'
 done
+
+# Test downstream tool compatability by trying to annotate all CPX variants
+
+# Make tarball with SV annotation dependencies
+cd code/wdl/gatk-sv/svannotation_v1.1 && \
+zip svannotation.dependencies.zip *.wdl && \
+mv svannotation.dependencies.zip ~/ && \
+cd ~
+
+# Extract CPX variants from chr1 (we know there's a INVdup at the end that has been problematic)
+gsutil -m cat \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/CollapseRedundantSvs/chr1/RC3/dfci-g2c.v1.chr1.concordance.gq_recalibrated.identical.reclustered.vcf.gz \
+| bcftools view \
+  -i 'INFO/SVTYPE = "CPX"' \
+  -Oz -o scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz
+tabix -p vcf -f scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz
+gsutil -m cp \
+  scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz* \
+  $WORKSPACE_BUCKET/scratch/
+
+# Write .json input for chr1 annotation test
+cat << EOF > cromshell/inputs/AnnotateVcf.inputs.chr1_test.json
+{
+  "AnnotateVcf.contig_list": "gs://dfci-g2c-refs/hg38/contig_lists/chr1.list",
+  "AnnotateVcf.external_af_population": ["ALL","AFR","AMR","EAS","EUR","MID","FIN","ASJ","RMI","SAS","AMI"],
+  "AnnotateVcf.external_af_ref_bed": "gs://gatk-sv-resources-public/gnomad_AF/gnomad_v4_SV.Freq.tsv.gz",
+  "AnnotateVcf.external_af_ref_prefix": "gnomad_v4.1_sv",
+  "AnnotateVcf.gatk_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/gatk:2025-05-20-4.6.2.0-4-g1facd911e-NIGHTLY-SNAPSHOT",
+  "AnnotateVcf.par_bed": "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/hg38.par.bed",
+  "AnnotateVcf.prefix": "dfci-ufc.v1.sv.annotation_test.chr1",
+  "AnnotateVcf.protein_coding_gtf": "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/gencode.v47.basic.protein_coding.canonical.gtf",
+  "AnnotateVcf.runtime_attr_svannotate": {"cpu_cores" : 4, "mem_gb": 7.5},
+  "AnnotateVcf.sv_base_mini_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+  "AnnotateVcf.sv_per_shard": 5000,
+  "AnnotateVcf.sv_pipeline_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-pipeline:2025-09-02-v1.0.5-631368eb",
+  "AnnotateVcf.vcf": "$WORKSPACE_BUCKET/scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz"
+}
+EOF
+
+# Submit chr1 annotation test
+cromshell --no_turtle -t 120 -mc submit \
+  --options-json code/refs/json/aou.cromwell_options.default.json \
+  --dependencies-zip svannotation.dependencies.zip \
+  code/wdl/gatk-sv/svannotation_v1.1/AnnotateVcf.wdl \
+  cromshell/inputs/AnnotateVcf.inputs.chr1_test.json \
+| jq .id | tr -d '"' \
+>> cromshell/job_ids/annotation_test.job_ids.list
+
+# Monitor annotation test
+monitor_workflow $( tail -n1 cromshell/job_ids/annotation_test.job_ids.list )
+

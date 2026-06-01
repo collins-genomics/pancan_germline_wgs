@@ -115,21 +115,28 @@ RUN cd /opt && \
     cd - 
 
 # Ensure the Kent library is located where expected by Bio::DB::BigWig
-RUN if [ /opt/kent/src/lib/$MACHTYPE ]; then \
-        mkdir /opt/kent/src/lib/$MACHTYPE; \
-        cp $( find /opt/kent/src/lib/ -name "jkweb.a" ) /opt/kent/src/lib/$MACHTYPE/ ; \
-    fi
+RUN set -eux; \
+    MACH="$(uname -m)"; \
+    echo "machine arch: $MACH"; \
+    mkdir -p /opt/kent/src/lib/"$MACH"; \
+    JK="$(find /opt/kent/src/lib -type f -name 'jkweb.a' | head -n1)"; \
+    if [ -z "$JK" ]; then echo "ERROR: jkweb.a not found under /opt/kent/src/lib"; exit 1; fi; \
+    cp -n "$JK" /opt/kent/src/lib/"$MACH"/
 ENV KENT_SRC=/opt/kent/src
+
 
 # Install Bio::DB::Big with cpanm
 RUN cpanm --quiet --notest Bio::DB::Big
 
-# install Bio::DB::BigWig via manual CPAN tarball build (non-interactive)
-RUN cd /opt && \
+# Install Bio::DB::BigWig via manual CPAN tarball build (non-interactive)
+RUN set -eux; \
+    MACH="$(uname -m)"; \
+    HTSLIB_DIR=/opt/htslib-1.18; \
+    cd /opt && \
     wget http://www.cpan.org/authors/id/L/LD/LDS/Bio-BigFile-1.07.tar.gz && \
     tar xzf Bio-BigFile-1.07.tar.gz && \
     cd Bio-BigFile-1.07 && \
-    perl Build.PL  --extra_linker_flags="-L${HTSLIB_DIR} -lhts" && \
+    perl Build.PL --extra_linker_flags="/opt/kent/src/lib/${MACH}/jkweb.a -L${HTSLIB_DIR} -lhts -lz -lssl -lcrypto" && \
     ./Build && \
     ./Build install && \
     cd - && \
@@ -156,8 +163,8 @@ RUN cd /opt && \
     cp -rf loftee/* $VEP_PLUGINS/ && \
     cd -
 
-# Alias VEP on path
-ENV PATH=/opt/ensembl-vep/:$PATH
+# Alias VEP and HTSLib tools on path
+ENV PATH=/opt/ensembl-vep/:/opt/htslib-1.18/bin:$PATH
 
 # Launch bash as entrypoint
 CMD ["/bin/bash"]

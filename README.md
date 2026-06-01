@@ -1,7 +1,8 @@
 # The Germline Genomics of Cancer (G2C)
 ## Variant calling from germline whole-genome sequencing (WGS) across cancer types
 
-Copyright (c) 2023-Present, [Ryan L. Collins](mailto:Ryan_Collins@dfci.harvard.edu), [Noah Fields](mailto:noah_fields@dfci.harvard.edu), and the Van Allen, Gusev, and Haigis laboratories at Dana-Farber Cancer Institute.  
+Copyright (c) 2023-Present, [Ryan L. Collins](mailto:Ryan_Collins@dfci.harvard.edu), the [Collins Genomics Lab](https://labs.dana-farber.org/collins-genomics/), and the [Van Allen Lab](https://labs.dana-farber.org/vanallenlab/) at the Dana-Farber Cancer Institute.  
+
 Distributed under terms of the [GNU GPL v2.0 License](/LICENSE) (see `LICENSE`).  
 
 #### _Note: this repository is under active development. More documentation will be added as the project evolves._

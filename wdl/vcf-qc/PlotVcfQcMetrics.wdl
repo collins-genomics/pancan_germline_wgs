@@ -34,7 +34,11 @@ workflow PlotVcfQcMetrics {
 
     File? sample_ancestry_labels
     File? sample_phenotype_labels
+    File? sample_subset_list
     Float common_af_cutoff = 0.01
+    Int pointwise_site_downsample_limit = 1000000 # Any site-level BEDs used for pointwise 
+                                                  # evaluation with more than this number of
+                                                  # records will be downsampled to this limit
     Array[String?] benchmark_interval_names = []
 
     # Expected organization of site benchmarking inputs:
@@ -52,6 +56,12 @@ workflow PlotVcfQcMetrics {
     Array[Array[Array[File?]]] site_benchmark_sensitivity_by_freqs = [[[]]]
     Array[String?] site_benchmark_dataset_prefixes = []
     Array[String?] site_benchmark_dataset_titles = []
+    # For platforms like Terra, it is often more practical to provide inputs 
+    # with middle & inner arrays flipped (i.e., middle array = per chromosome,
+    # inner array = per eval set). If optioned, the below argument will 
+    # automatically transpose the inner & middle arrays of all of the
+    # site_benchmark_* inputs above to revert to the expected order
+    Boolean transpose_site_benchmarking_nested_arrays = false
 
     # Expected organization of external sample-level genotype benchmarking inputs:
     # Outer array: one entry per benchmarking dataset
@@ -62,6 +72,9 @@ workflow PlotVcfQcMetrics {
     Array[Array[Array[File?]]] sample_benchmark_sensitivity_distribs = [[[]]]
     Array[String?] sample_benchmark_dataset_prefixes = []
     Array[String?] sample_benchmark_dataset_titles = []
+    # We also provide an option to invert the order of middle/inner arrays here
+    # See commentary above for site_benchmark_* inputs
+    Boolean transpose_sample_benchmarking_nested_arrays = false
 
     # Other benchmarking data; one outer array per evaluation interval
     # and each inner array can be one or more files (e.g., one per chromosome)
@@ -71,6 +84,12 @@ workflow PlotVcfQcMetrics {
     # Optionally, you can provide the all_stats_tsv output from a prior run for comparison
     File? previous_stats
     File? custom_qc_target_metrics
+    File? custom_plotting_constants
+
+    # Automatically drop duplicate sites from pointwise analyses
+    # In general, this isn't recommended as learning about the presence
+    # of unexpected duplicate variants can be a useful QC safeguard/sanity check
+    Boolean deduplicate = false
 
     String output_prefix
 
@@ -210,6 +229,31 @@ workflow PlotVcfQcMetrics {
     }
     File common_snvs_bed = select_first(select_all([CollapseCommonSnvs.merged_file, 
                                                     select_first([common_snv_beds])[0]]))
+    # Check if common SNVs need to be downsampled before pointwise plotting
+    call QcTasks.CheckBedSize as CountCommonSnvs {
+      input:
+        bed = common_snvs_bed
+    }
+    Int n_common_snvs = CountCommonSnvs.num_records
+    if (n_common_snvs > pointwise_site_downsample_limit) {
+      call QcTasks.DownsampleBed as DownsampleCommonSnvs {
+        input:
+          bed = common_snvs_bed,
+          downsample_ratio = floor(n_common_snvs / pointwise_site_downsample_limit),
+          return_record_ids = true,
+          docker = g2c_analysis_docker
+      }
+    }
+    File pw_common_snvs_bed = select_first([DownsampleCommonSnvs.downsampled_bed, common_snvs_bed])
+    Boolean common_snvs_were_downsampled = select_first([DownsampleCommonSnvs.was_downsampled, false])
+    if (!common_snvs_were_downsampled) {
+      call QcTasks.GetBedFeatureNames as GetCommonSnvVids {
+        input:
+          bed = pw_common_snvs_bed
+      }
+    }
+    File pw_common_snv_vids = select_first([DownsampleCommonSnvs.downsampled_record_ids,
+                                            GetCommonSnvVids.feature_names])
   }
 
   # If necessary, collapse common indel BEDs
@@ -228,6 +272,31 @@ workflow PlotVcfQcMetrics {
     }
     File common_indels_bed = select_first(select_all([CollapseCommonIndels.merged_file, 
                                                       select_first([common_indel_beds])[0]]))
+    # Check if common indels need to be downsampled before pointwise plotting
+    call QcTasks.CheckBedSize as CountCommonIndels {
+      input:
+        bed = common_indels_bed
+    }
+    Int n_common_indels = CountCommonIndels.num_records
+    if (n_common_indels > pointwise_site_downsample_limit) {
+      call QcTasks.DownsampleBed as DownsampleCommonIndels {
+        input:
+          bed = common_indels_bed,
+          downsample_ratio = floor(n_common_indels / pointwise_site_downsample_limit),
+          return_record_ids = true,
+          docker = g2c_analysis_docker
+      }
+    }
+    File pw_common_indels_bed = select_first([DownsampleCommonIndels.downsampled_bed, common_indels_bed])
+    Boolean common_indels_were_downsampled = select_first([DownsampleCommonIndels.was_downsampled, false])
+    if (!common_indels_were_downsampled) {
+      call QcTasks.GetBedFeatureNames as GetCommonIndelVids {
+        input:
+          bed = pw_common_indels_bed
+      }
+    }
+    File pw_common_indel_vids = select_first([DownsampleCommonIndels.downsampled_record_ids,
+                                              GetCommonIndelVids.feature_names])
   }
 
   # If necessary, collapse common SV BEDs
@@ -246,6 +315,31 @@ workflow PlotVcfQcMetrics {
     }
     File common_svs_bed = select_first(select_all([CollapseCommonSvs.merged_file, 
                                                    select_first([common_sv_beds])[0]]))
+    # Check if common SVs need to be downsampled before pointwise plotting
+    call QcTasks.CheckBedSize as CountCommonSvs {
+      input:
+        bed = common_svs_bed
+    }
+    Int n_common_svs = CountCommonSvs.num_records
+    if (n_common_svs > pointwise_site_downsample_limit) {
+      call QcTasks.DownsampleBed as DownsampleCommonSvs {
+        input:
+          bed = common_svs_bed,
+          downsample_ratio = floor(n_common_svs / pointwise_site_downsample_limit),
+          return_record_ids = true,
+          docker = g2c_analysis_docker
+      }
+    }
+    File pw_common_svs_bed = select_first([DownsampleCommonSvs.downsampled_bed, common_svs_bed])
+    Boolean common_svs_were_downsampled = select_first([DownsampleCommonSvs.was_downsampled, false])
+    if (!common_svs_were_downsampled) {
+      call QcTasks.GetBedFeatureNames as GetCommonSvVids {
+        input:
+          bed = pw_common_svs_bed
+      }
+    }
+    File pw_common_sv_vids = select_first([DownsampleCommonSvs.downsampled_record_ids,
+                                           GetCommonSvVids.feature_names])
   }
 
   # If necessary, collapse sample genotype distributions
@@ -263,36 +357,112 @@ workflow PlotVcfQcMetrics {
   # If necessary, collapse peak LD stats
   if ( defined(peak_ld_stat_tsvs) ) {
     Array[File] peak_ld_stat_tsv_use = select_first([peak_ld_stat_tsvs])
-    if ( length(peak_ld_stat_tsv_use) > 1 ) {
+    # First subset LD stats to only variants in common SNV, indel, or SV BED files
+    # This makes merging easier and final files smaller
+    scatter ( ld_tsv in peak_ld_stat_tsv_use ) {
+      call QcTasks.FilterTextFileByColumn as SubsetLdStatsByVid {
+        input:
+          input_txt = ld_tsv,
+          key_files = select_all([pw_common_snv_vids, pw_common_indel_vids, pw_common_sv_vids]),
+          column_number = 1,
+          outfile_name = basename(ld_tsv, ".tsv.gz") + ".subsetted.tsv.gz",
+          postprocessing_command = "| gzip -c ",
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+    }
+    Array[File] filtered_ld_tsvs = SubsetLdStatsByVid.filtered_txt
+    # Subsequently, concatenate filtered LD stats
+    if ( length(filtered_ld_tsvs) > 1 ) {
       call QcTasks.ConcatTextFiles as CollapseLdStats {
         input:
-          shards = peak_ld_stat_tsv_use,
+          shards = filtered_ld_tsvs,
           concat_command = "zcat",
           sort_command = "sort -Vk1,1 -k2,2V",
           compression_command = "gzip -c",
           input_has_header = true,
-          output_filename = output_prefix + ".peak_ld_stats.tsv.gz",
+          output_filename = output_prefix + ".peak_ld_stats.subsetted.tsv.gz",
           docker = bcftools_docker
       }
     }
-    File ld_stats_tsv = select_first([CollapseLdStats.merged_file, peak_ld_stat_tsv_use[0]])
+    File ld_stats_tsv = select_first([CollapseLdStats.merged_file, filtered_ld_tsvs[0]])
   }
 
   # Preprocess site benchmarking, if provided
   if (has_site_benchmarking) {
+
+    # Transpose input arrays if optioned
+    if (transpose_site_benchmarking_nested_arrays) {
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_snv_ppv_beds {
+        input:
+          input_array = site_benchmark_common_snv_ppv_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_indel_ppv_beds {
+        input:
+          input_array = site_benchmark_common_indel_ppv_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_sv_ppv_beds {
+        input:
+          input_array = site_benchmark_common_sv_ppv_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_snv_sens_beds {
+        input:
+          input_array = site_benchmark_common_snv_sens_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_indel_sens_beds {
+        input:
+          input_array = site_benchmark_common_indel_sens_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_sv_sens_beds {
+        input:
+          input_array = site_benchmark_common_sv_sens_beds,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_ppv_by_af {
+        input:
+          input_array = site_benchmark_ppv_by_freqs,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_sb_sens_by_af {
+        input:
+          input_array = site_benchmark_sensitivity_by_freqs,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+    }
+    Array[Array[Array[File?]]] sb_snv_ppv_beds = select_first([transpose_sb_snv_ppv_beds.output_array,
+                                                               site_benchmark_common_snv_ppv_beds])
+    Array[Array[Array[File?]]] sb_indel_ppv_beds = select_first([transpose_sb_indel_ppv_beds.output_array,
+                                                                 site_benchmark_common_indel_ppv_beds])
+    Array[Array[Array[File?]]] sb_sv_ppv_beds = select_first([transpose_sb_sv_ppv_beds.output_array,
+                                                              site_benchmark_common_sv_ppv_beds])
+    Array[Array[Array[File?]]] sb_snv_sens_beds = select_first([transpose_sb_snv_sens_beds.output_array,
+                                                                site_benchmark_common_snv_sens_beds])
+    Array[Array[Array[File?]]] sb_indel_sens_beds = select_first([transpose_sb_indel_sens_beds.output_array,
+                                                                  site_benchmark_common_indel_sens_beds])
+    Array[Array[Array[File?]]] sb_sv_sens_beds = select_first([transpose_sb_sv_sens_beds.output_array,
+                                                               site_benchmark_common_sv_sens_beds])
+    Array[Array[Array[File?]]] sb_ppv_by_af = select_first([transpose_sb_ppv_by_af.output_array,
+                                                            site_benchmark_ppv_by_freqs])
+    Array[Array[Array[File?]]] sb_sens_by_af = select_first([transpose_sb_sens_by_af.output_array,
+                                                             site_benchmark_sensitivity_by_freqs])
+
     scatter ( site_bench_di in range(n_sb_datasets) ) {
 
       String bd_name = select_first([site_benchmark_dataset_prefixes[site_bench_di], "benchmark_data"])
       String sb_prefix = output_prefix + "." + bd_name
 
-      Array[Array[File?]] bd_snv_ppv_beds = site_benchmark_common_snv_ppv_beds[site_bench_di]
-      Array[Array[File?]] bd_indel_ppv_beds = site_benchmark_common_indel_ppv_beds[site_bench_di]
-      Array[Array[File?]] bd_sv_ppv_beds = site_benchmark_common_sv_ppv_beds[site_bench_di]
-      Array[Array[File?]] bd_snv_sens_beds = site_benchmark_common_snv_sens_beds[site_bench_di]
-      Array[Array[File?]] bd_indel_sens_beds = site_benchmark_common_indel_sens_beds[site_bench_di]
-      Array[Array[File?]] bd_sv_sens_beds = site_benchmark_common_sv_sens_beds[site_bench_di]
-      Array[Array[File?]] bd_ppv_by_af = site_benchmark_ppv_by_freqs[site_bench_di]
-      Array[Array[File?]] bd_sens_by_af = site_benchmark_sensitivity_by_freqs[site_bench_di]
+      Array[Array[File?]] bd_snv_ppv_beds = sb_snv_ppv_beds[site_bench_di]
+      Array[Array[File?]] bd_indel_ppv_beds = sb_indel_ppv_beds[site_bench_di]
+      Array[Array[File?]] bd_sv_ppv_beds = sb_sv_ppv_beds[site_bench_di]
+      Array[Array[File?]] bd_snv_sens_beds = sb_snv_sens_beds[site_bench_di]
+      Array[Array[File?]] bd_indel_sens_beds = sb_indel_sens_beds[site_bench_di]
+      Array[Array[File?]] bd_sv_sens_beds = sb_sv_sens_beds[site_bench_di]
+      Array[Array[File?]] bd_ppv_by_af = sb_ppv_by_af[site_bench_di]
+      Array[Array[File?]] bd_sens_by_af = sb_sens_by_af[site_bench_di]
 
       call PSB.PrepSiteBenchDataToPlot as PrepSiteBench {
         input:
@@ -326,13 +496,30 @@ workflow PlotVcfQcMetrics {
 
   # Preprocess sample benchmarking, if provided
   if (has_sample_benchmarking) {
+    if (transpose_sample_benchmarking_nested_arrays) {
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_gb_ppv_tsvs {
+        input:
+          input_array = sample_benchmark_ppv_distribs,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+      call QcTasks.TransposeTerraBenchmarkingArray as transpose_gb_sens_tsvs {
+        input:
+          input_array = sample_benchmark_sensitivity_distribs,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+    }
+    Array[Array[Array[File?]]] gb_ppv_tsvs = select_first([transpose_gb_ppv_tsvs.output_array,
+                                                           sample_benchmark_ppv_distribs])
+    Array[Array[Array[File?]]] gb_sens_tsvs = select_first([transpose_gb_sens_tsvs.output_array,
+                                                            sample_benchmark_sensitivity_distribs])
+
     scatter ( sample_bench_di in range(n_gb_datasets) ) {
 
       String gbd_name = select_first([sample_benchmark_dataset_prefixes[sample_bench_di], "benchmark_data"])
       String gb_prefix = output_prefix + "." + gbd_name
 
-      Array[Array[File?]] gbd_ppv_tsvs = sample_benchmark_ppv_distribs[sample_bench_di]
-      Array[Array[File?]] gbd_sens_tsvs = sample_benchmark_sensitivity_distribs[sample_bench_di]
+      Array[Array[File?]] gbd_ppv_tsvs = gb_ppv_tsvs[sample_bench_di]
+      Array[Array[File?]] gbd_sens_tsvs = gb_sens_tsvs[sample_bench_di]
 
       call PSB.PrepSiteBenchDataToPlot as PrepSampleBench {
         input:
@@ -399,12 +586,20 @@ workflow PlotVcfQcMetrics {
       ref_size_distrib = ref_size_distrib,
       ref_af_distrib = ref_af_distrib,
       all_svs_bed = all_svs_bed,
-      common_snvs_bed = common_snvs_bed,
-      common_indels_bed = common_indels_bed,
-      common_svs_bed = common_svs_bed,
+      common_snvs_bed = pw_common_snvs_bed,
+      common_snvs_were_downsampled = common_snvs_were_downsampled,
+      n_common_snvs = n_common_snvs,
+      common_indels_bed = pw_common_indels_bed,
+      common_indels_were_downsampled = common_indels_were_downsampled,
+      n_common_indels = n_common_indels,
+      common_svs_bed = pw_common_svs_bed,
+      common_svs_were_downsampled = common_svs_were_downsampled,
+      n_common_svs = n_common_svs,
       ld_stats_tsv = ld_stats_tsv,
       output_prefix = output_prefix,
       ref_title = ref_cohort_plot_title,
+      custom_plotting_constants = custom_plotting_constants,
+      deduplicate = deduplicate,
       g2c_analysis_docker = g2c_analysis_docker
   }
 
@@ -414,11 +609,13 @@ workflow PlotVcfQcMetrics {
       gt_distrib = gt_distrib,
       ancestry_labels = sample_ancestry_labels,
       phenotype_labels = sample_phenotype_labels,
+      sample_subset_list = sample_subset_list,
       twin_concordance_tsvs = twin_bench_summed_distribs,
       trio_concordance_tsvs = trio_bench_summed_distribs,
       eval_interval_names = select_all(benchmark_interval_names),
       common_af_cutoff = common_af_cutoff,
       output_prefix = output_prefix,
+      custom_plotting_constants = custom_plotting_constants,
       g2c_analysis_docker = g2c_analysis_docker
   }
 
@@ -439,6 +636,9 @@ workflow PlotVcfQcMetrics {
           inverted_inputs_json = select_first([PrepSiteBenchInverted.plot_files_json])[site_bench_di],
           output_prefix = output_prefix,
           common_af_cutoff = common_af_cutoff,
+          max_records_per_bed = pointwise_site_downsample_limit,
+          deduplicate = deduplicate,
+          custom_plotting_constants = custom_plotting_constants,
           g2c_analysis_docker = g2c_analysis_docker
       }
     }
@@ -458,8 +658,10 @@ workflow PlotVcfQcMetrics {
           ref_dataset_title = plot_gbd_title,
           eval_interval_names = select_all(benchmark_interval_names),
           inputs_json = select_first([PrepSampleBench.plot_files_json])[sample_bench_di],
+          sample_subset_list = sample_subset_list,
           output_prefix = output_prefix,
           common_af_cutoff = common_af_cutoff,
+          custom_plotting_constants = custom_plotting_constants,
           g2c_analysis_docker = g2c_analysis_docker
       }
     }
@@ -480,12 +682,13 @@ workflow PlotVcfQcMetrics {
     input:
       tarballs = all_out_tarballs,
       previous_stats = previous_stats,
-      ref_cohort_prefix = ref_cohort_prefix,
-      ref_cohort_plot_title = ref_cohort_plot_title,
+      site_benchmark_prefix = select_all(site_benchmark_dataset_prefixes),
+      site_benchmark_title = select_all(site_benchmark_dataset_titles),
       sample_benchmark_prefixes = select_all(sample_benchmark_dataset_prefixes),
       sample_benchmark_titles = select_all(sample_benchmark_dataset_titles),
       custom_targets = custom_qc_target_metrics,
       out_prefix = output_prefix,
+      custom_plotting_constants = custom_plotting_constants,
       g2c_analysis_docker = g2c_analysis_docker
   }
 
@@ -501,17 +704,19 @@ task PackageOutputs {
   input {
     Array[File] tarballs
     File? previous_stats
-    String ref_cohort_prefix
-    String ref_cohort_plot_title
-    Array[String] sample_benchmark_prefixes
-    Array[String] sample_benchmark_titles
+    Array[String?] site_benchmark_prefix
+    Array[String?] site_benchmark_title
+    Array[String?] sample_benchmark_prefixes
+    Array[String?] sample_benchmark_titles
     File? custom_targets
     String out_prefix
+    File? custom_plotting_constants
     String g2c_analysis_docker
   }
 
   String previous_opt = if defined(previous_stats) then "--previous-stats ~{basename(select_first([previous_stats, 'not_real.txt']))}" else ""
   String targets_opt = if defined(custom_targets) then "--custom-targets ~{basename(select_first([custom_targets, 'not_real.txt']))}" else ""
+  String constants_opt = if defined(custom_plotting_constants) then "--custom-constants ~{basename(select_first([custom_plotting_constants, 'not_real.txt']))}"  else ""
 
   Int disk_gb = ceil(10 * size(tarballs, "GB")) + 10
 
@@ -541,9 +746,13 @@ task PackageOutputs {
     if ~{defined(custom_targets)}; then
       ln -s ~{default="" custom_targets} ./
     fi
+    if ~{defined(custom_plotting_constants)}; then
+      ln -s ~{default="" custom_plotting_constants} ./
+    fi
 
     # Collapse all summary stats and generate summary barplots
-    echo -e "#analysis\tmeasure\tvalue\tn" > ss.all.tsv
+    echo -e "#analysis\tmeasure\tvalue\tn" \
+    > ~{out_prefix}.all_qc_summary_metrics.tsv
     find ~{out_prefix}.stats/ -name "*.summary_metrics.tsv" \
     | xargs -I {} cat {} | grep -ve '^#' | grep -ve '^analysis' \
     | sort -Vk1,1 -k2,2V -k3,3n -k4,4n >> \
@@ -554,15 +763,19 @@ task PackageOutputs {
     cmd="Rscript /opt/pancan_germline_wgs/scripts/qc/vcf_qc/plot_overall_qc_summary.R"
     cmd="$cmd --stats ~{out_prefix}.stats/~{out_prefix}.all_qc_summary_metrics.tsv"
     cmd="$cmd ~{previous_opt} ~{targets_opt}"
-    cmd="$cmd --site-ref-prefix \"~{ref_cohort_prefix}\""
-    cmd="$cmd --site-ref-title \"~{ref_cohort_plot_title}\""
     while read sbp; do
-      cmd="$cmd --sample-benchmarking-prefix \"$sbp\""
-    done < ~{write_lines(sample_benchmark_prefixes)}
+      cmd="$cmd --site-ref-prefix \"$sbp\""
+    done < ~{write_lines(select_all(site_benchmark_prefix))}
     while read sbt; do
-      cmd="$cmd --sample-benchmarking-title \"$sbt\""
-    done < ~{write_lines(sample_benchmark_titles)}
-    cmd="$cmd --out-prefix \"~{out_prefix}.plots/~{out_prefix}.qc_summary/~{out_prefix}\""
+      cmd="$cmd --site-ref-title \"$sbt\""
+    done < ~{write_lines(select_all(site_benchmark_title))}
+    while read gbp; do
+      cmd="$cmd --sample-benchmarking-prefix \"$gbp\""
+    done < ~{write_lines(select_all(sample_benchmark_prefixes))}
+    while read gbt; do
+      cmd="$cmd --sample-benchmarking-title \"$gbt\""
+    done < ~{write_lines(select_all(sample_benchmark_titles))}
+    cmd="$cmd ~{constants_opt} --out-prefix \"~{out_prefix}.plots/~{out_prefix}.qc_summary/~{out_prefix}\""
     echo -e "Now generating summary plots as follows:\n\n$cmd"
     eval "$cmd"
 
@@ -595,8 +808,10 @@ task PlotSampleBenchmarking {
     String ref_dataset_title
     Array[String] eval_interval_names
     File inputs_json
+    File? sample_subset_list
     String output_prefix
     Float common_af_cutoff
+    File? custom_plotting_constants
 
     Float mem_gb = 7.5
     Int n_cpu = 4
@@ -604,6 +819,9 @@ task PlotSampleBenchmarking {
 
     String g2c_analysis_docker
   }
+
+  String subset_opt = if defined(sample_subset_list) then "--subset-samples ~{basename(select_first([sample_subset_list, 'not_real.txt']))}"  else ""
+  String constants_opt = if defined(custom_plotting_constants) then "--custom-constants ~{basename(select_first([custom_plotting_constants, 'not_real.txt']))}"  else ""
 
   # Note that this outdir string is used as both a directory name and a file prefix
   String outdir = sub(output_prefix + "." + ref_dataset_prefix + "." + "sample_benchmarking", "[ ]+", "_")
@@ -638,6 +856,14 @@ write_array("ppv_by_af", data.get("ppv_by_af"))
 write_array("sens_by_af", data.get("sens_by_af"))
 CODE
 
+    # Relocate input files
+    if ~{defined(sample_subset_list)}; then
+      ln -s ~{default="" sample_subset_list} ./
+    fi
+    if ~{defined(custom_plotting_constants)}; then
+      ln -s ~{default="" custom_plotting_constants} ./
+    fi
+
     # Plot sample summary metrics like PPV and sensitivity
     cmd="/opt/pancan_germline_wgs/scripts/qc/vcf_qc/plot_external_sample_benchmarking.R"
     if [ -s ppv_by_af.txt ]; then
@@ -655,8 +881,8 @@ CODE
     while read sname; do
       cmd="$cmd --set-name $sname"
     done < ~{write_lines(eval_interval_names)}
-    cmd="$cmd --ref-title \"~{ref_dataset_title}\" --common-af ~{common_af_cutoff}"
-    cmd="$cmd --out-prefix ~{outdir}/~{outdir}"
+    cmd="$cmd --ref-title \"~{ref_dataset_title}\" --common-af ~{common_af_cutoff} ~{subset_opt}"
+    cmd="$cmd ~{constants_opt} --out-prefix ~{outdir}/~{outdir}"
     echo -e "Now performing sample benchmarking metric visualization as follows:\n$cmd"
     eval "$cmd"
 
@@ -684,14 +910,15 @@ task PlotSampleMetrics {
     File gt_distrib
     File? ancestry_labels
     File? phenotype_labels
+    File? sample_subset_list
 
     Array[File] twin_concordance_tsvs = []
     Array[File] trio_concordance_tsvs = []
     Array[String] eval_interval_names = []
     
     Float common_af_cutoff
-
     String output_prefix
+    File? custom_plotting_constants
 
     Float mem_gb = 7.5
     Int n_cpu = 4
@@ -702,9 +929,11 @@ task PlotSampleMetrics {
 
   String pop_opt = if defined(ancestry_labels) then "--ancestry-labels ~{basename(select_first([ancestry_labels, 'not_real.txt']))}" else ""
   String pheno_opt = if defined(phenotype_labels) then "--phenotype-labels ~{basename(select_first([phenotype_labels, 'not_real.txt']))}"  else ""
+  String subset_opt = if defined(sample_subset_list) then "--subset-samples ~{basename(select_first([sample_subset_list, 'not_real.txt']))}"  else ""
+  String constants_opt = if defined(custom_plotting_constants) then "--custom-constants ~{basename(select_first([custom_plotting_constants, 'not_real.txt']))}"  else ""
 
-  Boolean do_twins = length(eval_interval_names) + length(twin_concordance_tsvs) > 0
-  Boolean do_trios = length(eval_interval_names) + length(trio_concordance_tsvs) > 0
+  Boolean do_twins = length(eval_interval_names) > 0 && length(twin_concordance_tsvs) > 0
+  Boolean do_trios = length(eval_interval_names) > 0 && length(trio_concordance_tsvs) > 0
 
   Int default_disk_gb = ceil(2 * size(flatten([[gt_distrib], twin_concordance_tsvs, trio_concordance_tsvs]), "GB")) + 20
 
@@ -713,12 +942,18 @@ task PlotSampleMetrics {
 
     mkdir ~{output_prefix}.sample_metrics
 
-    # Relocate sample descriptive labels if necessary
+    # Relocate optional inputs where necessary
     if ~{defined(ancestry_labels)}; then
       ln -s ~{default="" ancestry_labels} ./
     fi
     if ~{defined(phenotype_labels)}; then
       ln -s ~{default="" phenotype_labels} ./
+    fi
+    if ~{defined(sample_subset_list)}; then
+      ln -s ~{default="" sample_subset_list} ./
+    fi
+    if ~{defined(custom_plotting_constants)}; then
+      ln -s ~{default="" custom_plotting_constants} ./
     fi
 
     # Plot variation per genome
@@ -726,6 +961,8 @@ task PlotSampleMetrics {
       --genotype-dist-tsv ~{gt_distrib} \
       ~{pop_opt} \
       ~{pheno_opt} \
+      ~{subset_opt} \
+      ~{constants_opt} \
       --out-prefix ~{output_prefix}.sample_metrics/~{output_prefix}
 
     # Plot twin benchmarking, if optioned
@@ -737,8 +974,8 @@ task PlotSampleMetrics {
       while read sname; do
         twin_cmd="$twin_cmd --set-name \"$sname\""
       done < ~{write_lines(eval_interval_names)}
-      twin_cmd="$twin_cmd --common-af ~{common_af_cutoff}"
-      twin_cmd="$twin_cmd --out-prefix ~{output_prefix}.sample_metrics/~{output_prefix}"
+      twin_cmd="$twin_cmd --common-af ~{common_af_cutoff} ~{subset_opt}"
+      twin_cmd="$twin_cmd ~{constants_opt} --out-prefix ~{output_prefix}.sample_metrics/~{output_prefix}"
       echo -e "Now performing twin benchmarking as follows:\n$twin_cmd"
       eval "$twin_cmd"
     fi
@@ -753,7 +990,7 @@ task PlotSampleMetrics {
         trio_cmd="$trio_cmd --set-name \"$sname\""
       done < ~{write_lines(eval_interval_names)}
       trio_cmd="$trio_cmd --common-af ~{common_af_cutoff}"
-      trio_cmd="$trio_cmd --out-prefix ~{output_prefix}.sample_metrics/~{output_prefix}"
+      trio_cmd="$trio_cmd ~{constants_opt} --out-prefix ~{output_prefix}.sample_metrics/~{output_prefix}"
       echo -e "Now performing trio benchmarking as follows:\n$trio_cmd"
       eval "$trio_cmd"
     fi
@@ -787,6 +1024,9 @@ task PlotSiteBenchmarking {
     File inverted_inputs_json
     String output_prefix
     Float common_af_cutoff
+    Int max_records_per_bed = 100000000
+    Boolean deduplicate = false
+    File? custom_plotting_constants
 
     Float mem_gb = 7.5
     Int n_cpu = 4
@@ -794,6 +1034,9 @@ task PlotSiteBenchmarking {
 
     String g2c_analysis_docker
   }
+
+  String constants_opt = if defined(custom_plotting_constants) then "--custom-constants ~{basename(select_first([custom_plotting_constants, 'not_real.txt']))}"  else ""
+  String dedup_opt = if deduplicate then "--deduplicate" else ""
 
   # Note that this outdir string is used as both a directory name and a file prefix
   String outdir = sub(output_prefix + "." + ref_dataset_prefix + "." + "site_benchmarking", "[ ]+", "_")
@@ -860,7 +1103,9 @@ CODE
     # Localize SNV beds
     if [ -s snv_ppv_beds.txt ]; then
       cat snv_ppv_beds.txt | gsutil -m cp -I ./
-      cat snv_ppv_beds.txt | xargs -I {} basename {} > snv_beds.list
+      while read uri; do
+        basename $uri
+      done < snv_ppv_beds.txt > snv_beds.list
       # Add false negatives to BED for plotting
       if [ -s snv_sens_beds.txt ]; then
         while read main_bed sens_uri; do
@@ -874,6 +1119,21 @@ CODE
           mv tmp.bed.gz $main_bed
         done < <( paste snv_beds.list snv_sens_beds.txt )
       fi
+      # Downsample BEDs, if necessary
+      while read bed; do
+        n_lines=$( zcat $bed | grep -ve '^#' | wc -l )
+        if [ $n_lines -gt ~{max_records_per_bed} ]; then
+          p=$( awk -v num=~{max_records_per_bed} -v denom=$n_lines 'BEGIN { print num / denom }' )
+          zcat $bed | sed -n '1p' > header.tmp
+          zcat "$bed" \
+          | fgrep -v "#" \
+          | awk -v p="$p" 'BEGIN { srand() } rand() < p' \
+          | cat header.tmp - \
+          | bgzip -c \
+          > tmp.bed.gz
+          mv tmp.bed.gz "$bed"
+        fi
+      done < snv_beds.list
     else
       seq 1 ~{n_sets} | awk '{ print "." }' > snv_beds.list
     fi
@@ -881,7 +1141,9 @@ CODE
     # Localize indel beds
     if [ -s indel_ppv_beds.txt ]; then
       cat indel_ppv_beds.txt | gsutil -m cp -I ./
-      cat indel_ppv_beds.txt | xargs -I {} basename {} > indel_beds.list
+      while read uri; do
+        basename $uri
+      done < indel_ppv_beds.txt > indel_beds.list
       # Add false negatives to BED for plotting
       if [ -s indel_sens_beds.txt ]; then
         while read main_bed sens_uri; do
@@ -895,6 +1157,21 @@ CODE
           mv tmp.bed.gz $main_bed
         done < <( paste indel_beds.list indel_sens_beds.txt )
       fi
+      # Downsample BEDs, if necessary
+      while read bed; do
+        n_lines=$( zcat $bed | grep -ve '^#' | wc -l )
+        if [ $n_lines -gt ~{max_records_per_bed} ]; then
+          p=$( awk -v num=~{max_records_per_bed} -v denom=$n_lines 'BEGIN { print num / denom }' )
+          zcat $bed | sed -n '1p' > header.tmp
+          zcat "$bed" \
+          | fgrep -v "#" \
+          | awk -v p="$p" 'BEGIN { srand() } rand() < p' \
+          | cat header.tmp - \
+          | bgzip -c \
+          > tmp.bed.gz
+          mv tmp.bed.gz "$bed"
+        fi
+      done < indel_beds.list
     else
       seq 1 ~{n_sets} | awk '{ print "." }' > indel_beds.list
     fi
@@ -902,7 +1179,9 @@ CODE
     # Localize SV beds
     if [ -s sv_ppv_beds.txt ]; then
       cat sv_ppv_beds.txt | gsutil -m cp -I ./
-      cat sv_ppv_beds.txt | xargs -I {} basename {} > sv_beds.list
+      while read uri; do
+        basename $uri
+      done < sv_ppv_beds.txt > sv_beds.list
       # Add false negatives to BED for plotting
       if [ -s sv_sens_beds.txt ]; then
         while read main_bed sens_uri; do
@@ -916,8 +1195,28 @@ CODE
           mv tmp.bed.gz $main_bed
         done < <( paste sv_beds.list sv_sens_beds.txt )
       fi
+      # Downsample BEDs, if necessary
+      while read bed; do
+        n_lines=$( zcat $bed | grep -ve '^#' | wc -l )
+        if [ $n_lines -gt ~{max_records_per_bed} ]; then
+          p=$( awk -v num=~{max_records_per_bed} -v denom=$n_lines 'BEGIN { print num / denom }' )
+          zcat $bed | sed -n '1p' > header.tmp
+          zcat "$bed" \
+          | fgrep -v "#" \
+          | awk -v p="$p" 'BEGIN { srand() } rand() < p' \
+          | cat header.tmp - \
+          | bgzip -c \
+          > tmp.bed.gz
+          mv tmp.bed.gz "$bed"
+        fi
+      done < sv_beds.list
     else
       seq 1 ~{n_sets} | awk '{ print "." }' > sv_beds.list
+    fi
+
+    # Relocate custom constants if provided
+    if ~{defined(custom_plotting_constants)}; then
+      ln -s ~{default="" custom_plotting_constants} ./
     fi
 
     # Make input .tsv for pointwise plotting
@@ -942,8 +1241,8 @@ CODE
       if [ $sv_bed != "." ]; then
         cmd="$cmd --svs $sv_bed"
       fi
-      cmd="$cmd --common-af ~{common_af_cutoff} --ref-title \"~{ref_dataset_title}\""
-      cmd="$cmd --combine --out-prefix ~{outdir}/~{outdir}.$set_name --set-name $set_name"
+      cmd="$cmd --common-af ~{common_af_cutoff} ~{dedup_opt} --ref-title \"~{ref_dataset_title}\""
+      cmd="$cmd --combine ~{constants_opt} --out-prefix ~{outdir}/~{outdir}.$set_name --set-name $set_name"
       echo -e "Now performing pointwise site benchmarking as follows:\n$cmd"
       eval "$cmd"
     done < pointwise.in.tsv
@@ -954,19 +1253,19 @@ CODE
       cat ppv_by_af.txt | gsutil -m cp -I ./
       while read tsv; do
         cmd="$cmd --ppv-by-af $tsv"
-      done < <( cat ppv_by_af.txt | xargs -I {} basename {} )
+      done < <( awk -v FS="/" '{ print $NF }' ppv_by_af.txt )
     fi
     if [ -s sens_by_af.txt ]; then
       cat sens_by_af.txt | gsutil -m cp -I ./
       while read tsv; do
         cmd="$cmd --sens-by-af $tsv"
-      done < <( cat sens_by_af.txt | xargs -I {} basename {} )
+      done < <( awk -v FS="/" '{ print $NF }' sens_by_af.txt )
     fi
     while read sname; do
       cmd="$cmd --set-name $sname"
     done < ~{write_lines(eval_interval_names)}
     cmd="$cmd --ref-title \"~{ref_dataset_title}\" --common-af ~{common_af_cutoff}"
-    cmd="$cmd --out-prefix ~{outdir}/~{outdir}"
+    cmd="$cmd ~{constants_opt} --out-prefix ~{outdir}/~{outdir}"
     echo -e "Now performing site benchmarking metric visualization as follows:\n$cmd"
     eval "$cmd"
 
@@ -1001,14 +1300,25 @@ task PlotSiteMetrics {
     File? ref_af_distrib
     
     File? all_svs_bed
+
     File? common_snvs_bed
+    Boolean common_snvs_were_downsampled = false
+    Int? n_common_snvs
+
     File? common_indels_bed
+    Boolean common_indels_were_downsampled = false
+    Int? n_common_indels
+
     File? common_svs_bed
+    Boolean common_svs_were_downsampled = false
+    Int? n_common_svs
 
     File? ld_stats_tsv
 
     String output_prefix
     String? ref_title
+    File? custom_plotting_constants
+    Boolean deduplicate = false
 
     Float mem_gb = 7.5
     Int n_cpu = 4
@@ -1021,6 +1331,9 @@ task PlotSiteMetrics {
                              common_snvs_bed, common_indels_bed, common_svs_bed, 
                              ld_stats_tsv]
   Int default_disk_gb = ceil(2 * size(select_all(loc_inputs), "GB")) + 20
+
+  String constants_opt = if defined(custom_plotting_constants) then "--custom-constants ~{basename(select_first([custom_plotting_constants, 'not_real.txt']))}"  else ""
+  String dedup_opt = if deduplicate then "--deduplicate" else ""
 
   Boolean has_ref_size = defined(ref_size_distrib)
   String ref_size_bname = if has_ref_size then basename(select_first([ref_size_distrib])) else ""
@@ -1038,15 +1351,24 @@ task PlotSiteMetrics {
 
   Boolean has_common_snvs = defined(common_snvs_bed)
   String common_snv_bname = if has_common_snvs then basename(select_first([common_snvs_bed])) else ""
-  String pw_snv_cmd = if has_common_snvs then "--snvs ~{common_snv_bname}" else ""
+  String pw_snv_cmd_base = if common_snvs_were_downsampled 
+                           then "--snvs ~{common_snv_bname} --true-n-snvs " + select_first([n_common_snvs, 0])
+                           else "--snvs ~{common_snv_bname}"
+  String pw_snv_cmd = if has_common_snvs then pw_snv_cmd_base else ""
   
   Boolean has_common_indels = defined(common_indels_bed)
   String common_indel_bname = if has_common_indels then basename(select_first([common_indels_bed])) else ""
-  String pw_indel_cmd = if has_common_indels then "--indels ~{common_indel_bname}" else ""
+  String pw_indel_cmd_base = if common_indels_were_downsampled 
+                             then "--indels ~{common_indel_bname} --true-n-indels " + select_first([n_common_indels, 0])
+                             else "--indels ~{common_indel_bname}"
+  String pw_indel_cmd = if has_common_indels then pw_indel_cmd_base else ""
 
   Boolean has_common_svs = defined(common_svs_bed)
   String common_sv_bname = if has_common_svs then basename(select_first([common_svs_bed])) else ""
-  String pw_sv_cmd = if has_common_svs then "--svs ~{common_sv_bname}" else ""
+  String pw_sv_cmd_base = if common_svs_were_downsampled 
+                          then "--svs ~{common_sv_bname} --true-n-svs " + select_first([n_common_svs, 0])
+                          else "--svs ~{common_sv_bname}"
+  String pw_sv_cmd = if has_common_svs then pw_sv_cmd_base else ""
 
   Boolean has_ld = defined(ld_stats_tsv)
   String ld_stat_bname = if has_ld then basename(select_first([ld_stats_tsv])) else ""
@@ -1059,17 +1381,18 @@ task PlotSiteMetrics {
 
     mkdir ~{output_prefix}.site_metrics
 
-    # Symlink full SV BED to working directory
+    # Symlink optional inputs to working directory
     if ~{has_all_svs}; then
       ln -s ~{default="" all_svs_bed} ~{all_sv_bname}
     fi
-
-    # Symlink ref distribs to working directory
     if ~{has_ref_size}; then
       ln -s ~{default="" ref_size_distrib} ~{ref_size_bname}
     fi
     if ~{has_ref_af}; then
       ln -s ~{default="" ref_af_distrib} ~{ref_af_bname}
+    fi
+    if ~{defined(custom_plotting_constants)}; then
+      ln -s ~{default="" custom_plotting_constants} ./
     fi
 
     # Plot site summary metrics
@@ -1082,6 +1405,7 @@ task PlotSiteMetrics {
       ~{ref_title_cmd} \
       ~{summary_sv_cmd} \
       --common-af ~{common_af_cutoff} \
+      ~{constants_opt} \
       --out-prefix ~{output_prefix}.site_metrics/~{output_prefix}
 
     # Symlink common variant BEDs to working directory
@@ -1111,6 +1435,8 @@ task PlotSiteMetrics {
         --combine \
         --common-af ~{common_af_cutoff} \
         ~{ld_cmd} \
+        ~{constants_opt} \
+        ~{dedup_opt} \
         --out-prefix ~{output_prefix}.site_metrics/~{output_prefix}
 
       # Append summary stats to previous stats file
@@ -1137,4 +1463,3 @@ task PlotSiteMetrics {
     max_retries: 1
   }
 }
-

@@ -20,8 +20,8 @@ load.constants("all")
 
 # Declare global constants
 # List of metrics to transform to percentages when plotting
-pct.metrics <- c("hwe", "ld", "site_ratio", "site_sens", "site_ppv",
-                 "trio_inh_rate", "rep_match_rate", "heterozygosity")
+pct.metrics <- c("hwe_pass", "hwe_acc", "ld", "site_ratio", "site_sens",
+                 "site_ppv", "trio_inh_rate", "rep_match_rate", "heterozygosity")
 # List of metrics with undefined default targets
 no.target.default <- c("site_count", "site_count.rare", "site_count.singletons",
                        "variants_per_genome")
@@ -32,6 +32,7 @@ target.map <- c("site_ratios.all:NA" = NA,
 for(vc in c("all", names(var.class.abbrevs))){
   # Set VC-uniform
   target.map[paste(vc, "common_hwe:pct_pass", sep=".")] <- 0.99
+  target.map[paste(vc, "common_hwe:weighted_accuracy", sep=".")] <- 0.99
   target.map[paste("heterozygosity.", vc, ":median", sep="")] <- 1.55 / 2.55
   target.map[paste("heterozygosity.", vc, ":reciprocal_dynamic_range", sep="")] <- 0.8
   target.map[paste("variants_per_genome.", vc, ":reciprocal_dynamic_range", sep="")] <- 0.85
@@ -49,7 +50,9 @@ for(vc in c("all", names(var.class.abbrevs))){
 # Invert dynamic range entries
 invert.dynamic.ranges <- function(ss){
   dr.idxs <- grep("dynamic_range", ss$measure)
-  ss$value[dr.idxs] <- 1 / ss$value[dr.idxs]
+  ss$value[dr.idxs] <- sapply(ss$value[dr.idxs], function(v){
+    if(is.nan(v) | is.infinite(v)){0}else{1 / v}
+  })
   ss$measure[dr.idxs] <- gsub("dynamic_range", "reciprocal_dynamic_range", ss$measure[dr.idxs])
   return(ss)
 }
@@ -94,7 +97,10 @@ get.counts <- function(ss, vc){
 get.sb <- function(ss, vc, ref.prefix=NULL){
   # Collect data
   sb.df <- as.data.frame(rbind(
-    ss[which(ss$analysis == paste(vc, "common_hwe", sep=".")), ],
+    ss[which(ss$analysis == paste(vc, "common_hwe", sep=".")
+             & ss$measure == "pct_pass"), ],
+    ss[which(ss$analysis == paste(vc, "common_hwe", sep=".")
+             & ss$measure == "weighted_accuracy"), ],
     ss[which(ss$analysis == paste(vc, "common_ld.any", sep=".")
              & ss$measure == "tag_rate"), ],
     if(vc == "all"){
@@ -116,7 +122,9 @@ get.sb <- function(ss, vc, ref.prefix=NULL){
     unlist(sapply(apply(sb.df[, c("analysis", "measure")], 1, paste, collapse="."),
                   function(qstr){
                     if(qstr == paste(paste(vc, "common_hwe.pct_pass", sep="."))){
-                      "hwe"
+                      "hwe_pass"
+                    }else if(qstr == paste(paste(vc, "common_hwe.weighted_accuracy", sep="."))){
+                      "hwe_acc"
                     }else if(qstr == paste(paste(vc, "common_ld.any.tag_rate", sep="."))){
                       "ld"
                     }else if(startsWith(qstr, "site_ratios")){
@@ -242,8 +250,8 @@ get.inter <- function(ss, vc, vcs){
 
 # Load summary statistics & organize in sub-dataframes for plotting
 load.ss <- function(tsv.in, ref.prefix=NULL, gb.prefixes=c()){
-  ss <- read.table(tsv.in, header=F, sep="\t")
-  colnames(ss) <- c("analysis", "measure", "value", "n")
+  ss <- read.table(tsv.in, header=T, sep="\t", comment.char="", check.names=F)
+  colnames(ss) <- gsub("#", "", colnames(ss), fixed=T)
   ss$analysis <- gsub("\\.all_variants$", ".all", ss$analysis)
   ss <- invert.dynamic.ranges(ss)
 
@@ -327,13 +335,22 @@ compare.prev <- function(ss, prev.ss, vc, g, targets, annotate.targets=FALSE,
   })
 
   # Organize various other values
-  improved <- as.character(delta >= 0)
+  improved <- as.character(delta > 0.005)
   labels <- paste(remap(improved, c("TRUE" = "+", "FALSE" = ""),
                         default.value=NA),
                   round(100 * delta, 0), "%", sep="")
   labels[which(is.na(delta))] <- NA
-  colors <- sapply(remap(improved, boolean.colors, default.value=NA), function(col){
-    if(is.na(col)){NA}else{MixColor(base.color, col, amount1=color.mix)}
+  colors <- sapply(delta, function(d){
+    if(is.na(d)){
+      return(NA)
+    }else if(d > 0.005){
+      col <- boolean.colors["TRUE"]
+    }else if(d < -0.005){
+      col <- boolean.colors["FALSE"]
+    }else{
+      col <- "grey50"
+    }
+    MixColor(base.color, col, amount1=color.mix)
   })
   density <- as.numeric(remap(improved, c("TRUE" = NA, "FALSE" = 20), default.value=NA))
 
@@ -400,14 +417,14 @@ left.aligned.labels <- function(add.target=FALSE, add.previous=FALSE,
   segments(x0=0.25, x1=0.25,
            y0=y.inc - bar.w.half + rect.offset,
            y1=y.inc + bar.w.half + rect.offset,
-           lwd=1, col="gray40", lend="butt", xpd=T)
+           lwd=1, col="gray40", lend="square", xpd=T)
   y.inc <- y.inc + 0.6
 
   if(add.target){
     rect(xleft=0.15, xright=0.25,
          ybottom=y.inc + 0.5 + (0.4/3),
          ytop=y.inc + 0.5 - (0.4/3),
-         border=NA, density=35, bty="n", col=boolean.colors[["FALSE"]])
+         border=NA, density=40, bty="n", col=boolean.colors[["FALSE"]])
     text(x=0.23, y=y.inc + 0.5, col=boolean.colors[["FALSE"]],
          cex=4.5/6, labels="Gap", pos=4)
     points(x=0.15, y=y.inc + 0.5, pch=10, srt=45, xpd=T)
@@ -420,8 +437,14 @@ left.aligned.labels <- function(add.target=FALSE, add.previous=FALSE,
     rect(xleft=c(0.25, 0.3), xright=c(0.3, 0.35),
          ybottom=y.inc + 0.5 - bar.w.half + rect.offset,
          ytop=y.inc + 0.5 + bar.w.half + rect.offset,
+         col=adjustcolor(boolean.colors[c("FALSE", "TRUE")], alpha=0.3),
+         border=NA, bty="n")
+    rect(xleft=c(0.25, 0.3), xright=c(0.3, 0.35),
+         ybottom=y.inc + 0.5 - bar.w.half + rect.offset,
+         ytop=y.inc + 0.5 + bar.w.half + rect.offset,
          col=boolean.colors[c("FALSE", "TRUE")],
-         border=NA, bty="n", density=c(20, NA))
+         density=c(20, NA),
+         border=boolean.colors[c("FALSE", "TRUE")])
   }
 }
 
@@ -437,11 +460,12 @@ plot.left.labels <- function(ss, ref.title=NULL, sb_prefixes=NULL, sb_titles=NUL
                  "count_rare" = "Rare variants",
                  "count_singleton" = "Singletons",
                  "count_per_genome" = "Variants per genome",
-                 "hwe" = "Common Hardy-Weinberg pass rate",
+                 "hwe_pass" = "Common Hardy-Weinberg pass rate",
+                 "hwe_acc" = "AF-weighted HWE accuracy",
                  "ld" = "Common LD tag rate",
                  "site_ratio" = "Class balance",
                  "site_af_cor" = paste("AF correlation vs.", ref.title),
-                 "site_sens" = paste("Common sites rediscovered from", ref.title),
+                 "site_sens" = paste("Common sites found from", ref.title),
                  "site_ppv" = paste("Common sites confirmed by", ref.title),
                  "trio_inh_rate" = "Child inheritance rate",
                  "trio_inh_rate_rdr" = "Inheritance rate RDR",
@@ -568,7 +592,7 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
     rect(xleft=0, xright=bar.vals,
          ybottom=bar.mids - bar.w.half,
          ytop=bar.mids + bar.w.half,
-         border=NA, bty="n", col=bar.color)
+         col=bar.color, border=bar.color)
 
     # Previous bars & labels
     if(!is.null(prev.ss)){
@@ -576,12 +600,17 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
       rect(xleft=bar.vals, xright=prev.dat$prev.vals,
            ybottom=bar.mids - bar.w.half,
            ytop=bar.mids + bar.w.half,
-           border=NA, bty="n",
+           col=adjustcolor(prev.dat$colors, alpha=0.3),
+           border=NA, bty="n")
+      rect(xleft=bar.vals, xright=prev.dat$prev.vals,
+           ybottom=bar.mids - bar.w.half,
+           ytop=bar.mids + bar.w.half,
            density=prev.dat$density[prev.notna.idx],
-           col=prev.dat$colors[prev.notna.idx])
-      segments(x0=prev.dat$prev.vals, x1=prev.dat$prev.vals,
-               y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-               lend="butt", col=prev.dat$colors)
+           col=prev.dat$colors[prev.notna.idx],
+           border=prev.dat$colors[prev.notna.idx])
+      # segments(x0=prev.dat$prev.vals, x1=prev.dat$prev.vals,
+      #          y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
+      #          lend="square", col=prev.dat$colors)
       text(x=par("usr")[2], y=bar.mids,
            xpd=T, pos=4, cex=4.5/6, font=3, col=prev.dat$colors,
            labels=prev.dat$labels, offset=0.4)
@@ -592,14 +621,14 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
       rect(xleft=bar.vals, xright=targets,
            ybottom=bar.mids - (bar.w.half/3),
            ytop=bar.mids + (bar.w.half/3),
-           border=NA, density=35, bty="n", col=boolean.colors[["FALSE"]])
+           border=NA, density=40, bty="n", col=boolean.colors[["FALSE"]])
       points(x=targets, y=bar.mids, pch=10, xpd=T)
     }
 
     # Labels + strong current marks
-    segments(x0=bar.vals, x1=bar.vals,
-             y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-             lend="butt", lwd=1, col=MixColor(bar.color, "black"))
+    # segments(x0=bar.vals, x1=bar.vals,
+    #          y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
+    #          lend="square", lwd=1, col=MixColor(bar.color, "black"))
     label.widths <- bar.vals
     sapply(1:length(bar.vals), function(x){
       bar.label <- clean.numeric.labels(10^bar.vals[x], min.label.length=2)
@@ -651,20 +680,29 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
       rect(xleft=0, xright=bar.vals,
            ybottom=bar.mids - bar.w.half,
            ytop=bar.mids + bar.w.half,
-           border=NA, bty="n", col=bar.color)
+           col=bar.color, border=bar.color)
 
       # Previous bars & labels
       if(!is.null(prev.ss)){
         prev.notna.idx <- which(!is.na(prev.dat$prev.vals))
-        rect(xleft=bar.vals, xright=prev.dat$prev.vals,
-             ybottom=bar.mids - bar.w.half,
-             ytop=bar.mids + bar.w.half,
-             border=NA, bty="n",
+        rect(xleft=bar.vals[prev.notna.idx],
+             xright=prev.dat$prev.vals[prev.notna.idx],
+             ybottom=bar.mids[prev.notna.idx] - bar.w.half,
+             ytop=bar.mids[prev.notna.idx] + bar.w.half,
+             col=adjustcolor(prev.dat$colors[prev.notna.idx], alpha=0.3),
+             border=NA, bty="n")
+        rect(xleft=bar.vals[prev.notna.idx],
+             xright=prev.dat$prev.vals[prev.notna.idx],
+             ybottom=bar.mids[prev.notna.idx] - bar.w.half,
+             ytop=bar.mids[prev.notna.idx] + bar.w.half,
              density=prev.dat$density[prev.notna.idx],
-             col=prev.dat$colors[prev.notna.idx])
-        segments(x0=prev.dat$prev.vals, x1=prev.dat$prev.vals,
-                 y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-                 lend="butt", col=prev.dat$colors)
+             col=prev.dat$colors[prev.notna.idx],
+             border=prev.dat$colors[prev.notna.idx])
+        # segments(x0=prev.dat$prev.vals[prev.notna.idx],
+        #          x1=prev.dat$prev.vals[prev.notna.idx],
+        #          y0=bar.mids[prev.notna.idx] - bar.w.half,
+        #          y1=bar.mids[prev.notna.idx] + bar.w.half,
+        #          lend="square", col=prev.dat$colors)
         text(x=par("usr")[2], y=bar.mids,
              xpd=T, pos=4, cex=4.5/6, font=3, col=prev.dat$colors,
              labels=prev.dat$labels, offset=0.4)
@@ -675,14 +713,14 @@ plot.ss.bars <- function(ss, vc, annotate.targets=TRUE, prev.ss=NULL,
         rect(xleft=bar.vals, xright=targets,
              ybottom=bar.mids - (bar.w.half/3),
              ytop=bar.mids + (bar.w.half/3),
-             border=NA, density=35, bty="n", col=boolean.colors[["FALSE"]])
+             border=NA, density=40, bty="n", col=boolean.colors[["FALSE"]])
         points(x=targets, y=bar.mids, pch=10, xpd=T)
       }
 
       # Labels + strong current marks
-      segments(x0=bar.vals, x1=bar.vals,
-               y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
-               lend="butt", lwd=1, col=MixColor(bar.color, "black"))
+      # segments(x0=bar.vals, x1=bar.vals,
+      #          y0=bar.mids - bar.w.half, y1=bar.mids + bar.w.half,
+      #          lend="square", lwd=1, col=MixColor(bar.color, "black"))
       label.widths <- bar.vals
       sapply(1:length(bar.vals), function(x){
         if(is.na(bar.vals[x]) | is.infinite(bar.vals[x])){
@@ -735,14 +773,14 @@ plot.ss <- function(ss, out.prefix, prev.ss=NULL, ref.title=NULL,
       out.suffix <- gsub("\\.$", "", gsub("^\\.", "", gsub("[\\.]+", ".", out.suffix)))
 
       # Plot left axis titles
-      pdf(paste(out.prefix, "legend", out.suffix, "pdf", sep="."),
+      pdf(gsub("[\\.]+", ".", paste(out.prefix, "legend", out.suffix, "pdf", sep=".")),
           height=pdf.height, width=left.width)
       plot.left.labels(ss, ref.title, sb_prefixes, sb_titles,
                        add.previous=do.prev, add.target=do.target)
       dev.off()
 
       sapply(params$vcs, function(vc){
-        pdf(paste(out.prefix, vc, out.suffix, "pdf", sep="."),
+        pdf(gsub("[\\.]+", ".", paste(out.prefix, vc, out.suffix, "pdf", sep=".")),
             height=pdf.height, width=vc.width)
         plot.ss.bars(ss, vc, prev.ss=if(do.prev){prev.ss}else{NULL},
                      bar.color=remap(vc, var.class.colors, default="gray50"),
@@ -776,20 +814,39 @@ parser$add_argument("--sample-benchmarking-title", metavar="string",
                     help="Plot title for each sample-level benchmarking dataset")
 parser$add_argument("--custom-targets", metavar=".tsv", type="character",
                     help="Optional two-column .tsv specifying user-defined targets")
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
 args <- parser$parse_args()
 
 # # DEV (SINGLE CLASS)
-# args <- list("stats" = "~/scratch/dfci-g2c.v1.initial_qc.all_qc_summary_metrics.tsv",
-#              "previous_stats" = NULL,
-#              "site_ref_prefix" = "gnomad_v4.1",
-#              "site_ref_title" = "gnomAD v4.1",
+# args <- list("stats" = "~/Downloads/dfci-g2c.v1.gatksv_qc_post_imputation.all_qc_summary_metrics.tsv.gz",
+#              "previous_stats" = "~/Downloads/dfci-g2c.v1.initial_gatksv_qc.all_qc_summary_metrics.tsv.gz",
+#              "site_ref_prefix" = "gnomad-sv_v4.1",
+#              "site_ref_title" = "gnomAD-SV v4.1",
 #              "sample_benchmarking_prefix" = c("external_srwgs", "external_lrwgs"),
 #              "sample_benchmarking_title" = c("External srWGS", "External lrWGS"),
-#              "custom_targets" = "~/scratch/dfci-g2c.v1.qc_targets.tsv",
-#              "out_prefix" = "~/scratch/dfci-g2c.v1.initial_qc")
+#              "custom_targets" = "~/scratch/dfci-g2c.v1.gatksv.qc_targets.tsv",
+#              "custom_constants" = NULL,
+#              "out_prefix" = "~/scratch/dfci-g2c.v1.gatk-sv.initial_qc")
+
+# # DEV (indels + SVs)
+# args <- list("stats" = "~/Downloads/summary_plot_inputs/dfci-g2c.v1.integrated_qc.all_qc_summary_metrics.tsv",
+#              "previous_stats" = "~/Downloads/dfci-g2c.v1.initial_qc.all_qc_summary_metrics.tsv",
+#              "site_ref_prefix" = "gnomad-sv_v4.1",
+#              "site_ref_title" = "gnomAD-SV v4.1",
+#              "sample_benchmarking_prefix" = c("external_srwgs", "external_lrwgs"),
+#              "sample_benchmarking_title" = c("External srWGS", "External lrWGS"),
+#              "custom_targets" = "~/Downloads/summary_plot_inputs/dfci-g2c.v1.qc_targets.tsv",
+#              "custom_constants" = NULL,
+#              "out_prefix" = "~/scratch/dfci-g2c.v1.gatk-integrated_qc")
+
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
 
 # Load and organize summary stats
 ss <- load.ss(args$stats, args$site_ref_prefix, args$sample_benchmarking_prefix)

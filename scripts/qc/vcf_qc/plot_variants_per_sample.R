@@ -143,7 +143,7 @@ gather.count.sumstats <- function(gt.counts, samples, pop=NULL, pheno=NULL){
                                     "value"=c(med.v, phi.v), "n"=length(samples))
           if(is.na(zyg)){
             med.hzg <- calc.gt.ss(freq.df, samples=samples, summary.fx=median,
-                                calc.heterozygosity=TRUE)
+                                  calc.heterozygosity=TRUE)
             phi.hzg <- calc.gt.ss(freq.df, samples=samples,
                                   summary.fx=RLCtools::dynamic.range,
                                   calc.heterozygosity=TRUE)
@@ -288,8 +288,13 @@ plot.count.waterfall <- function(gt.counts, vc, pop=NULL, pheno=NULL,
              + (pop.spacer * length(pop.breaks.x))
              + (pheno.spacer * length(pheno.breaks.x)))
   ylims <- c(0, max(total.per.sample))
-  hom.col <- adjust.color.hsb(var.class.colors[vc], s=0.01, b=-0.03)
-  het.col <- adjust.color.hsb(var.class.colors[vc], s=-0.01, b=0.06)
+  if(vc %in% names(var.class.colors)){
+    base.color <- var.class.colors[vc]
+  }else{
+    base.color <- hex2grey(var.class.colors["indel"])
+  }
+  hom.col <- adjust.color.hsb(base.color, s=0.01, b=-0.03)
+  het.col <- adjust.color.hsb(base.color, s=-0.01, b=0.06)
 
   # Determine x position for each sample
   prev.x <- 0
@@ -328,9 +333,12 @@ plot.count.waterfall <- function(gt.counts, vc, pop=NULL, pheno=NULL,
     # lab.y.at <- max(c(0.55*diff(par("usr")[3:4]),
     #                   quantile(group.df$k, prob=0.99)))
     lab.y.at <- median(group.df$k, na.rm=T)
-    group.k.med <- median(group.df$k)
-    med.lab <- clean.numeric.labels(round(group.k.med, 0),
-                                    min.label.length=if(group.k.med < 1000){1}else{3})
+    group.k.med <- median(group.df$k, na.rm=T)
+    if(group.k.med < 10000){
+      med.lab <- prettyNum(round(group.k.med, 0), big.mark=",")
+    }else{
+      med.lab <- clean.numeric.labels(round(group.k.med, 0), min.label.length=3)
+    }
     lab.width <- 1.075*strwidth(med.lab, cex=global.scaling.cex*5/6)
     lab.height <- 1.2*strheight(med.lab, cex=global.scaling.cex*5/6)
     rect(xleft=lab.x.at-(lab.width/2), xright=lab.x.at+(lab.width/2),
@@ -343,10 +351,14 @@ plot.count.waterfall <- function(gt.counts, vc, pop=NULL, pheno=NULL,
   })
 
   # Add left Y axis
-  clean.axis(2, title=paste(var.class.abbrevs[vc], "s", sep=""),
-             label.units="count", infinite.positive=T, min.ticks=3, max.ticks=4,
-             title.line=parmar[2]-2.1, cex.title=global.scaling.cex*7.5/6,
-             cex.axis=global.scaling.cex)
+  if(vc %in% names(var.class.abbrevs)){
+    left.title <- paste(var.class.abbrevs[vc], "s", sep="")
+  }else{
+    left.title <- "Variants"
+  }
+  clean.axis(2, title=left.title, label.units="count", infinite.positive=T,
+             min.ticks=3, max.ticks=4, title.line=parmar[2]-2.1,
+             cex.title=global.scaling.cex*7.5/6, cex.axis=global.scaling.cex)
 
   # Add right Y axis-legend hybrid
   legend.y.at <- apply(sapply(tail(ceiling(0.01*n.samples):n.samples, 25), function(si){
@@ -422,7 +434,8 @@ add.waterfall.markers <- function(order.df, pop.map, pheno.map,
     pop.names <- names(pop.map)
     names(pop.names) <- names(pop.pal) <- names(pop.map)
   }
-  if(all(pheno.labs %in% names(cancer.colors))){
+  if(all(pheno.labs %in% names(cancer.colors))
+     & all(pheno.labs %in% names(cancer.names))){
     pheno.pal <- cancer.colors[names(pheno.map)]
     pheno.names <- cancer.names[names(pheno.map)]
   }else{
@@ -465,9 +478,10 @@ add.waterfall.markers <- function(order.df, pop.map, pheno.map,
                                 "len" = pheno.ends-pheno.starts, "lab" = pheno.labs)
     pheno.rect.df <- pheno.rect.df[order(-pheno.rect.df$len), ]
     sapply(unique(pheno.labs), function(pheno){
-      pheno.lab.x <- mean(as.numeric(head(pheno.rect.df[which(pheno.rect.df$lab == pheno),
-                                                        c("start", "end")], 1)))
-      text(x=pheno.lab.x, y=y.start+0.5, labels=pheno.names[pheno],
+      pheno.lab.xs <- as.numeric(head(pheno.rect.df[which(pheno.rect.df$lab == pheno),
+                                                    c("start", "end")], 1))
+      text(x=mean(pheno.lab.xs), y=y.start+0.5,
+           labels=shorten.text(pheno.names[pheno], abs(diff(pheno.lab.xs))),
            col=optimize.label.color(pheno.pal[pheno], cutoff=0.8),
            cex=global.scaling.cex)
     })
@@ -485,6 +499,9 @@ main.waterfall <- function(gt.counts, out.prefix, pop=NULL, pheno=NULL,
                            pop.space.wex=0.025, pheno.space.wex=0.005){
   # Determine number of panels and figure sizing
   vcs <- intersect(names(var.class.names), unique(gt.counts$class))
+  if(length(vcs) == 0){
+    vcs <- unique(gt.counts$class)
+  }
   n.panels <- length(vcs)
   has.pop <- !is.null(pop)
   has.pheno <- !is.null(pheno)
@@ -587,14 +604,14 @@ interclass.scatter <- function(plot.df, pop=NULL, title=NULL, label.units=NULL,
     pw.col <- rep("black", nrow(plot.df))
   }else{
     n.pops <- length(unique(pop))
-    pop <- toupper(pop)
-    if(all(pop %in% names(pop.colors))){
+    if(all(toupper(pop) %in% names(pop.colors))){
+      pop <- toupper(pop)
       pop.pal <- pop.colors[sort(unique(pop))]
     }else{
       pop.pal <- categorical.rainbow(n.pops)
-      names() <- unique(pop)
+      names(pop.pal) <- unique(pop)
     }
-    pw.col <- pop.colors[pop[rownames(plot.df)]]
+    pw.col <- pop.pal[pop[rownames(plot.df)]]
   }
 
   # Prepare plotting area
@@ -648,7 +665,8 @@ interclass.scatter <- function(plot.df, pop=NULL, title=NULL, label.units=NULL,
     if(all(pop %in% names(pop.abbreviations))){
       pop.labs <- pop.abbreviations[names(pop.labs.at)]
     }else{
-      pop.labs <- names(pop.labs.at)
+      pop.labs <- sapply(names(pop.labs.at), shorten.text,
+                         width=diff(par("usr")[1:2])/3)
     }
     pop.labs.at <- smart.spacing(pop.labs.at, min.dist=0.025*diff(par("usr")[3:4]),
                                  lower.limit=par("usr")[3], upper.limit=par("usr")[4])
@@ -691,7 +709,7 @@ plot.heterozygosity <- function(gt.counts, vc1, vc2, pop=NULL,
   xlims <- ylims <- range(h.df[, c(vc1, vc2)])
   r2 <- interclass.scatter(h.df, pop, title, label.units="percent",
                            axis.lab.suffix="het. rate", xlims=xlims,
-                           ylims=ylims, diag.lm=T)
+                           ylims=ylims, diag.lm=T, cor.lm=T)
 
   return(c(r2, nrow(h.df)))
 }
@@ -771,6 +789,11 @@ parser$add_argument("--phenotype-labels", metavar=".tsv",
                     help=paste("Optional two-column .tsv mapping sample IDs to ",
                                "phenotype labels. If provided, some plots will ",
                                "group samples by phenotype for easier comparisons."))
+parser$add_argument("--subset-samples", metavar=".txt",
+                    help=paste("Optional flat .txt file with a list of sample IDs",
+                               "to keep. By default, all samples will be retained."))
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -780,24 +803,70 @@ args <- parser$parse_args()
 # args <- list("genotype_dist_tsv" = "~/scratch/dfci-g2c.v1.initial_qc.genotype_distribution.merged.tsv.gz",
 #              "ancestry_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "phenotype_labels" = "~/scratch/dfci-g2c.v1.qc_phenotype.tsv",
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/g2c_vcf_qc_dev")
 
 # # DEV (single variant class):
 # args <- list("genotype_dist_tsv" = "~/scratch/dfci-ufc.sv.v1.initial_qc.genotype_distribution.merged.tsv.gz",
 #              "ancestry_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
 #              "phenotype_labels" = "~/scratch/dfci-g2c.v1.qc_phenotype.tsv",
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/ufc_sv_qc_dev")
+
+# # DEV (YL):
+# args <- list("genotype_dist_tsv" = "~/scratch/YL.v1.2.genotype_distribution.merged.tsv.gz",
+#              "ancestry_labels" = "~/scratch/YL_ancestry_labels.tsv",
+#              "phenotype_labels" = "~/scratch/YL_pheno_labels.tsv",
+#              "subset_samples" = "~/Desktop/Collins/VanAllen/jackie_younglung/younglung_metadata/YL.samples_with_complete_variant_data.list",
+#              "custom_constants" = "~/Desktop/Collins/VanAllen/jackie_younglung/data/yl_qc.custom_constants.R",
+#              "out_prefix" = "~/scratch/yl_terra_dev")
+
+# # DEV (Peds):
+# args <- list("genotype_dist_tsv" = "~/scratch/ei_dbg_jan23_1/Peds_cohort.genotype_distribution.merged.tsv.gz",
+#              "ancestry_labels" = "~/scratch/ei_dbg_jan23_1/ancestry.tsv",
+#              "phenotype_labels" = "~/scratch/ei_dbg_jan23_1/pheno.tsv",
+#              "subset_samples" = NULL,
+#              "custom_constants" = NULL,
+#              "out_prefix" = "~/scratch/Peds_cohort")
+
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
 
 # Load sample genotype counts
 gt.counts <- load.gt.counts(args$genotype_dist_tsv)
 samples <- unique(gt.counts$sample)
 
+# Subset to samples in --subset-samples if optioned
+if(!is.null(args$subset_samples)){
+  keep.samples <- unique(read.table(args$subset_samples, header=F)[, 1])
+  samples <- intersect(samples, keep.samples)
+  gt.counts <- gt.counts[which(gt.counts$sample %in% keep.samples), ]
+}
+
 # Load sample ancestry and phenotypes, if optioned
 pop <- load.labels(args$ancestry_labels, samples)
+if(!is.null(pop)){
+  gt.counts <- gt.counts[which(gt.counts$sample %in% names(pop)), ]
+}
 pheno <- load.labels(args$phenotype_labels, samples)
+if(!is.null(pheno)){
+  gt.counts <- gt.counts[which(gt.counts$sample %in% names(pheno)), ]
+}
 
 # Triple waterfall plot of counts per sample by class
 main.waterfall(gt.counts, args$out_prefix, pop, pheno)
+
+# Individual supplementary waterfalls per variant class (if multiple are present)
+obs.vcs <- intersect(names(var.class.names), unique(gt.counts$class))
+if(length(obs.vcs) > 1){
+  sapply(c("all", obs.vcs), function(vc){
+    main.waterfall(filter.gt.counts(gt.counts, vc=vc),
+                   paste(args$out_prefix, vc, sep="."),
+                   pop, pheno)
+  })
+}
 
 # Collect median counts per sample by class, subclass, frequency, zygosity, pop, and pheno
 count.ss <- gather.count.sumstats(gt.counts, samples, pop, pheno)
@@ -808,11 +877,11 @@ count.ss <- gather.count.sumstats(gt.counts, samples, pop, pheno)
 ic.ss <- lapply(list(c("all", "snv"), c("all", "indel"), c("all", "sv"),
                      c("snv", "indel"), c("snv", "sv"), c("indel", "sv")),
                 function(vcs){
-  vc1 <- vcs[1]; vc2 <- vcs[2]
-  if(all(vcs %in% gt.counts$class)){
-    plot.vc.comparisons(gt.counts, vc1, vc2, args$out_prefix, pop)
-  }
-})
+                  vc1 <- vcs[1]; vc2 <- vcs[2]
+                  if(all(vcs %in% gt.counts$class)){
+                    plot.vc.comparisons(gt.counts, vc1, vc2, args$out_prefix, pop)
+                  }
+                })
 if(length(ic.ss) > 0){
   ic.ss <- as.data.frame(do.call("rbind", ic.ss))
 }

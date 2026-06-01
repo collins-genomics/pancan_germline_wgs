@@ -50,6 +50,8 @@ workflow BenchmarkSitesSingle {
     Float snv_mem_scalar = 2.0
     Float indel_mem_scalar = 1.0
 
+    Float shard_intervals_mem_gb = 3.75
+
     String bcftools_docker
     String g2c_analysis_docker
   }
@@ -72,11 +74,14 @@ workflow BenchmarkSitesSingle {
 
   # Shard evaluation intervals, balancing on genomic bp
   Int target_shards = floor(total_shards / (2 * n_var_types))
+  Int shard_ints_n_cpu = ceil(shard_intervals_mem_gb / 2)
   call QcTasks.ShardIntervals {
     input:
       intervals_bed = eval_interval_bed,
       n_shards = target_shards,
       prefix = eval_prefix,
+      mem_gb = shard_intervals_mem_gb,
+      n_cpu = shard_ints_n_cpu,
       g2c_analysis_docker = g2c_analysis_docker
   }
 
@@ -466,6 +471,14 @@ task CompareSites {
   command <<<
     set -eu -o pipefail
 
+    # Start heartbeat to avoid silent VM death
+    while true; do
+      echo "[CompareSites] still running at $(date)"
+      sleep 60
+    done &
+    HEARTBEAT_PID=$!
+    trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
+
     /opt/pancan_germline_wgs/scripts/qc/vcf_qc/compare_sites.py \
       -a ~{query_bed} \
       -b ~{ref_bed} \
@@ -506,7 +519,7 @@ task MakeVidMap {
     Boolean invert = false
 
     Float mem_gb = 3.5
-    String linux_docker = "marketplace.gcr.io/google/ubuntu1804"
+    String linux_docker = "ubuntu:plucky-20251001"
   }
 
   Int disk_gb = ceil(2 * size(benchmark_bed, "GB")) + 10

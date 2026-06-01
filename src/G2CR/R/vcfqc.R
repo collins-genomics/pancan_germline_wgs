@@ -266,13 +266,18 @@ get.gt.bench.plot.data <- function(bench.dat, vc=NULL, trio.mode=FALSE){
 #' @param key.cols Numeric vector of column indexes to treat as
 #' unique keys \[default: 1:5\]
 #' @param trio.mode Is the input data from parent-child trios? \[default: FALSE\]
+#' @param keep.samples Optional list of sample IDs to retain from `tsvs.in`. By
+#' default, all samples will be retained
+#' @param keep.vcs Optional list of variant classes to retain from `tsvs.in`. By
+#' default, all variant classes will be retained
 #'
 #' @returns List of one data.frame per element in `tsvs.in`
 #'
 #' @export load.gt.benchmark.tsvs
 #' @export
 load.gt.benchmark.tsvs <- function(tsvs.in, set.names, key.cols=1:5,
-                                   trio.mode=FALSE){
+                                   trio.mode=FALSE, keep.samples=NULL,
+                                   keep.vcs=NULL){
   # Do nothing if no .tsv files are provided
   if(is.null(tsvs.in) | length(tsvs.in) == 0){
     return(NULL)
@@ -287,6 +292,12 @@ load.gt.benchmark.tsvs <- function(tsvs.in, set.names, key.cols=1:5,
   bench.dat <- lapply(tsvs.in, function(tsv.in){
     d <- read.table(tsv.in, sep="\t", comment.char="", check.names=F, header=T)
     colnames(d)[1] <- gsub("#", "", colnames(d)[1], fixed=T)
+    if(!is.null(keep.samples)){
+      d <- d[which(d[, 1] %in% keep.samples), ]
+    }
+    if(!is.null(keep.vcs)){
+      d <- d[which(d[, 2] %in% keep.vcs), ]
+    }
     return(d)
   })
   names(bench.dat) <- set.names

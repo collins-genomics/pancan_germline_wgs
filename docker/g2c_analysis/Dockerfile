@@ -71,7 +71,7 @@ RUN git clone \
 # Clone pancan_germline_wgs repo and check out specified hash
 ARG G2C_TAG=main
 RUN git clone \
-    https://github.com/vanallenlab/pancan_germline_wgs.git \
+    https://github.com/collins-genomics/pancan_germline_wgs.git \
     opt/pancan_germline_wgs && \
     cd opt/pancan_germline_wgs && \
     git pull && \
@@ -89,7 +89,7 @@ ARG RLCTOOLS_VERSION=0.1
 RUN Rscript -e "install.packages('opt/RLCtools/RLCtools_$RLCTOOLS_VERSION.tar.gz', repos=NULL, type='source')"
 
 # Install G2C helper libraries
-ARG G2CR_VERSION=0.2.0
+ARG G2CR_VERSION=0.3.0
 RUN Rscript -e "install.packages('opt/pancan_germline_wgs/src/G2CR_$G2CR_VERSION.tar.gz', repos=NULL, type='source')"
 RUN pip install opt/pancan_germline_wgs/src/g2cpy
 

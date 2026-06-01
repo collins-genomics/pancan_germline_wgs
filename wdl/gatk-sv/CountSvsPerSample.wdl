@@ -18,6 +18,7 @@ workflow CountSvsPerSample {
     Array[File] vcfs
     Array[File] vcf_idxs
     Int records_per_shard = 5000
+    String? bcftools_view_options
     String output_prefix
     String sv_pipeline_docker
     String g2c_pipeline_docker
@@ -27,8 +28,18 @@ workflow CountSvsPerSample {
 
   scatter ( vcf_info in vcf_infos ) {
     
-    File vcf = vcf_info.left
-    File vcf_idx = vcf_info.right
+    if ( defined(bcftools_view_options) ) {
+      call FilterVcf {
+        input:
+          vcf = vcf_info.left,
+          vcf_idx = vcf_info.right,
+          bcftools_view_options = select_first([bcftools_view_options, ""]),
+          docker = sv_pipeline_docker
+      }
+    }
+
+    File vcf = select_first([FilterVcf.filtered_vcf, vcf_info.left])
+    File vcf_idx = select_first([FilterVcf.filtered_vcf_idx, vcf_info.right])
 
     call Utils.ShardVcf as ShardVcf {
       input:
@@ -113,3 +124,40 @@ task CountSvs {
   }
 }
 
+
+task FilterVcf {
+  input {
+    File vcf
+    File vcf_idx
+    
+    String bcftools_view_options
+
+    String docker
+    Float mem_gb = 3.75
+    Int n_cpu = 2
+  }
+
+  Int disk_gb = ceil(2 * size([vcf], "GB")) + 10
+  String outfile = basename(vcf, ".vcf.gz") + ".filtered.vcf.gz"
+
+  command <<<
+    set -euo pipefail
+
+    bcftools view ~{bcftools_view_options} -Oz -o ~{outfile} ~{vcf}
+    tabix -p vcf ~{outfile}
+  >>>
+
+  output {
+    File filtered_vcf = "~{outfile}"
+    File filtered_vcf_idx = "~{outfile}.tbi"
+  }
+
+  runtime {
+    docker: docker
+    memory: mem_gb + " GB"
+    cpu: n_cpu
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    max_retries: 1
+  }
+}

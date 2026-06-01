@@ -18,14 +18,20 @@ import "QcTasks.wdl" as QcTasks
 
 workflow CollectVcfQcMetrics {
   input {
-    Array[File] vcfs
-    Array[File] vcf_idxs
+    Array[File]? vcfs_array                        # Two ways to provide VCF information: as arrays for VCF & indexes, or
+    Array[File]? vcf_idxs_array                    # as a two-column .tsv with URIs for VCF and index. If both are provided,
+    File? vcf_info_tsv                             # the array-style inputs will be used. Also note that these VCFs can
+                                                   # include any combination of SNVs, indels, or SVs
 
     Boolean shard_vcf = true                       # Should the input VCF be sharded for QC collection?
     File? scatter_intervals_list                   # GATK-style intervals file for scattering over vcf 
                                                    # (any tabix-compliant interval definitions should work)
     Int n_records_per_shard = 25000                # Number of records per shard. This will only be used as a backup if 
                                                    # scatter_intervals_list is not provided and shard_vcf is true
+    Boolean deduplicate = false                    # Should VCF records be deduplicated before QC collection? Usually not
+                                                   # optimal to do this unless you _know_ your VCF has duplicate records
+                                                   # and you want a hard workaround (otherwise, the presence of unexpected 
+                                                   # duplicate records can be a useful QC error to know about)
     String extra_vcf_preprocessing_commands = ""   # Optional string of extra shell commands to execute when preprocessing
                                                    # main input vcfs. This must be prefixed by a pipe so that it can
                                                    # be injected into a chain of bash commands while reading from stdin 
@@ -36,6 +42,8 @@ workflow CollectVcfQcMetrics {
     Int ld_window = 500000                         # Window size to draw around each variant for plink LD computation
     Int ld_scatter_chunk_size = 5000000            # Chunk size for parallelizing LD computations. Will overlap other chunks by ld_window bp
     File? genome_file                              # BEDTools-style .genome file. Required for LD computation as well as any benchmarking
+    String? ref_build                              # Reference build as ingestible by plink2 for LD computation. If not provided, will
+                                                   # attempt to infer from input VCF header
 
     File? trios_fam_file                           # .fam file of trios for Mendelian transmission analyses
     File? all_samples_fam_file                     # Plink-style .fam file with sex encodings. Family IDs and phenotype values are not 
@@ -50,11 +58,10 @@ workflow CollectVcfQcMetrics {
                                                    # with high priority tier in this file; otherwise, sample overlaps will be 
                                                    # left to random chance, which will often be suboptimal.
     Int n_for_sample_level_analyses = 1000         # Number of samples to use for all sample-level analyses, including trio/twin/benchmarking
-    Boolean concat_vcfs_for_trio_analysis = false  # Should VCFs be concatenated into a single VCF prior to trio analysis?
 
     Array[File?] snv_site_benchmark_beds           # BED files for SNV site benchmarking; one per reference dataset or cohort
-    Array[File?] indel_site_benchmark_beds         # BED files for SNV site benchmarking; one per r`eference dataset or cohort
-    Array[File?] sv_site_benchmark_beds            # BED files for SNV site benchmarking; one per reference dataset or cohort
+    Array[File?] indel_site_benchmark_beds         # BED files for indel site benchmarking; one per reference dataset or cohort
+    Array[File?] sv_site_benchmark_beds            # BED files for SV site benchmarking; one per reference dataset or cohort
     Array[String?] site_benchmark_dataset_names
 
     Array[Array[File?]] sample_benchmark_vcfs      # VCFs to use for sample-level genotype benchmarking. Each outer array corresponds
@@ -71,6 +78,9 @@ workflow CollectVcfQcMetrics {
     Int benchmarking_shards = 2500                 # Number of total parallel tasks to use for site and sample benchmarking
     Int min_samples_per_bench_shard = 10           # Minimum number of samples per shard to allow for sample benchmarking
 
+    File ref_fasta
+    File ref_fasta_idx
+
     String output_prefix
 
     String bcftools_docker
@@ -83,6 +93,17 @@ workflow CollectVcfQcMetrics {
 
   Int n_gt_benchmark_datasets = length(sample_benchmark_dataset_names)
   Boolean do_sample_bench = (n_gt_benchmark_datasets > 0)
+
+  # Determine method of VCF input
+  if ( !defined(vcfs_array) || !defined(vcf_idxs_array) ) {
+    call ExtractVcfArrays {
+      input:
+        vcf_info = select_first(select_all([vcf_info_tsv])),
+        linux_docker = linux_docker
+    }
+  }
+  Array[File] vcfs = select_first([ExtractVcfArrays.vcf_uris, vcfs_array])
+  Array[File] vcf_idxs = select_first([ExtractVcfArrays.vcf_tbi_uris, vcf_idxs_array])
 
   #####################
   ### SAMPLE MANAGEMENT
@@ -224,6 +245,9 @@ workflow CollectVcfQcMetrics {
           site_exclude_samples = ChooseTargetSamples.site_exclude_samples,
           has_mcnvs = McnvCheck.has_mcnvs,
           extra_commands = extra_vcf_preprocessing_commands,
+          ref_fasta = ref_fasta,
+          ref_fasta_idx = ref_fasta_idx,
+          deduplicate = deduplicate,
           supp_vcf_header = MakeHeaderFiller.supp_vcf_header,
           out_prefix = basename(vcf, ".vcf.gz"),
           g2c_analysis_docker = g2c_analysis_docker
@@ -297,7 +321,7 @@ workflow CollectVcfQcMetrics {
   }
 
   # Collect site-level metrics for dense subset if needed
-  if ( has_twins || do_sample_bench ) {
+  if ( has_twins || do_sample_bench || ( do_ld && defined(genome_file) ) ) {
     scatter ( i in range(length(dense_sites_vcf_info)) ) {
       call QcTasks.CollectSiteMetrics as DenseSiteMetrics {
         input:
@@ -430,13 +454,16 @@ workflow CollectVcfQcMetrics {
   if ( do_ld && defined(genome_file) ) {
 
     # Infer reference assembly (necessary for plink to handle LD on chrX/Y)
-    call GetRefFromVcfHeader {
-      input:
-        vcf = dense_sites_vcf_shards[0],
-        vcf_idx = dense_sites_vcf_shard_idxs[0],
-        bcftools_docker = bcftools_docker
+    if ( !defined(ref_build) ) {
+      call GetRefFromVcfHeader {
+        input:
+          vcf = dense_sites_vcf_shards[0],
+          vcf_idx = dense_sites_vcf_shard_idxs[0],
+          bcftools_docker = bcftools_docker
+      }
     }
-
+    String ld_ref_build = select_first([ref_build, GetRefFromVcfHeader.ref_build])
+    
     # Collapse common sites for dense subset
     Array[File] dense_common_snv_site_shards = select_all(select_first([DenseSiteMetrics.common_snv_sites, [empty_bed]]))
     Array[File] dense_common_indel_site_shards = select_all(select_first([DenseSiteMetrics.common_indel_sites, [empty_bed]]))
@@ -467,11 +494,51 @@ workflow CollectVcfQcMetrics {
 
     # Concatenate dense common VCFs
     # Necessary for LD comparisons (need all variants in a single file)
-    # TODO: rework this to output sharded VCFs according to LD chunks
+    # Need to do this iteratively for large VCF arrays to avoid high inode pressure\
+    Int n_dense_vcfs = length(CommonFilterDenseVcf.subsetted_vcf)
+    Int n_dense_per_split = 100
+    if ( n_dense_vcfs >= 2 * n_dense_per_split ) {
+      # Write VCF shards to file listing URIs
+      call WriteArrayToFile as WriteDenseVcfsToList {
+        input:
+          uris = CommonFilterDenseVcf.subsetted_vcf,
+          linux_docker = linux_docker
+      }
+
+      # Shard list of URIs
+      Int n_dense_splits = floor(n_dense_vcfs / n_dense_per_split)
+      call QcTasks.ShardTextFile as ShardDenseVcfList {
+        input:
+          input_file = WriteDenseVcfsToList.array_manifest,
+          n_splits = n_dense_splits,
+          out_prefix = output_prefix,
+          g2c_analysis_docker = g2c_analysis_docker
+      }
+
+      scatter ( dense_vcf_list_shard in ShardDenseVcfList.shards ) {
+        call ExtractVcfArrays as ExtractDenseVcfArrays {
+          input:
+            vcf_info = dense_vcf_list_shard,
+            linux_docker = linux_docker
+        }
+        call QcTasks.ConcatVcfs as InnerConcatDenseVcfs {
+          input:
+            vcfs = ExtractDenseVcfArrays.vcf_uris,
+            vcf_idxs = ExtractDenseVcfArrays.vcf_tbi_uris,
+            bcftools_concat_options = "--allow-overlaps",
+            out_prefix = output_prefix,
+            bcftools_docker = bcftools_docker
+        }
+      }
+    }
+    Array[File] dense_vcfs_to_chunk = select_first([InnerConcatDenseVcfs.merged_vcf, 
+                                                    CommonFilterDenseVcf.subsetted_vcf])
+    Array[File] dense_vcf_idxs_to_chunk = select_first([InnerConcatDenseVcfs.merged_vcf_idx, 
+                                                        CommonFilterDenseVcf.subsetted_vcf_idx])
     call MergeAndReshardVcfs as ChunkCommonVcf {
       input:
-        vcfs = CommonFilterDenseVcf.subsetted_vcf,
-        vcf_idxs = CommonFilterDenseVcf.subsetted_vcf_idx,
+        vcfs = dense_vcfs_to_chunk,
+        vcf_idxs = dense_vcf_idxs_to_chunk,
         new_intervals_tsv = MakeLdChunks.chunks_tsv,
         out_prefix = output_prefix + ".dense.common",
         bcftools_concat_options = "--allow-overlaps",
@@ -486,7 +553,7 @@ workflow CollectVcfQcMetrics {
         input:
           vcf = chunk_info.left,
           vcf_idx = chunk_info.right,
-          ref_build = GetRefFromVcfHeader.ref_build,
+          ref_build = ld_ref_build,
           common_snvs_bed = CollapseCommonSnvs.merged_file,
           common_indels_bed = CollapseCommonIndels.merged_file,
           common_svs_bed = CollapseCommonSvs.merged_file,
@@ -725,8 +792,9 @@ task CalcLd {
     
     String out_prefix
     String g2c_analysis_docker
-    Int min_disk_gb = 10
+    Int min_disk_gb = 20
     Int max_disk_gb = 500
+    Int boot_disk_gb = 20
   }
 
   Boolean has_snvs = defined(common_snvs_bed)
@@ -736,7 +804,7 @@ task CalcLd {
   Boolean has_svs = defined(common_svs_bed)
   String sv_opt = if has_svs then "--sv-list sv.list" else ""
 
-  Int disk_gb_auto = ceil(2 * size(vcf, "GB")) + 10
+  Int disk_gb_auto = ceil(5 * size(vcf, "GB")) + 25
   Int disk_gb_ceil = if disk_gb_auto > max_disk_gb then max_disk_gb else disk_gb_auto
   Int disk_gb = if disk_gb_ceil < min_disk_gb then min_disk_gb else disk_gb_ceil
 
@@ -840,6 +908,7 @@ task CalcLd {
     memory: "3.75 GB"
     cpu: 2
     disks: "local-disk " + disk_gb + " HDD"
+    bootDiskSizeGb: boot_disk_gb
     preemptible: 3
   }  
 }
@@ -922,7 +991,7 @@ task ChunkCommonSites {
     String docker
   }
 
-  Int disk_gb = ceil(3 * size(sites_bed, "GB")) + 10
+  Int disk_gb = ceil(5 * size(sites_bed, "GB")) + 50
   Int step_size = chunk_size - buffer + 2
 
   command <<<
@@ -946,11 +1015,12 @@ task ChunkCommonSites {
 
   runtime {
     docker: docker
-    memory: "1.75 GB"
+    memory: "3.5 GB"
     cpu: 1
     disks: "local-disk ~{disk_gb} HDD"
+    bootDiskSizeGb: 20
     preemptible: 3
-    maxRetries: 2
+    maxRetries: 1
   }
 }
 
@@ -1067,6 +1137,45 @@ task CleanTwins {
 }
 
 
+# Extract URIs of VCFs and indexes from a flat text file of URI strings
+task ExtractVcfArrays {
+  input {
+    File vcf_info # Either a .txt file with VCF URIs or a two-column .tsv of VCF and tabix URIs.
+                  # If provided as a single-column .txt file, we assume tabix indexes exist in the same bucket.
+    String linux_docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+
+    max_fields=$( awk -v FS="\t" '{ print NF }' ~{vcf_info} \
+                  | sort -nrk1,1 | sed -n '1p' )
+
+    if [ $max_fields -gt 1 ]; then
+      awk -v FS="\t" '{ print $1 }' ~{vcf_info} > vcf_uris.list
+      awk -v FS="\t" '{ print $2 }' ~{vcf_info} > index_uris.list
+    else
+      cp ~{vcf_info} vcf_uris.list
+      awk '{ print $1".tbi" }' ~{vcf_info} > index_uris.list
+    fi
+  >>>
+
+  output {
+    Array[String] vcf_uris = read_lines("vcf_uris.list")
+    Array[String] vcf_tbi_uris = read_lines("index_uris.list")
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 20 HDD"
+    preemptible: 1
+    maxRetries: 1
+  }
+}
+
+
 # Infer reference assembly from VCF header
 task GetRefFromVcfHeader {
   input {
@@ -1134,25 +1243,39 @@ task MergeAndReshardVcfs {
     Float mem_gb = 3.5
     Int cpu_cores = 2
     Int? disk_gb
+    Int n_preemptible = 3
 
     String bcftools_docker
   }
 
-  Int default_disk_gb = ceil(4 * size(vcfs, "GB")) + 10
+  Int default_disk_gb = ceil(5 * size(vcfs, "GB")) + 25
 
   command <<<
+    ulimit -n 4096
     set -eu -o pipefail
 
+    # Merge VCFs
     bcftools concat \
       ~{bcftools_concat_options} \
       --file-list ~{write_lines(vcfs)} \
       --threads ~{cpu_cores} \
-    | bcftools +scatter \
-      --scatter-file ~{new_intervals_tsv} \
-      -o . -Oz -p "~{out_prefix}."
+      -Oz -o concat.vcf.gz
+    tabix -p vcf -f concat.vcf.gz
+    echo "Merged all input VCFs" # Print something to stdout to keep VM alive
 
-    find ./ -name "~{out_prefix}*vcf.gz" \
-    | xargs -I {} tabix -p vcf -f {}
+    # Next, scatter VCFs (don't do this in pipe to avoid VM timeouts)
+    bcftools +scatter \
+      --scatter-file ~{new_intervals_tsv} \
+      -o . -Oz -p "~{out_prefix}." \
+      concat.vcf.gz
+    rm concat.vcf.gz
+    echo "Sharded merged VCF" # Print something to stdout to keep VM alive
+
+    # Tabix in while read loop to avoid bursty system load for large contigs
+    while read shard; do
+      tabix -p vcf -f "$shard"
+      echo "Indexed $shard" # Print something to stdout to keep the VM alive
+    done < <( find ./ -name "~{out_prefix}*vcf.gz" )
   >>>
 
   output {
@@ -1165,8 +1288,9 @@ task MergeAndReshardVcfs {
     memory: mem_gb + " GB"
     cpu: cpu_cores
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"
-    preemptible: 3
-    maxRetries: 3
+    bootDiskSizeGb: 20
+    preemptible: n_preemptible
+    maxRetries: 1
   }
 }
 
@@ -1179,7 +1303,7 @@ task MergePeakLdChunks {
     String docker
   }
 
-  Int disk_gb = ceil(3 * size(chunks, "GB")) + 10
+  Int disk_gb = ceil(5 * size(chunks, "GB")) + 25
 
   command <<<
     set -eu -o pipefail
@@ -1203,10 +1327,12 @@ task MergePeakLdChunks {
 
   runtime {
     docker: docker
-    memory: "1.75 GB"
-    cpu: 1
+    memory: "3.5 GB"
+    cpu: 2
     disks: "local-disk ~{disk_gb} HDD"
+    bootDiskSizeGb: 20
     preemptible: 3
+    maxRetries: 1
   }
 }
 
@@ -1220,6 +1346,10 @@ task PreprocessVcf {
     File? site_exclude_samples
     Boolean has_mcnvs = false
     String extra_commands = ""
+    String bcftools_check_ref_behavior = "s"
+    File ref_fasta
+    File ref_fasta_idx
+    Boolean deduplicate = false
     File supp_vcf_header
     
     String out_prefix
@@ -1231,47 +1361,68 @@ task PreprocessVcf {
     String g2c_analysis_docker
   }
 
-  String no_rel_cmd = if defined(site_exclude_samples) then "--force-samples --samples-file ^" + basename(select_first([site_exclude_samples])) else ""
   String sites_outfile = out_prefix + ".sites.vcf.gz"
   String dense_outfile = out_prefix + ".dense_subset.vcf.gz"
   String dense_sites_outfile = out_prefix + ".dense_subset.sites.vcf.gz"
 
+  String no_rel_cmd = if defined(site_exclude_samples) then "--force-samples --samples-file ^" + basename(select_first([site_exclude_samples])) else ""
+  String dedup_cmd = if deduplicate then "--remove-duplicates" else ""
   String mcnv_anno = if has_mcnvs then "| /opt/pancan_germline_wgs/scripts/gatksv_helpers/annotate_mcnv_freqs.py - -" else ""
 
   Int default_disk_gb = ceil(4 * size(vcf, "GB")) + 10
   Int hdd_gb = select_first([disk_gb, default_disk_gb])
+  Int n_threads = floor(2 * n_cpu)
 
   command <<<
     set -eu -o pipefail
+
+    # Start heartbeat to avoid silent VM death
+    (
+      while true; do
+        echo "[PreprocessVcf] still running at $(date)"
+        sleep 60
+      done
+    ) &
+    HEARTBEAT_PID=$!
+    trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
 
     # Move site exclude samples to working directory, if optioned
     if ~{defined(site_exclude_samples)}; then
       mv ~{select_first([site_exclude_samples])} ./
     fi
 
+    # Normalize VCF to ensure proper representation of indels downstream
+    # Also assign record names all records for consistency
+    bcftools annotate \
+      -h ~{supp_vcf_header} \
+      ~{vcf} \
+    | bcftools norm \
+      --fasta-ref ~{ref_fasta} \
+      --check-ref ~{bcftools_check_ref_behavior} \
+      --multiallelics - \
+      ~{dedup_cmd} \
+      --threads ~{n_threads} \
+      --site-win 100 \
+    ~{extra_commands} \
+    | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
+      --vcf-out cleaned.vcf.gz
+    tabix -p vcf -f cleaned.vcf.gz
+    rm ~{vcf}
+
     # Generate sites-only VCF of unrelated samples
-    bcftools view ~{no_rel_cmd} ~{vcf} \
-    | bcftools annotate -h ~{supp_vcf_header} --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' \
+    bcftools view ~{no_rel_cmd} cleaned.vcf.gz \
     | bcftools +fill-tags -- -t AN,AC,AF,AC_Hemi,AC_Het,AC_Hom,HWE \
     ~{mcnv_anno} \
-    ~{extra_commands} \
-    | bcftools annotate -x "^INFO/END,INFO/SVTYPE,INFO/SVLEN,INFO/AN,INFO/AC,INFO/AF,INFO/CN_NONREF_COUNT,INFO/CN_NONREF_FREQ,INFO/AC_Het,INFO/AC_Hom,INFO/AC_Hemi,INFO/HWE,^FILTER/PASS,FILTER/MULTIALLELIC" \
+    | bcftools annotate -x "^INFO/END,INFO/SVTYPE,INFO/SVLEN,INFO/AN,INFO/AC,INFO/AF,INFO/CN_NONREF_COUNT,INFO/CN_NONREF_FREQ,INFO/AC_Het,INFO/AC_Hom,INFO/AC_Hemi,INFO/HWE" \
     | bcftools view -G --threads 2 \
       --include 'INFO/AC > 0 | FILTER="MULTIALLELIC"' \
       -Oz -o ~{sites_outfile}
     tabix -p vcf -f ~{sites_outfile}
 
     # Generate dense VCF of only target samples
-    # Note that this command also reassigns all variant IDs to G2C QC standards
-    # This is required for compatability with downstream LD calculations
-    # This command also intentionally does not recalculate variant frequency information
-    # on the dense subset, as we want the frequencies to reflect the overall cohort
-    bcftools annotate -h ~{supp_vcf_header} ~{vcf} \
-    | bcftools +fill-tags -- -t AN,AC,AF,AC_Hemi,AC_Het,AC_Hom,HWE \
+    bcftools +fill-tags cleaned.vcf.gz -- -t AN,AC,AF,AC_Hemi,AC_Het,AC_Hom,HWE \
     ~{mcnv_anno} \
-    ~{extra_commands} \
     | bcftools annotate -x "^INFO/END,INFO/SVTYPE,INFO/SVLEN,INFO/AN,INFO/AC,INFO/AF,INFO/CN_NONREF_COUNT,INFO/CN_NONREF_FREQ,INFO/AC_Het,INFO/AC_Hom,INFO/AC_Hemi,INFO/HWE,^FILTER/PASS,FILTER/MULTIALLELIC,^FORMAT/GT,FORMAT/RD_CN" \
-    | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/set_g2c_qc_variant_ids.py \
     | bcftools view --no-update --samples-file ~{target_samples} --force-samples \
     | bcftools view --no-update --include 'GT="alt" | FILTER="MULTIALLELIC"' \
       -Oz -o ~{dense_outfile}
@@ -1306,3 +1457,30 @@ task PreprocessVcf {
   }
 }
 
+
+# Helper task to write an Array[File] to a flat text file of URIs
+task WriteArrayToFile {
+  input {
+    Array[String] uris
+    String outfile_name = "array_uris.list"
+    String linux_docker
+  }
+
+  command <<<
+    set -eu -o pipefail
+    cat ~{write_lines(uris)} > ~{outfile_name}
+  >>>
+
+  output {
+    File array_manifest = "~{outfile_name}"
+  }
+
+  runtime {
+    docker: linux_docker
+    memory: "1.75 GB"
+    cpu: 1
+    disks: "local-disk 25 HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}

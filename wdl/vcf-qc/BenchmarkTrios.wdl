@@ -29,6 +29,9 @@ workflow BenchmarkTrios {
     String output_prefix
     Float common_af_cutoff = 0.01
 
+    Float benchmarking_mem_gb = 1.75
+    Int benchmarking_n_cpu = 1
+
     String bcftools_docker
     String g2c_analysis_docker
   }
@@ -84,6 +87,8 @@ workflow BenchmarkTrios {
           trios_fam = trios_fam,
           trios_samples_list = trios_samples_list,
           common_af_cutoff = common_af_cutoff,
+          mem_gb = benchmarking_mem_gb,
+          n_cpu = benchmarking_n_cpu,
           output_prefix = ei_prefix + "." + basename(vcf_info.left, ".vcf.gz"),
           g2c_analysis_docker = g2c_analysis_docker
       }
@@ -118,13 +123,13 @@ task BenchmarkTrios {
     Float common_af_cutoff = 0.01
     String output_prefix
     
-    Float mem_gb = 1.75
-    Int n_cpu = 1
+    Float mem_gb
+    Int n_cpu
     String g2c_analysis_docker
   }
 
   String out_fname = "~{output_prefix}.mendelian_violations.distribs.tsv.gz"
-  Int disk_gb = ceil(2 * size([vcf, eligible_sites_bed], "GB")) + 5
+  Int disk_gb = ceil(3 * size([vcf, eligible_sites_bed], "GB")) + 20
 
   command <<<
     set -eu -o pipefail
@@ -135,17 +140,21 @@ task BenchmarkTrios {
     > elig_vids.list
 
     # Subset VCF to samples from trios and benchmark Mendelian violations
+    # Don't do this in one single pipe to avoid VM timeouts for very large VCFs
     bcftools view --no-update --force-samples \
       --samples-file ~{trios_samples_list} \
+      --include 'ID==@elig_vids.list' \
       ~{vcf} \
     | bcftools view --no-update \
       --include 'GT="alt" | FILTER="MULTIALLELIC"' \
-    | /opt/pancan_germline_wgs/scripts/qc/vcf_qc/gather_mendelian_violations.py \
+      -Oz -o input.vcf.gz
+    tabix -p vcf -f input.vcf.gz
+    /opt/pancan_germline_wgs/scripts/qc/vcf_qc/gather_mendelian_violations.py \
       --trios-fam ~{trios_fam} \
       --eligible-vids elig_vids.list \
       --common-af ~{common_af_cutoff} \
       --summary-out stdout \
-      stdin \
+      input.vcf.gz \
     | gzip -c > ~{out_fname}
   >>>
 

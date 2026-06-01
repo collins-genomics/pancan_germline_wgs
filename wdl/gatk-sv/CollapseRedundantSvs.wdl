@@ -17,7 +17,7 @@ workflow CollapseRedundantSvs {
 
     Array[Float] recip_overlap = [0.975, 0.99, 1]
     Array[Int] bp_dist = [800, 200, 1]
-    Array[Float] sample_overlap = [0.10, 0.01, 0]
+    Array[Float] sample_overlap = [0.10, 0.05, 0]
     Array[Float] min_af = [0.01, 0.001, 0]
     Array[Int] min_ac = [100, 10, 1]
     Array[String] round_prefixes = ["loose", "strict", "identical"]

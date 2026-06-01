@@ -37,7 +37,7 @@ for lang in "$@"; do
     R)
 
       # Install all R libraries distributed via CRAN
-      for lib in argparse optparse beeswarm bedr caret EQL vioplot DescTools; do
+      for lib in argparse optparse beeswarm bedr caret EQL vioplot DescTools colourvalues viridis; do
         Rscript -e "if(require('$lib') == FALSE){install.packages('$lib', repos='https://cloud.r-project.org')}"
       done
 
@@ -46,7 +46,7 @@ for lang in "$@"; do
       Rscript -e "if(require('RLCtools') == TRUE){remove.packages('RLCtools')}; install.packages('code/src/RLCtools_$RLCtools_version.tar.gz', repos=NULL, type='source')"
 
       # Install G2C companion library
-      export G2CR_version=0.2.0
+      export G2CR_version=0.3.0
       Rscript -e "if(require('G2CR') == TRUE){remove.packages('G2CR')}; install.packages('code/src/G2CR_$G2CR_version.tar.gz', repos=NULL, type='source')"
       ;;
 

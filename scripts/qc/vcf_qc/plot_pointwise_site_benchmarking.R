@@ -27,7 +27,7 @@ load.constants("all")
 # Data Functions #
 ##################
 # Load a site benchmarking BED file and subset to minimal required columns
-read.bed <- function(bed.in, common_af=0){
+read.bed <- function(bed.in, common_af=0, deduplicate=FALSE){
   numeric.cols <- c("af", "match_af")
   keep.cols <- c("vc", "vsc", numeric.cols)
   df <- read.table(bed.in, header=T, sep="\t", comment.char="",
@@ -36,6 +36,9 @@ read.bed <- function(bed.in, common_af=0){
   df[is.na(df$match_af), "match_af"] <- 0
   df[, numeric.cols] <- as.data.frame(apply(df[, numeric.cols], 2, as.numeric))
   df <- df[which(df$af >= common_af | df$match_af >= common_af), ]
+  if(deduplicate){
+    df <- df[which(!duplicated(df)), ]
+  }
   return(as.data.frame(df))
 }
 
@@ -123,10 +126,15 @@ plot.af.scatter <- function(df, title=NULL, common.af=NULL, ref.prefix=NULL,
 
   # Add points
   if(is.null(pt.params)){
-    density.topomap(plot.vals[, 1], jitter(plot.vals[, 2]),
-                    xlims=c(min.af, 0), ylims=c(min.af, 0),
-                    palette.fxn=af.topo.pal,
-                    contour.levels=6)
+    tryCatch(density.topomap(plot.vals[, 1], jitter(plot.vals[, 2]),
+                             xlims=c(min.af, 0), ylims=c(min.af, 0),
+                             palette.fxn=af.topo.pal,
+                             contour.levels=6),
+             error=function(e){
+               cat(paste("Warning: unable to generate topographic map of AF",
+                           "correlations for data frame with head as follows:\n"))
+               print(head(df))
+             })
   }else{
     pw.pal <- inferno(101, alpha=pt.alpha, begin=0.075, end=0.9)
     pw.col.idx <- ceiling(100 * log10(sapply(af.d, function(v){min(c(v, 10))}))) + 1
@@ -213,10 +221,14 @@ parser$add_argument("--svs", metavar=".bed", type="character",
                     help="SV site benchmarking BED from BenchmarkSites.wdl")
 parser$add_argument("--combine", action="store_true", default=FALSE,
                     help="Also generate a combined set of plots for all variant types")
+parser$add_argument("--deduplicate", action="store_true", default=FALSE,
+                    help="Deduplicate identical variants before performing QC")
 parser$add_argument("--common-af", metavar="float", default=0.01, type="numeric",
                     help="Allele frequency threshold for common variants")
 parser$add_argument("--ref-title", metavar="string", type="character",
                     help="Name of reference cohort (optional)")
+parser$add_argument("--custom-constants", metavar=".R", type="character",
+                    help="Optional file of custom constants to use for plotting")
 parser$add_argument("--out-prefix", metavar="path", type="character",
                     help="String or path to use as prefix for output plots",
                     default="./vcf_qc")
@@ -229,8 +241,10 @@ args <- parser$parse_args()
 #              "indels" = "~/scratch/site_benchmarking_dev/giab_easy.dfci-g2c.v1.gatkhc.initial_qc.chr19_vs_gnomad_v4.common_sites.indels.bed.gz",
 #              "svs" = "~/scratch/site_benchmarking_dev/giab_easy.dfci-g2c.v1.gatkhc.initial_qc.chr19_vs_gnomad_v4.common_sites.svs.bed.gz",
 #              "combine" = TRUE,
+#              "deduplicate" = TRUE,
 #              "common_af" = 0.001,
 #              "ref_title" = "gnomAD v4.1",
+#              "custom_constants" = NULL,
 #              "out_prefix" = "~/scratch/qc.test",
 #              "set_name" = "easy")
 
@@ -239,10 +253,15 @@ if(is.null(args$snvs) & is.null(args$indels) & is.null(args$svs)){
   stop("At least one of --snvs, --indels, or --svs must be provided")
 }
 
+# Load custom constants if optioned
+if(!is.null(args$custom_constants)){
+  source(args$custom_constants)
+}
+
 # Load & plot SNVs, if provided
 if(!is.null(args$snvs)){
   # Load SNV data
-  snv.df <- read.bed(args$snvs, args$common_af)
+  snv.df <- read.bed(args$snvs, args$common_af, args$deduplicate)
 
   # Plot SNV metrics
   snv.ss <- pointwise.plots(snv.df, args$out_prefix, fname.suffix="snv",
@@ -256,7 +275,7 @@ if(!is.null(args$snvs)){
 # Load & plot indels, if provided
 if(!is.null(args$indels)){
   # Load indel data
-  indel.df <- read.bed(args$indels, args$common_af)
+  indel.df <- read.bed(args$indels, args$common_af, args$deduplicate)
 
   # Plot indel metrics
   indel.ss <- pointwise.plots(indel.df, args$out_prefix, fname.suffix="indel",
@@ -271,7 +290,7 @@ if(!is.null(args$indels)){
 # Load & plot SVs, if provided
 if(!is.null(args$svs)){
   # Load SV data
-  sv.df <- read.bed(args$svs, args$common_af)
+  sv.df <- read.bed(args$svs, args$common_af, args$deduplicate)
 
   # Plot SV metrics
   sv.ss <- pointwise.plots(sv.df, args$out_prefix, fname.suffix="sv",
@@ -286,6 +305,9 @@ if(!is.null(args$svs)){
 if(args$combine){
   # Merge all data
   all.df <- do.call("rbind", list(snv.df, indel.df, sv.df))
+  if(args$deduplicate){
+    all.df <- all.df[which(!duplicated(all.df)), ]
+  }
 
   # Plot all metrics
   all.ss <- pointwise.plots(all.df, args$out_prefix, fname.suffix="all",

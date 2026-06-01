@@ -16,55 +16,104 @@ import "Utilities.wdl" as Utils
 
 workflow PosthocCleanupPart1 {
   input {
-    Array[File] vcfs
-    Array[File] vcf_idxs
+    # Input can be specified in two ways: 
+    # 1. Arrays of VCFs & tabix indexes:
+    Array[File]? vcfs
+    Array[File]? vcf_idxs
+    # 2. Or a two-column .tsv of VCF and index GCS URIs
+    File? vcf_info_tsv
+
+    # Parallelization control (makes workflow metadata easier to query)
+    Int vcfs_per_shard = 10
+
+    File samples_list
     String output_prefix
 
     File ref_fasta
     
     String linux_docker
     String bcftools_docker
-    String g2c_pipeline_docker
+    String g2c_analysis_docker
   }
 
-  # Parallelize over input VCFs
-  Array[Pair[File, File]] vcf_infos = zip(vcfs, vcf_idxs)
-  scatter ( i in range(length(vcf_infos)) ) {
-
-    String out_vcf_fname = output_prefix + "." + i + ".norm.vcf.gz"
-    File in_vcf_shard = vcf_infos[i].left
-    File in_vcf_shard_idx = vcf_infos[i].right
-
-    # Additional cleanup step added for G2C to coerce to parsimonious format
-    call NormalizeShortVariants as NormalizeVcf {
+  # If inputs are defined as arrays, write as .tsv for subsequent chunking
+  if ( ! defined(vcf_info_tsv) ) {
+    call Utils.VcfArrayToTsv {
       input:
-        vcf = in_vcf_shard,
-        vcf_idx = in_vcf_shard_idx,
-        outfile_name = out_vcf_fname,
-        ref_fasta = ref_fasta,
-        bcftools_docker = bcftools_docker
-    }
-
-    # Count number of non-reference SNVs, insertions, and deletions per sample
-    call CountShortVariantsPerSample {
-      input:
-        vcf = NormalizeVcf.norm_vcf,
-        vcf_idx = NormalizeVcf.norm_vcf_idx,
-        bcftools_docker = bcftools_docker
+        vcfs = select_first([vcfs, []]),
+        vcf_idxs = select_first([vcf_idxs, []]),
+        output_prefix = output_prefix,
+        docker = linux_docker
     }
   }
 
-  # Sum variant counts
+  # Shard VCF URI list
+  call Utils.ShardTextFile as ShardVcfList {
+    input:
+      input_file = select_first([vcf_info_tsv, VcfArrayToTsv.vcf_info_tsv]),
+      lines_per_split = vcfs_per_shard,
+      out_prefix = output_prefix + ".",
+      g2c_analysis_docker = g2c_analysis_docker
+  }
+  Int n_chunks = length(ShardVcfList.shards)
+
+  # Scatter over sharded VCF lists
+  scatter ( i in range(n_chunks) ) {
+    # Extract URIs from sharded file as array of strings and indexes
+    call Utils.ExtractVcfArrays {
+      input:
+        vcf_info = ShardVcfList.shards[i],
+        linux_docker = g2c_analysis_docker
+    }
+
+    Array[Pair[File, File]] inner_vcf_infos = zip(ExtractVcfArrays.vcf_uris, 
+                                                  ExtractVcfArrays.vcf_tbi_uris)
+    scatter ( j in range(length(inner_vcf_infos)) ) {
+
+      String out_vcf_fname = output_prefix + "." + i + "." + j + ".norm.vcf.gz"
+      File in_vcf_shard = inner_vcf_infos[j].left
+      File in_vcf_shard_idx = inner_vcf_infos[j].right
+
+      # Additional cleanup step added for G2C to coerce to parsimonious format
+      call NormalizeShortVariants as NormalizeVcf {
+        input:
+          vcf = in_vcf_shard,
+          vcf_idx = in_vcf_shard_idx,
+          samples_list = samples_list,
+          outfile_name = out_vcf_fname,
+          ref_fasta = ref_fasta,
+          bcftools_docker = bcftools_docker
+      }
+
+      # Count number of non-reference SNVs, insertions, and deletions per sample
+      call CountShortVariantsPerSample {
+        input:
+          vcf = NormalizeVcf.norm_vcf,
+          vcf_idx = NormalizeVcf.norm_vcf_idx,
+          bcftools_docker = bcftools_docker
+      }
+    }
+
+    # Inner layer of sum variant counts
+    call Utils.SumSvCountsPerSample as SumCountsInner {
+      input:
+        count_tsvs = CountShortVariantsPerSample.counts_tsv,
+        output_prefix = output_prefix + "." + i + ".norm",
+        docker = g2c_analysis_docker
+    }
+  }
+
+  # Outer layer of sum variant counts
   call Utils.SumSvCountsPerSample as SumCounts {
     input:
-      count_tsvs = CountShortVariantsPerSample.counts_tsv,
+      count_tsvs = SumCountsInner.summed_tsv,
       output_prefix = output_prefix + ".norm",
-      docker = g2c_pipeline_docker
+      docker = g2c_analysis_docker
   }
 
   output {
-    Array[File] normalized_vcfs = NormalizeVcf.norm_vcf
-    Array[File] normalized_vcf_idxs = NormalizeVcf.norm_vcf_idx
+    Array[File] normalized_vcfs = flatten(NormalizeVcf.norm_vcf)
+    Array[File] normalized_vcf_idxs = flatten(NormalizeVcf.norm_vcf_idx)
     File counts_per_sample = SumCounts.summed_tsv
   }
 }
@@ -75,6 +124,7 @@ task NormalizeShortVariants {
     File vcf
     File vcf_idx
     String outfile_name
+    File samples_list
     File ref_fasta
     Float mem_gb = 7.5
     String bcftools_docker
@@ -85,10 +135,13 @@ task NormalizeShortVariants {
   command <<<
     set -eu -o pipefail
 
-    bcftools annotate \
+    bcftools view \
+      --samples-file ~{samples_list} \
+      --force-samples \
+      ~{vcf} \
+    | bcftools annotate \
       -x FORMAT/PGT,FORMAT/PID,FORMAT/PS,INFO/DB \
       -i 'FORMAT/DP>10 & FORMAT/GQ>20 & GT="alt"' \
-      ~{vcf} \
     | bcftools norm \
       --fasta-ref ~{ref_fasta} \
       --check-ref s \

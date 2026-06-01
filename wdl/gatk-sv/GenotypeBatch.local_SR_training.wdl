@@ -9,7 +9,7 @@
 
 version 1.0
 
-import "https://raw.githubusercontent.com/vanallenlab/pancan_germline_wgs/main/wdl/GenotypePESRPart1.local_SR_training.wdl" as gp1     # This import also needed to be modified so the path has changed
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/main/wdl/GenotypePESRPart1.local_SR_training.wdl" as gp1     # This import also needed to be modified so the path has changed
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/v0.27-beta/wdl/GenotypePESRPart2.wdl" as gp2
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/v0.27-beta/wdl/GenotypeDepthPart1.wdl" as gd1
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/v0.27-beta/wdl/GenotypeDepthPart2.wdl" as gd2

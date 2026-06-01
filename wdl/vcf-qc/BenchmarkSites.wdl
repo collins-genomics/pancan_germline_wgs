@@ -44,6 +44,7 @@ workflow BenchmarkSites {
 
     Float snv_mem_scalar = 2.0
     Float indel_mem_scalar = 1.0
+    Float shard_intervals_mem_gb = 3.75
 
     String bcftools_docker
     String g2c_analysis_docker
@@ -144,6 +145,7 @@ workflow BenchmarkSites {
         make_full_id_maps = make_full_id_maps,
         snv_mem_scalar = snv_mem_scalar,
         indel_mem_scalar = indel_mem_scalar,
+        shard_intervals_mem_gb = shard_intervals_mem_gb,
         bcftools_docker = bcftools_docker,
         g2c_analysis_docker = g2c_analysis_docker
     }

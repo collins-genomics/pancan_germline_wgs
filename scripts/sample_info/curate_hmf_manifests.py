@@ -87,7 +87,7 @@ def main():
     supermap = {}
     if args.tumor_superclass_table is not None:
         supermap = load_superclass_table(args.tumor_superclass_table)
-    md.loc[:, 'g2c_cancer_type'] = md.apply(map_g2c_cancer_type, axis=1, supermap=supermap)
+        md.loc[:, 'g2c_cancer_type'] = md.apply(map_g2c_cancer_type, axis=1, supermap=supermap)
     
     # Parse file manifest .json and convert all entries into pd.DataFrame
     mfst_cols = 'sampleId tumor_cram tumor_crai normal_cram normal_crai ' + \
@@ -128,7 +128,8 @@ def main():
         keep_rows = (~df.normal_cram.isna()) & (df.g2c_cancer_type != 'Other')
     else:
         keep_rows = ~df.normal_cram.isna()
-    twgs = df.loc[keep_rows, twgs_keeper_cols.split()]
+    twgs_keeper_cols = list(set(twgs_keeper_cols.split()).intersection(set(df.columns)))
+    twgs = df.loc[keep_rows, twgs_keeper_cols]
     twgs.rename(columns = {'hmfPatientId' : 'entity:sample_id',
                            'normal_cram' : 'hg19_cram',
                            'normal_crai' : 'hg19_crai'},
@@ -145,7 +146,8 @@ def main():
         keep_rows = (~df.germline_vcf.isna()) & (df.g2c_cancer_type.isin(keep_cancers))
     else:
         keep_rows = ~df.germline_vcf.isna()
-    tvcf = df.loc[keep_rows, tvcf_keeper_cols.split()]
+    tvcf_keeper_cols = list(set(tvcf_keeper_cols.split()).intersection(set(df.columns)))
+    tvcf = df.loc[keep_rows, tvcf_keeper_cols]
     tvcf.rename(columns = {'hmfPatientId' : 'entity:sample_id'},
                 inplace=True)
     tvcf.to_csv(args.outdir + '/HMF.hg19_germline_vcf_processing.terra_manifest.tsv',

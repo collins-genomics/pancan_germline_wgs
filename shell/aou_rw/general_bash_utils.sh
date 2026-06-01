@@ -190,6 +190,7 @@ get_workspace_number() {
 # Simple routine to monitor a single Cromwell workflow
 # Required first positional argument is workflow ID
 # Optional second positional argument is gate window (in minutes)
+# Optional third positional argument is number of loops
 monitor_workflow() {
   # Check inputs
   if [ $# -lt 1 ]; then
@@ -197,18 +198,29 @@ monitor_workflow() {
     return 2
   fi
   if [ $# -ge 2 ]; then
-    monitor_gate=$2
+    local monitor_gate=$2
   else
-    monitor_gate=5
+    local monitor_gate=5
+  fi
+  if [ $# -ge 3 ]; then
+    local iter=$3
+  else
+    local iter=1000000
   fi
 
   # Endless loop
+  local k=0
   while true; do
-    echo -e "\n\n\n\n"
+    ((k++))
+    echo -e "\n"
     date
     njobs=$( gcloud compute instances list | wc -l )
     echo -e "Current Cromwell server load: $(( $njobs - 4 )) active VMs"
+    ( cromshell -t 150 --no_turtle status $1 | jq .status ) 2>/dev/null 
     cromshell -t 150 --no_turtle counts -x $1 2>/dev/null
+    if [ $k -ge $iter ]; then
+      return 0
+    fi
     echo -e "Waiting $monitor_gate minutes before checking again...\n"
     sleep ${monitor_gate}m
   done

@@ -1,7 +1,7 @@
 # G2C helper libraries
 ### Source code for G2C helper libraries in R or Python
 
-Copyright (c) 2023-Present, [Ryan L. Collins](mailto:Ryan_Collins@dfci.harvard.edu) and the Dana-Farber Cancer Institute.  
+Copyright (c) 2023-Present, [Ryan L. Collins](mailto:Ryan_Collins@dfci.harvard.edu), the [Collins Genomics Lab](https://labs.dana-farber.org/collins-genomics/), and the [Van Allen Lab](https://labs.dana-farber.org/vanallenlab/) at the Dana-Farber Cancer Institute.  
 
 We provide easy access to commonly used functions throughout the G2C project via two libraries:  
 * `G2CR` : an R companion library with G2C-relevant functions; depends heavily on [`RLCtools`](https://github.com/RCollins13/RLCtools), and  
@@ -41,7 +41,7 @@ The same holds true for all functions in [`RLCtools`](https://github.com/RCollin
 The `g2cpy` Python module can be installed from the command line as follows:  
 
 ```
-git clone https://github.com/vanallenlab/pancan_germline_wgs
+git clone https://github.com/collins-genomics/pancan_germline_wgs
 cd pancan_germline_wgs/src/g2cpy
 pip install -e .
 ```

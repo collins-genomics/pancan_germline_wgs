@@ -20,7 +20,7 @@ RUN apt-get -qqy update --fix-missing && \
 # It will be re-cloned when building the child image, g2c_analysis
 ARG G2C_TAG=main
 RUN git clone \
-    https://github.com/vanallenlab/pancan_germline_wgs.git \
+    https://github.com/collins-genomics/pancan_germline_wgs.git \
     opt/pancan_germline_wgs && \
     cd opt/pancan_germline_wgs && \
     git pull && \
@@ -43,6 +43,7 @@ RUN conda config --env --set subdir linux-64 && \
 #               conda-forge::r-readxl conda-forge::r-survival conda-forge::r-vioplot \
 #               conda-forge::r-viridis conda-forge::r-optparse
 # mamba install conda-forge::google-cloud-sdk
+# mamba install conda-forge::r-glmnet
 
 # Use conda-pack to create a standalone enviornment
 RUN mamba install conda-pack && \

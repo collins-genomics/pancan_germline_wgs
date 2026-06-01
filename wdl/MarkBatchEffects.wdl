@@ -10,7 +10,7 @@
 version 1.0
 
 
-import "https://raw.githubusercontent.com/vanallenlab/pancan_germline_wgs/main/wdl/Utilities.wdl" as Utilities
+import "Utilities.wdl" as Utilities
 
 
 workflow MarkBatchEffects {
@@ -67,7 +67,7 @@ workflow MarkBatchEffects {
     call MarkBatchEffectsSingleContig {
       input:
         vcf = vcf,
-        vcf_idx = select_first([vcf_idx, GetContigsFromVcfHeader.vcf_idx_out]),
+        vcf_idx = vcf_idx,
         group_membership_tsv = group_membership_tsv,
         contig = contig,
         min_n = min_samples_per_group,

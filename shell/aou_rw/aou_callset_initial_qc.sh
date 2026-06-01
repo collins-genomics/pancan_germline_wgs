@@ -5,7 +5,7 @@
 # Contact: Ryan Collins <Ryan_Collins@dfci.harvard.edu>
 # Distributed under the terms of the GNU GPL v2.0
 
-# Quality control and filtering of G2C germline callset after joint genotyping
+# Initial quality control of G2C germline callset after joint genotyping
 
 # Note that this code is designed to be run inside the AoU Researcher Workbench
 
@@ -649,26 +649,31 @@ if ! [ -e $staging_dir/calling_intervals ]; then
     $staging_dir/calling_intervals/
 fi
 
-# Initialize .json of contig-specific overrieds for SV VCF paths and scatter counts
+# Write two-column .tsv of VCF & index info for each contig
+while read contig; do
+  gsutil cat \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2/$contig/PosthocCleanupPart2.$contig.outputs.json \
+  | jq '.["PosthocCleanupPart2.filtered_vcfs"]' \
+  | fgrep "gs://" | awk '{ print $1 }' | tr -d '",' \
+  | cat - <( echo -e "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/$contig/HardFilterPart2/dfci-g2c.v1.$contig.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz" ) \
+  | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
+  > $staging_dir/dfci-g2c.v1.initial_qc.vcf_info.$contig.tsv
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.initial_qc.vcf_info.*.tsv \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/vcf_list_inputs/
+
+# Initialize .json of contig-specific overrides for scatter counts
 echo "{ " > $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json
 while read contig; do
   kc=$( fgrep -v "@" \
           $staging_dir/calling_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
         | wc -l | awk '{ printf "%i\n", $1 / 3 }' )
-  echo "\"$contig\" : {\"CONTIG_SCATTER_COUNT\" : $kc,"
-  echo "\"CONTIG_VCFS\" : [\"$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/$contig/HardFilterPart2/dfci-g2c.v1.$contig.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz\"],"
-  echo "\"CONTIG_VCF_IDXS\" : [\"$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/$contig/HardFilterPart2/dfci-g2c.v1.$contig.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz.tbi\"] },"
+  echo "\"$contig\" : {\"CONTIG_SCATTER_COUNT\" : $kc},"
 done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
 | paste -s -d\  | sed 's/,$//g' \
 >> $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json
 echo " }" >> $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json
-
-# Build chromosome-specific override json of VCFs and VCF indexes
-add_contig_vcfs_to_chromshard_overrides_json \
-  $staging_dir/CollectInitialVcfQcMetrics.contig_variable_overrides.json \
-  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2 \
-  filtered_vcfs \
-  filtered_vcf_idxs
 
 # Write template input .json for QC metric collection
 cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
@@ -681,15 +686,28 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
   "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.0,
   "CollectVcfQcMetrics.BenchmarkSites.snv_mem_scalar": 4.0,
+  "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_mem_gb": 3.75,
+  "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_n_cpu": 2,
+  "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 40,
+  "CollectVcfQcMetrics.CalcCommonLd.max_disk_gb": 1000,
+  "CollectVcfQcMetrics.ChunkCommonVcf.disk_gb": 1000,
+  "CollectVcfQcMetrics.ChunkCommonVcf.n_preemptible": 0,
+  "CollectVcfQcMetrics.ChunkCommonVcf.mem_gb": 15.5,
+  "CollectVcfQcMetrics.ChunkCommonVcf.cpu_cores": 4,
   "CollectVcfQcMetrics.common_af_cutoff": 0.001,
-  "CollectVcfQcMetrics.concat_vcfs_for_trio_analysis": true,
-  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:75e54bf",
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.disk_gb": 270,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.mem_gb": 15.5,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.n_cpu": 4,
+  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:1aac84d",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
   "CollectVcfQcMetrics.n_for_sample_level_analyses": 5000,
   "CollectVcfQcMetrics.output_prefix": "dfci-g2c.v1.initial_qc.\$CONTIG",
   "CollectVcfQcMetrics.PreprocessVcf.mem_gb": 15.5,
   "CollectVcfQcMetrics.PreprocessVcf.n_cpu": 4,
+  "CollectVcfQcMetrics.ref_build": "hg38",
+  "CollectVcfQcMetrics.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
+  "CollectVcfQcMetrics.ref_fasta_idx" : "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai",
   "CollectVcfQcMetrics.sample_benchmark_dataset_names": ["external_srwgs", "external_lrwgs"],
   "CollectVcfQcMetrics.sample_benchmark_id_maps": [["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
@@ -723,8 +741,7 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.sv_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.\$CONTIG.sv.sites.bed.gz"],
   "CollectVcfQcMetrics.trios_fam_file": "$MAIN_WORKSPACE_BUCKET/data/sample_info/relatedness/dfci-g2c.reported_families.fam",
   "CollectVcfQcMetrics.twins_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/InferTwins/dfci-g2c.v1.cleaned.tsv",
-  "CollectVcfQcMetrics.vcfs": \$CONTIG_VCFS,
-  "CollectVcfQcMetrics.vcf_idxs": \$CONTIG_VCF_IDXS
+  "CollectVcfQcMetrics.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/vcf_list_inputs/dfci-g2c.v1.initial_qc.vcf_info.\$CONTIG.tsv"
 }
 EOF
 
@@ -739,8 +756,9 @@ code/scripts/manage_chromshards.py \
   --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
   --status-tsv cromshell/progress/dfci-g2c.v1.CollectInitialVcfQcMetrics.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
-  --outer-gate 30 \
-  --submission-gate 5 \
+  --outer-gate 60 \
+  --vm-gate 400 \
+  --submission-gate 60 \
   --max-attempts 3
 
 
@@ -815,7 +833,7 @@ while read key; do
   done
 done < $staging_dir/bench_keys.list
 for suffix in af_distribution size_distribution; do
-  fname=$staging_dir/gnomAD_$suffix.list
+  fname=$staging_dir/gnomAD_$suffix.uris.list
   if [ -e $fname ]; then rm $fname; fi
 done
 for key in sample_benchmark_ppv_distribs sample_benchmark_sensitivity_distribs; do
@@ -884,12 +902,13 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotInitialVcfQcMetrics.inpu
   "PlotVcfQcMetrics.common_indel_beds": $( collapse_txt $staging_dir/common_indels_bed.uris.list ),
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_targets.tsv",
-  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:a4751b7",
+  "PlotVcfQcMetrics.deduplicate": true,
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:cd2ca89",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.initial_qc",
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
   "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
-  "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 32,
+  "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 48,
   "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
   "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
@@ -957,7 +976,7 @@ cromshell -t 120 list-outputs \
 
 # Clear Cromwell execution & output buckets for plotting job
 gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotInitialVcfQcMetrics.job_ids.list \
-                | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell/*/PlotVcfQcMetrics/" \
+                | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell*/PlotVcfQcMetrics/" \
                   '{ print bucket_prefix$1"/**" }' ) \
 > uris_to_delete.list
 cleanup_garbage
