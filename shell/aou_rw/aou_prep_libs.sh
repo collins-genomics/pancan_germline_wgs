@@ -55,6 +55,9 @@ gsutil -m cp -r \
   pancan_germline_wgs/shell/aou_rw/setup_sample_info.sh \
   pancan_germline_wgs/shell/aou_rw/install_packages.sh \
   $rw_bucket/code/refs/
+gsutil -m cp \
+  pancan_germline_wgs/shell/aou_rw/configure_verily_vm.sh \
+  $rw_bucket/code/scripts/
 
 # Clean up
 cd $EXDIR

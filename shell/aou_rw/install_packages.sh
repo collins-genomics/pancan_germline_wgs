@@ -34,12 +34,13 @@ for dir in code code/src; do
 done
 
 # Reinstall conda environment, if necessary
-if [ $( echo $CONDA_DEFAULT_ENV ) != "g2c" ]; then
+if [ "$( echo $CONDA_DEFAULT_ENV )" != "g2c" ]; then
   conda config --append channels bioconda && \
   mamba update --yes --all && \
   mamba env create --yes --file=~/code/refs/config/environment.g2c_analysis.yml
   source activate g2c
 fi
+mamba install --yes -c conda-forge less
 
 # Install all packages as optioned
 for lang in "$@"; do

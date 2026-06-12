@@ -18,7 +18,7 @@
 # Set up local environment
 export GPROJECT="vanallen-pancan-germline-wgs"
 export MAIN_WORKSPACE_BUCKET=gs://rw-migration-aou-rw-84a0039b
-gsutil cp $MAIN_WORKSPACE_BUCKET/code/scripts/configure_verily_vm.sh ./ && \
+gcloud storage cp $MAIN_WORKSPACE_BUCKET/code/scripts/configure_verily_vm.sh ./ && \
 . configure_verily_vm.sh && \
 rm configure_verily_vm.sh
 

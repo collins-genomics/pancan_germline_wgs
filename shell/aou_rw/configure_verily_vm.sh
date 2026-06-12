@@ -19,11 +19,11 @@ find code/ -name "*.sh" | xargs -I {} chmod a+x {}
 
 # Source .bashrc and bash utility functions
 . code/refs/dotfiles/aou.rw.bashrc
-# . code/refs/general_bash_utils.sh # TODO: unsure if this needs to be ported
+. code/refs/general_bash_utils.sh
 
 # Install necessary packages
 . code/refs/install_packages.sh python R
-if [ $( echo $CONDA_DEFAULT_ENV ) != "g2c" ]; then
+if [ "$( echo $CONDA_DEFAULT_ENV )" != "g2c" ]; then
   source activate g2c
 fi
 
