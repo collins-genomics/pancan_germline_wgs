@@ -13,6 +13,12 @@
 # sourced before this file is used
 
 
+# Note 2: these functions were defined for the AoU RW v1.0
+# They may not translate perfectly to AoU RW v2.0 (Verily Pre)
+# These will be updated over time as needed for forward compatability, but those
+# updates are not guaranteed to preserve reverse compatability with legacy AoU RW v1.0
+
+
 # Check the status of a GATK-SV module for a single batch
 # Also updates running tracker
 # Also manages submission or staging of outputs as needed

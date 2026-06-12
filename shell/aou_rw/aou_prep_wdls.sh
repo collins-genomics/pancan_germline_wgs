@@ -6,11 +6,12 @@
 # Distributed under the terms of the GNU GPL v2.0
 
 # Code to copy all necessary WDLs and other Cromwell-related files (e.g., 
-# input .json templates) to AoU RW bucket (as RW has no internet access)
+# input .json templates) to main AoU workspace bucket
 
-# See aou_prep_libs.sh for libraries & tools to be executed on RW terminal directly
+# See aou_prep_libs.sh for libraries & tools to be executed on Verily terminal directly
 
-# Note that this code is designed to be run *locally* (not on RW)
+# Note that this code is designed to be run *locally* (not on AoU workspace)
+
 
 set -eu -o pipefail
 
@@ -82,9 +83,9 @@ if [ $# -gt 0 ] && [ $1 == "all" ]; then
   cp pancan_germline_wgs/wdl/gatk-hc/* $WRKDIR/wdl/gatk-hc/
 fi
 
-# Copy WDLs to AoU RW bucket
+# Copy WDLs to Verily Pre bucket
 # Note: must use AoU Google credentials
-export rw_bucket=gs://fc-secure-d21aa6b0-1d19-42dc-93e3-42de3578da45
+export rw_bucket=gs://rw-migration-aou-rw-84a0039b
 # gcloud auth login
 gsutil -m cp -r \
   wdl \

@@ -19,12 +19,12 @@ This repository contains the working code and scripts used to detect, genotype, 
 
 | Directory | Description |  
 | :--- | :--- |  
-| [`docker/`](https://github.com/talkowski-lab/dsmap/tree/main/docker) | Instructions for building project-related Docker images |   
-| [`refs/`](https://github.com/talkowski-lab/dsmap/tree/main/refs) | Reference .jsons and dotfiles |   
-| [`scripts/`](https://github.com/talkowski-lab/dsmap/tree/main/scripts) | Stand-alone scripts called by various workflows |   
-| [`shell/`](https://github.com/talkowski-lab/dsmap/tree/main/shell) | Shell snippets for running specific processes or analyses |  
-| [`src/`](https://github.com/talkowski-lab/dsmap/tree/main/src) | Source code for the `g2cpy` and `G2CR` companion libraries |  
-| [`wdl/`](https://github.com/talkowski-lab/dsmap/tree/main/wdl) | Stand-alone WDL workflows |   
+| [`docker/`](https://github.com/collins-genomics/pancan_germline_wgs/tree/main/docker) | Instructions for building project-related Docker images |   
+| [`refs/`](https://github.com/collins-genomics/pancan_germline_wgs/tree/main/refs) | Reference .jsons and dotfiles |   
+| [`scripts/`](https://github.com/collins-genomics/pancan_germline_wgs/tree/main/scripts) | Stand-alone scripts called by various workflows |   
+| [`shell/`](https://github.com/collins-genomics/pancan_germline_wgs/tree/main/shell) | Shell snippets for running specific processes or analyses |  
+| [`src/`](https://github.com/collins-genomics/pancan_germline_wgs/tree/main/src) | Source code for the `g2cpy` and `G2CR` companion libraries |  
+| [`wdl/`](https://github.com/collins-genomics/pancan_germline_wgs/tree/main/wdl) | Stand-alone WDL workflows |   
 
 ---  
 

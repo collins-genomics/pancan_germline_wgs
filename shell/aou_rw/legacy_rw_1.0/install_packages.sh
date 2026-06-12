@@ -33,14 +33,6 @@ for dir in code code/src; do
   fi
 done
 
-# Reinstall conda environment, if necessary
-if [ $( echo $CONDA_DEFAULT_ENV ) != "g2c" ]; then
-  conda config --append channels bioconda && \
-  mamba update --yes --all && \
-  mamba env create --yes --file=~/code/refs/config/environment.g2c_analysis.yml
-  source activate g2c
-fi
-
 # Install all packages as optioned
 for lang in "$@"; do
 
@@ -49,10 +41,10 @@ for lang in "$@"; do
     # Install R libraries
     R)
 
-      # # Install all R libraries distributed via CRAN
-      # for lib in colourvalues; do
-      #   Rscript -e "if(require('$lib') == FALSE){install.packages('$lib', repos='https://cloud.r-project.org')}"
-      # done
+      # Install all R libraries distributed via CRAN
+      for lib in argparse optparse beeswarm bedr caret EQL vioplot DescTools colourvalues viridis; do
+        Rscript -e "if(require('$lib') == FALSE){install.packages('$lib', repos='https://cloud.r-project.org')}"
+      done
 
       # Install RLCtools
       export RLCtools_version=0.1

@@ -8,6 +8,11 @@
 # Prioritize relatives of G2C cancer cases from AoU to be included in phase 1 
 
 
+# Note: this code was defined for the AoU RW v1.0, and it may not translate perfectly to AoU RW v2.0 (Verily Pre)
+# These will be updated over time as needed for forward compatability, but those
+# updates are not guaranteed to preserve reverse compatability with legacy AoU RW v1.0
+
+
 #########
 # SETUP #
 #########
