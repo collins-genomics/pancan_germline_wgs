@@ -38,6 +38,31 @@ fi
 # Infer workspace number and save as environment variable
 export WN=$( get_workspace_number )
 
+# Reassign $WORKSPACE_BUCKET to match AoU v1-migrated URIs
+case "$WN" in
+  "w1")
+    export WORKSPACE_BUCKET="gs://rw-migration-aou-rw-84a0039b"
+    ;;
+  "w2")
+    export WORKSPACE_BUCKET="gs://rw-migration-aou-rw-78e2871d"
+    ;;
+  "w3")
+    export WORKSPACE_BUCKET="gs://rw-migration-aou-rw-3c78b3b7"
+    ;;
+  "w4")
+    export WORKSPACE_BUCKET="gs://rw-migration-aou-rw-efb2fd38"
+    ;;
+  "w5")
+    export WORKSPACE_BUCKET="gs://rw-migration-aou-rw-484d2a66"
+    ;;
+  "dev")
+    export WORKSPACE_BUCKET="gs://rw-migration-aou-rw-e34d8d8a"
+    ;;
+  *)
+    echo "UNKNOWN WORKSPACE NUMBER"
+    ;;
+esac
+
 # Download workspace-specific contig lists
 gcloud storage rsync -r \
   gs://dfci-g2c-refs/hg38/contig_lists \

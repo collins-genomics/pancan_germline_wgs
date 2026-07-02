@@ -167,22 +167,22 @@
 # Get G2C workspace processing number from within an AoU RW terminal
 get_workspace_number() {
   case "$WORKSPACE_BUCKET" in
-    "gs://cloned-mybucket-wb-crisp-lemon-8858")
+    "gs://cloned-mybucket-wb-crisp-lemon-8858"|"gs://rw-migration-aou-rw-84a0039b")
       echo "w1"
       ;;
-    "gs://cloned-mybucket-wb-brilliant-olive-6466")
+    "gs://cloned-mybucket-wb-brilliant-olive-6466"|"gs://rw-migration-aou-rw-78e2871d")
       echo "w2"
       ;;
-    "gs://cloned-mybucket-wb-frigid-gourd-473")
+    "gs://cloned-mybucket-wb-frigid-gourd-473"|"gs://rw-migration-aou-rw-3c78b3b7")
       echo "w3"
       ;;
-    "gs://cloned-mybucket-wb-silky-artichoke-2408")
+    "gs://cloned-mybucket-wb-silky-artichoke-2408"|"gs://rw-migration-aou-rw-efb2fd38")
       echo "w4"
       ;;
-    "gs://cloned-mybucket-wb-spotless-pepper-8865")
+    "gs://cloned-mybucket-wb-spotless-pepper-8865"|"gs://rw-migration-aou-rw-484d2a66")
       echo "w5"
       ;;
-    "gs://cloned-mybucket-wb-glossy-ruby-1828")
+    "gs://cloned-mybucket-wb-glossy-ruby-1828"|"gs://rw-migration-aou-rw-e34d8d8a")
       echo "dev"
       ;;
     *)

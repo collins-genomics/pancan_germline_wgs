@@ -58,7 +58,7 @@ task CollectNoCallRates {
     bcftools query -l ~{vcf} > samples.list
 
     # Get total number of records in file
-    n_records=$( bcftools index -n ~{vcf} > n_records.txt )
+    n_records=$( bcftools index -n ~{vcf} )
 
     # Tabulate missing genotypes
     bcftools query \
