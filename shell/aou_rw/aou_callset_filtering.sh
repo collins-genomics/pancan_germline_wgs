@@ -23,16 +23,19 @@ gcloud storage cp $MAIN_WORKSPACE_BUCKET/code/scripts/configure_verily_vm.sh ./ 
 rm configure_verily_vm.sh
 
 
-##############################################################
-# Compute sample-level global no-call rate per variant class #
-##############################################################
+################################################
+# Curate sample-level covariates for filtering #
+################################################
+
+# DEV: submit as a single job to familiarize with wb workflow syntax
+
 
 # TODO: implement this
 
 
-################################################
-# Curate sample-level covariates for filtering #
-################################################
+##############################################################
+# Compute sample-level global no-call rate per variant class #
+##############################################################
 
 # TODO: implement this
 

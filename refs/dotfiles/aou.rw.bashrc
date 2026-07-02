@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 
-# .bash_profile for AoU RW
-# Updated January 2024
+# .bash_profile for AoU RW v2.0 (Verily Pre)
+# Updated June 2026
 # Ryan Collins <Ryan_Collins@dfci.harvard.edu>
-
-# Colorize shell and utilities
-export CLICOLOR=1
-export LS_COLORS='ExFxCxDxBxegedabagacad'
 
 # Simple ls with options
 alias l='ls -lhtr'
