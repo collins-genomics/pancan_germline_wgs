@@ -21,14 +21,25 @@ cd $WRKDIR
 # Clone G2C repo & checkout branch of interest
 export g2c_branch=posthoc_filtering
 git clone git@github.com:collins-genomics/pancan_germline_wgs.git --branch=$g2c_branch
+cd pancan_germline_wgs && \
+git rev-parse --short HEAD \
+| awk -v FS="\t" '{ print "pancan_germline_wgs", "commit", $1 }' \
+> $WRKDIR/libs.version_info.txt && \
+cd -
 
 # Clone RLCtools repo & checkout branch of interest
 export rlctools_branch=main
 git clone git@github.com:RCollins13/RLCtools.git --branch=$rlctools_branch
+cd rlctools && \
+git rev-parse --short HEAD \
+| awk -v FS="\t" '{ print "rlctools", "commit", $1 }' \
+>> $WRKDIR/libs.version_info.txt && \
+cd -
 
 # Clone GATK-SV repo & checkout release tag of interest
 export gatksv_tag=v1.0.1
 git clone git@github.com:broadinstitute/gatk-sv.git --branch=$gatksv_tag
+echo -e "gatk-sv\ttag\t$gatksv_tag" >> $WRKDIR/libs.version_info.txt
 
 # Make & populate directory of libraries and other tools
 for dir in src bin; do
@@ -58,6 +69,10 @@ gsutil -m cp -r \
 gsutil -m cp \
   pancan_germline_wgs/shell/aou_rw/configure_verily_vm.sh \
   $rw_bucket/code/scripts/
+
+# Update commit/tag info for version tracking purposes
+gsutil cp $WRKDIR/libs.version_info.txt $rw_bucket/code/refs/
+
 
 # Clean up
 cd $EXDIR

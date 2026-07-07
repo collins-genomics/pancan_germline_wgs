@@ -22,6 +22,11 @@ cd $WRKDIR
 # Clone G2C repo & checkout branch of interest
 export g2c_branch=posthoc_filtering
 git clone git@github.com:collins-genomics/pancan_germline_wgs.git --branch=$g2c_branch
+cd pancan_germline_wgs && \
+git rev-parse --short HEAD \
+| awk -v FS="\t" '{ print "pancan_germline_wgs", "commit", $1 }' \
+> $WRKDIR/wdl.version_info.txt && \
+cd -
 
 # Organize G2C WDLs
 mkdir wdl wdl/pancan_germline_wgs
@@ -96,6 +101,11 @@ if [ -e legacy_mingq_wdl ]; then
     legacy_mingq_wdl \
     $rw_bucket/misc/
 fi
+
+# Update commit/tag info for version tracking purposes
+echo -e "gatk-sv\ttag\t$gatksv_tag" >> $WRKDIR/wdl.version_info.txt
+echo -e "gatk-hc\ttag\t$gatkhc_tag" >> $WRKDIR/wdl.version_info.txt
+gsutil cp $WRKDIR/wdl.version_info.txt $rw_bucket/code/refs/
 
 # Clean up
 cd - >/dev/null

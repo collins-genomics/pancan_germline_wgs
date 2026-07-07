@@ -56,28 +56,44 @@ def classify_record(record, return_varlen=False):
     return tuple(outs)
 
 
-def compute_allele_freq_stats(record, keys=['AC', 'AN', 'AF']):
+def compute_allele_freq_stats(record, keys=['AC', 'AN', 'AF', 'N_REF', 'N_HET', 'N_HOM', 'N_MISSING']):
     """
     Helper wrapper around apply_across_samples() to compute common frequency 
     stats for a pysam.VariantRecord object
     Returns: dict of floats keyed by 'keys'
     """
 
-    res = dict()
+    res = {k : 0 for k in keys}
 
-    if 'AC' in keys or 'AF' in keys:
-        ac = np.nansum(apply_across_samples(record, 
-                       lambda x: np.nansum([a > 0 for a in x if a is not None])))
-        res['AC'] = ac
-    if 'AN' in keys or 'AF' in keys:
-        an = np.nansum(apply_across_samples(record, 
-                       lambda x: np.nansum([a is not None for a in x])))
-        res['AN'] = an
-    if 'AF' in keys:
-        af = ac / an
-        res['AF'] = af
+    for sid in record.samples:
+        # Parse GT field
+        av = parse_gt(record.samples[sid]['GT'])
+        ac = int(av.get('AC', 0))
+        an = int(av.get('AN', 0))
+        mis = int(av.get('N_missing', 0))
+        ref = an - mis - ac
 
-    for ak in res.keys():
+        # Increment allele counts
+        res['AC'] += ac
+        res['AN'] += int(np.max([an - mis, 0]))
+
+        # Parse genotype
+        if ac == 0 and ref > 0:
+            res['N_REF'] += 1
+        elif ac == an:
+            res['N_HOM'] += 1
+        elif ac > 0 and ref > 0:
+            res['N_HET'] += 1
+        elif mis == an:
+            res['N_MISSING'] += 1
+        else:
+            print('Unable to parse GT {}\n'.format(record.samples[sid]['GT']))
+            import pdb; pdb.set_trace()
+
+    res['AF'] = float(res['AC'] / res['AN'])
+
+    all_keys = list(res.keys())
+    for ak in all_keys:
         if ak not in keys:
             res.pop(ak)
 
@@ -100,7 +116,7 @@ def convert_gt(gt):
 
     elif isinstance(gt, str):
         res = []
-        for a in re.split('[/|\|]', gt):
+        for a in re.split('[/|\\|]', gt):
             if a == '.':
                 res.append(None)
             else:
@@ -448,6 +464,9 @@ def name_record(record, suffix_length=10):
 def parse_gt(gt):
     """
     Digests a pysam GT-style tuple into a dict keyed by AC, AN, and N_missing
+    Note that AN here reflects total ploidy, not number of defined/called alleles
+    This is slightly different behavior than standard VCF spec but can be
+      reconciled by comparing N_missing to AN
     """
 
     an = len(gt)

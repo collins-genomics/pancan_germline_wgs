@@ -16,10 +16,13 @@ workflow CollectGTFilterFeatures {
     File vcf
     File vcf_idx
 
+    Array[File]? bed_features         # Optional array of BED tracks with features to annotate vs. variant start/end coordinates
+    Array[String]? bed_feature_names  # Optional array of feature names for `bed_features` (specified in the same order)
+
     String g2c_analysis_docker
   }
 
-  # Collect no-call rates per variant class
+  # Collect no-call rates per variant class for each sample
   call CollectNoCallRates {
     input:
       vcf = vcf,
@@ -28,13 +31,21 @@ workflow CollectGTFilterFeatures {
   }
 
   # Collect site-level features
-  # TODO: implement this
+  call CollectSiteFeatures {
+    input:
+      vcf = vcf,
+      vcf_idx = vcf_idx,
+      bed_features = bed_features,
+      bed_feature_names = bed_feature_names,
+      g2c_analysis_docker = g2c_analysis_docker
+  }
 
   # Collect genotype-level features
   # TODO: implement this
 
   output {
     File nocall_counts = CollectNoCallRates.nocall_counts
+    File site_features = CollectSiteFeatures.site_features
   }
 }
 
@@ -81,6 +92,55 @@ task CollectNoCallRates {
     docker: g2c_analysis_docker
     memory: "1.75 GB"
     cpu: 1
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
+# Collect site-lvel filtering features
+task CollectSiteFeatures {
+  input {
+    File vcf
+    File vcf_idx
+
+    Array[File] bed_features = []
+    Array[String] bed_feature_names = []
+
+    String g2c_analysis_docker
+  }
+
+  String outfile = basename(vcf, ".vcf.gz") + ".site_features.tsv.gz"
+  Int disk_gb = ceil(2.2 * size(vcf, "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    # Build options for bed feature annotation
+    bfa_cmd=""
+    while read fname fpath; do
+      mv "$fpath" ./
+      locpath=$( basename "$fpath" )
+      tabix -p bed -f $locpath
+      bfa_cmd="$bfa_cmd --feature-bed $fname=$locpath"
+    done < ~{write_tsv([bed_feature_names, bed_features])}
+
+    # Build overall feature collection command
+    cmd="/opt/pancan_germline_wgs/scripts/variant_filtering/collect_site_filtering_features.py "
+    cmd="$cmd -i \"~{vcf}\" -o \"~{outfile}\" $bfa_cmd"
+    echo -e "Now collecting site features with the following command:\n$cmd"
+    eval "$cmd"
+  >>>
+
+  output {
+    File site_features = outfile
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: "3.7 GB"
+    cpu: 2
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: 3
     maxRetries: 1
