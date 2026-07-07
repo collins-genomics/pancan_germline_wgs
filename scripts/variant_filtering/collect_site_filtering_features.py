@@ -26,7 +26,7 @@ all_vscs = {'snv' : 'ti tv'.split(),
             'sv' : 'DEL DUP CNV INS CPX OTH'.split()}
 
 
-def gather_site_features(record, fbts=dict(), colnames=False):
+def gather_site_features(record, n_samples, filters, fbts=dict(), colnames=False):
     """
     Main function to gather and format site features and, optional, feature names
     """
@@ -189,7 +189,8 @@ def main():
     # Iterate over input VCF and collect variant annotations for each
     for i, record in enumerate(invcf):
 
-        outvals, outcols = gather_site_features(record, fbts, colnames=(i == 0))
+        outvals, outcols = gather_site_features(record, n_samples, filters, fbts, 
+                                                colnames=(i == 0))
 
         # Write header if first line
         if i == 0:
@@ -210,5 +211,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 

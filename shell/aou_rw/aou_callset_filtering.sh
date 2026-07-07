@@ -23,7 +23,7 @@ gcloud storage cp $MAIN_WORKSPACE_BUCKET/code/scripts/configure_verily_vm.sh ./ 
 rm configure_verily_vm.sh
 
 # Set up local directory structure
-for dir in cromwell cromwell/inputs cromwell/submissions; do
+for dir in cromwell cromwell/inputs cromwell/submissions staging; do
   if ! [ -e $dir ]; then
     mkdir $dir
   fi
@@ -41,14 +41,49 @@ done
 # Curate SR/SD mask for filtering annotation #
 ##############################################
 
+# NOTE: this chunk must be run outside of AoU Verily workbench (can be local, files are small)
+
 # Reaffirm staging directory
-staging_dir=staging/sd_sr_curation
+staging_dir=~/staging/sd_sr_curation
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
 # Download hg38 RepMask from UCSC and filter to relevant subset
-# TODO: FINISH THIS
-# https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/rmsk.txt.gz
+wget -O - \
+  https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/rmsk.txt.gz \
+| gunzip -c \
+| awk -v FS="\t" -v OFS="\t" \
+  '{ if ($12 ~ /Simple_repeat|Satellite|Low_complexity/) print $6, $7, $8 }' \
+| sort -Vk1,1 -k2,2n -k3,3n \
+| bedtools merge -i - \
+| bgzip -c \
+> $staging_dir/hg38.simple_repeats.bed.gz
+tabix -p bed -f $staging_dir/hg38.simple_repeats.bed.gz
 
+# Download hg38 segdups from UCSC and curate
+wget -O - \
+  https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/genomicSuperDups.txt.gz \
+| gunzip -c \
+| awk -v FS="\t" -v OFS="\t" '{ print $2, $3, $4 }' \
+| sort -Vk1,1 -k2,2n -k3,3n \
+| bedtools merge -i - \
+| bgzip -c \
+> $staging_dir/hg38.segdups.bed.gz
+tabix -p bed -f $staging_dir/hg38.segdups.bed.gz
+
+# Combine SR and SD tracks
+zcat \
+  $staging_dir/hg38.simple_repeats.bed.gz \
+  $staging_dir/hg38.segdups.bed.gz \
+| sort -Vk1,1 -k2,2n -k3,3n \
+| bedtools merge -i - \
+| bgzip -c \
+> $staging_dir/hg38.sr_sd.bed.gz
+tabix -p bed -f $staging_dir/hg38.sr_sd.bed.gz
+
+# Copy all repeat tracks to ref bucket for future reference
+gsutil -m cp \
+  $staging_dir/hg38.*.bed.gz* \
+  gs://dfci-g2c-refs/hg38/repeats/
 
 
 ###################################################################
