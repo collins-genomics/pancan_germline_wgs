@@ -113,7 +113,7 @@ def main():
         invcf = pysam.VariantFile(args.input_vcf)
 
     # Open connection to output TSV
-    if args.output_tsv in 'stdin /dev/stdin -'.split():
+    if args.output_tsv in 'stdout /dev/stdout -'.split():
         outfile = stdout
     else:
         if 'compressed' in g2cpy.determine_filetype(args.output_tsv):

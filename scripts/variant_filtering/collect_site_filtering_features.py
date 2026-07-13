@@ -36,9 +36,8 @@ def gather_site_features(record, n_samples, filters, fbts=dict(),
     outcols = None
 
     # Get basic descriptives
-    vid = record.id
     qual = float(record.qual)
-    outvals = [record.chrom, record.pos, vid, qual]
+    outvals = [record.chrom, record.pos, record.id, qual]
     if colnames:
         outcols = '#chrom pos vid qual'.split()
 
@@ -232,7 +231,7 @@ def main():
             fbws[fname] = fbw
 
     # Open connection to output TSV
-    if args.output_tsv in 'stdin /dev/stdin -'.split():
+    if args.output_tsv in 'stdout /dev/stdout -'.split():
         outfile = stdout
     else:
         if 'compressed' in g2cpy.determine_filetype(args.output_tsv):
