@@ -37,14 +37,14 @@ done
 # TODO: implement this
 
 
-##############################################
-# Curate SR/SD mask for filtering annotation #
-##############################################
+###############################################
+# Curate UCSC tracks for filtering annotation #
+###############################################
 
 # NOTE: this chunk must be run outside of AoU Verily workbench (can be local, files are small)
 
 # Reaffirm staging directory
-staging_dir=~/staging/sd_sr_curation
+staging_dir=~/staging/ucsc_curation
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
 # Download hg38 RepMask from UCSC and filter to relevant subset
@@ -80,10 +80,19 @@ zcat \
 > $staging_dir/hg38.sr_sd.bed.gz
 tabix -p bed -f $staging_dir/hg38.sr_sd.bed.gz
 
+# Also download and stage 100mer UMap bigwig for convenience
+wget \
+  -O $staging_dir/hg38.100mer_multiUmap.bw \
+  http://hgdownload.soe.ucsc.edu/gbdb/hg38/hoffmanMappability/k100.Umap.MultiTrackMappability.bw
+
 # Copy all repeat tracks to ref bucket for future reference
 gsutil -m cp \
   $staging_dir/hg38.*.bed.gz* \
-  gs://dfci-g2c-refs/hg38/repeats/
+  $staging_dir/hg38.100mer_multiUmap.bw \
+  gs://dfci-g2c-refs/ucsc/hg38/
+
+# Clean up garbage
+rm -rf $staging_dir
 
 
 ###################################################################

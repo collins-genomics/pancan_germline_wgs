@@ -41,11 +41,17 @@ workflow CollectGTFilterFeatures {
   }
 
   # Collect genotype-level features
-  # TODO: implement this
+  call CollectGtFeatures {
+    input:
+      vcf = vcf,
+      vcf_idx = vcf_idx,
+      g2c_analysis_docker = g2c_analysis_docker
+  }
 
   output {
     File nocall_counts = CollectNoCallRates.nocall_counts
     File site_features = CollectSiteFeatures.site_features
+    File gt_features = CollectSiteFeatures.site_features
   }
 }
 
@@ -99,7 +105,7 @@ task CollectNoCallRates {
 }
 
 
-# Collect site-lvel filtering features
+# Collect site-level filtering features
 task CollectSiteFeatures {
   input {
     File vcf
@@ -135,6 +141,41 @@ task CollectSiteFeatures {
 
   output {
     File site_features = outfile
+  }
+
+  runtime {
+    docker: g2c_analysis_docker
+    memory: "3.7 GB"
+    cpu: 2
+    disks: "local-disk " + disk_gb + " HDD"
+    preemptible: 3
+    maxRetries: 1
+  }
+}
+
+
+# Collect GT-level filtering features
+task CollectGtFeatures {
+  input {
+    File vcf
+    File vcf_idx
+
+    String g2c_analysis_docker
+  }
+
+  String outfile = basename(vcf, ".vcf.gz") + ".gt_features.tsv.gz"
+  Int disk_gb = ceil(2.2 * size(vcf, "GB")) + 10
+
+  command <<<
+    set -eu -o pipefail
+
+    /opt/pancan_germline_wgs/scripts/variant_filtering/collect_gt_filtering_features.py \
+      -i "~{vcf}" \
+      -o "~{outfile}"
+  >>>
+
+  output {
+    File gt_features = outfile
   }
 
   runtime {

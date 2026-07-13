@@ -19,18 +19,71 @@ import pysam
 from sys import stdin, stdout
 
 
-def gather_gt_features(sdat):
+common_numeric_feats = 'GQ DP MIN_DP'.split()
+gatksv_numeric_feats = 'CNQ OGQ PE_GT PE_GQ RD_GQ SL SR_GT SR_GQ'.split()
+
+
+
+def gather_gt_features(sdat, vc, need_header=False):
     """
     Main function to collect genotype-level features
     """
 
     outvals, outcols = [], []
 
-    # Collect all numeric features
-    # TODO: implement this
+    # Collect common numeric features defined for all VCs
+    for nf in common_numeric_feats:
+        outvals.append(sdat.get(nf, '.'))
+    if need_header:
+        outcols += common_numeric_feats
 
-    # Tokenize all non-numeric features
-    # TODO: implement this
+    # Collect ref PL from GATK-HC as a ratio vs. max(PL)
+    ref_pl_ratio = '.'
+    if 'PL' in sdat.keys():
+        pls = list(sdat.get('PL', (None, None, None, )))
+        if all([x is not None for x in pls]):
+            ref_pl = pls[0]
+            max_pl = max(pls)
+            ref_pl_ratio = ref_pl / max_pl
+    outvals.append(ref_pl_ratio)
+    if need_header:
+        outcols.append('ref_pl_ratio')
+
+    # Collect numeric features specific to GATK-SV
+    if vc in 'indel sv'.split():
+        for nf in gatksv_numeric_feats:
+            outvals.append(sdat.get(nf, '.'))
+        if need_header:
+            outcols += gatksv_numeric_feats
+
+        # Absolute copy number and marginal difference vs. expected ploidy
+        cn = sdat.get('RD_CN', None)
+        outvals.append(cn)
+        ecn = sdat.get('ECN', None)
+        dcn = None
+        if cn is not None and ecn is not None:
+            try:
+                dcn = int(cn) - int(ecn)
+            except:
+                pass
+        outvals.append(dcn)
+        if need_header:
+            outcols += 'rd_cn dcn'.split()
+
+        # Store EV as sorted string for downstream tokenizing
+        evl = [x for x in sdat.get('EV', tuple()) if x is not None]
+        if len(evl) == 0:
+            ev = '.'
+        else:
+            ev = ','.join(sorted(list(evl)))
+        outvals.append(ev)
+        if need_header:
+            outcols.append('gt_ev')
+
+    # Convert all Nones in outvals
+    for i, v in enumerate(outvals):
+        if v is None:
+            outvals[i] = '.'
 
     return outvals, outcols
 
@@ -70,6 +123,7 @@ def main():
     # Iterate over input VCF records and samples within each record
     header_written = False
     for i, record in enumerate(invcf):
+        vc, vsc = g2cpy.classify_record(record)
         for sid, sdat in record.samples.items():
 
             # Check if this sample needs to be processed
@@ -77,19 +131,36 @@ def main():
             if sgt['AC'] == 0 and not args.collect_all:
                 continue
 
+            # Compute allele balance
+            # We prefer to use GATK AD values where available
+            # Otherwise, we fall back on the ratio of genotyped alleles
+            sac = sgt['AC']
+            if 'AD' in sdat.keys() \
+            and any([x is not None for x in sdat.get('AD', (None,))]):
+                total_ad = int(sum(sdat['AD']))
+                alt_ad = int(sum(sdat['AD'][1:]))
+                if total_ad > 0:
+                    ab = alt_ad / total_ad
+            else:
+                san = sgt['AN'] - sgt['N_missing']
+                if san > 0:
+                    ab = sac / san
+                else:
+                    ab = '.'
+            
             # Collect basic info
             vid = record.id
-            outvals = [vid, sid, sgt['AC'], sgt['AN'] - sgt['N_missing']]
-            if i == 0:
-                outcols = 'vid sid sac san'.split()
+            outvals = [vid, sid, sac, ab]
+            if not header_written:
+                outcols = 'vid sid sac ab'.split()
 
             # Collect other features
-            add_outvals, add_outcols = gather_gt_features(sdat)
+            add_outvals, add_outcols = gather_gt_features(sdat, vc, not header_written)
             outvals += add_outvals
             outcols += add_outcols
 
             # Write header if first line
-            if i == 0 and not header_written:
+            if not header_written:
                 outfile.write('\t'.join(outcols) + '\n')
                 header_written = True
 

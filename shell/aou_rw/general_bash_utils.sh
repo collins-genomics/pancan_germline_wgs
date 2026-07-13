@@ -176,7 +176,7 @@ get_workspace_number() {
     "gs://cloned-mybucket-wb-frigid-gourd-473"|"gs://rw-migration-aou-rw-3c78b3b7")
       echo "w3"
       ;;
-    "gs://cloned-mybucket-wb-silky-artichoke-2408"|"gs://rw-migration-aou-rw-efb2fd38")
+    "gs://cloned-mybucket-wb-blissful-parsnip-2015"|"gs://rw-migration-aou-rw-efb2fd38")
       echo "w4"
       ;;
     "gs://cloned-mybucket-wb-spotless-pepper-8865"|"gs://rw-migration-aou-rw-484d2a66")
