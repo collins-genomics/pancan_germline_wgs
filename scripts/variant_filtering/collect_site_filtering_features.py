@@ -38,9 +38,9 @@ def gather_site_features(record, n_samples, filters, fbts=dict(),
     # Get basic descriptives
     vid = record.id
     qual = float(record.qual)
-    outvals = [vid, qual]
+    outvals = [record.chrom, record.pos, vid, qual]
     if colnames:
-        outcols = 'vid qual'.split()
+        outcols = '#chrom pos vid qual'.split()
 
     # One-hot encode variant subclass
     # For simplicity, recode all inversions as CPX for purposes of filtering
@@ -188,7 +188,8 @@ def main():
     parser.add_argument('-i', '--input-vcf', default='stdin', metavar='VCF', 
                         type=str, help='Input .vcf')
     parser.add_argument('-o', '--output-tsv', default='stdout', metavar='TSV',
-                        type=str, help='Output .tsv')
+                        type=str, help='Output .tsv. First two columns are ' +
+                        'chrom and pos, so can be block compressed and indexed')
     parser.add_argument('--feature-bed', metavar='feature_name=path', action='append',
                         help='BED-style track to annotate binary overlap with ' +
                         'variant boundaries (±1bp). Can be provided any number of times. ' +

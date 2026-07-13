@@ -98,7 +98,8 @@ def main():
     parser.add_argument('-i', '--input-vcf', default='stdin', metavar='VCF', 
                         type=str, help='Input .vcf')
     parser.add_argument('-o', '--output-tsv', default='stdout', metavar='TSV',
-                        type=str, help='Output .tsv')
+                        type=str, help='Output .tsv. First two columns are ' +
+                        'chrom and pos, so can be block compressed and indexed')
     parser.add_argument('-a', '--collect-all', action='store_true',
                         help='Collect all genotypes (default: only collect non-ref)')
     parser.add_argument('-p', '--precision', default=3, metavar='integer',
@@ -149,10 +150,9 @@ def main():
                     ab = '.'
             
             # Collect basic info
-            vid = record.id
-            outvals = [vid, sid, sac, ab]
+            outvals = [record.chrom, record.pos, record.id, sid, sac, ab]
             if not header_written:
-                outcols = 'vid sid sac ab'.split()
+                outcols = '#chrom pos vid sid sac ab'.split()
 
             # Collect other features
             add_outvals, add_outcols = gather_gt_features(sdat, vc, not header_written)
@@ -161,7 +161,7 @@ def main():
 
             # Write header if first line
             if not header_written:
-                outfile.write('\t'.join(outcols) + '\n')
+                outfile.write('\t'.join([x.lower() for x in outcols]) + '\n')
                 header_written = True
 
             # Format & write output line
