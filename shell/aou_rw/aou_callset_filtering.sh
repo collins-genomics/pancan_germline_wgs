@@ -99,7 +99,7 @@ rm -rf $staging_dir
 # Curate variant- and genotype-level features for SV GT filtering #
 ###################################################################
 
-# BELOW IS DEV: submit as a single job to familiarize with wb workflow syntax
+# BELOW IS DEV: manual submit for chr22 to familiarize with wb workflow syntax
 
 # Must run to register workflow in workspace (need to re-register every time code changes)
 wdl_version=$( gsutil cat $MAIN_WORKSPACE_BUCKET/code/refs/wdl.version_info.txt \
@@ -115,13 +115,46 @@ if [ $( wb workflow list | fgrep $workflow_name | wc -l ) -lt 1 ]; then
     --workflow-type WDL
 fi
 
+# Reaffirm staging directory
+staging_dir=~/staging/sv_gt_feature_curation
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+
+# Dev: set contig manually (this can be looped once automated)
+contig=chr22
+
+# Create VCF input array
+# NOTE: because this was the first task after migrating from AoU RW v1.0 to Verily,
+# we need to update the URI prefixes for all VCFs to the new Verily buckets
+gsutil -m cat \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration/$contig/UnifyGatkCallsets.$contig.outputs.json \
+| jq .\"UnifyGatkCallsets.cleaned_sv_vcfs\" \
+| fgrep "gs://" | tr -d '",' \
+| awk -v FS="42de3578da45" -v prefix="$MAIN_WORKSPACE_BUCKET" -v OFS="\t" \
+  '{ print prefix$2, prefix$2".tbi" }' \
+> $staging_dir/$workflow_name.vcf_inputs.$contig.tsv
+gsutil -m cp \
+  $staging_dir/$workflow_name.vcf_inputs.$contig.tsv \
+  $MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/
+
+
+  --feature-bed giab_hard=giab.hg38.broad_callable.hard.chr22.bed.gz \
+  --feature-bed segdup=hg38.segdups.bed.gz \
+  --feature-bed simrep=hg38.simple_repeats.bed.gz \
+  --feature-bigwig umap=hg38.100mer_multiUmap.bw \
+
+
 # Create inputs and upload to workspace bucket
-input_json="$workflow_name.inputs.$( date +"%Y%m%d_%H%M%S" ).json"
+input_json="$workflow_name.$contig.inputs.$( date +"%Y%m%d_%H%M%S" ).json"
 cat << EOF > "cromwell/inputs/$input_json"
 {
-  "CollectGTFilterFeatures.g2c_analysis_docker": "vanallenlab/g2c_analysis:84838e6",
-  "CollectGTFilterFeatures.vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration/chr22/ExtractLargeSvs/shard-2/dfci-g2c.v1.sv.chr22.3.sorted.vcf.gz",
-  "CollectGTFilterFeatures.vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration/chr22/ExtractLargeSvs/shard-2/dfci-g2c.v1.sv.chr22.3.sorted.vcf.gz.tbi"
+  "CollectGTFilterFeatures.bed_features": ["gs://dfci-g2c-refs/giab/$contig/giab.hg38.broad_callable.hard.$contig.bed.gz",
+                                           "gs://dfci-g2c-refs/ucsc/hg38/hg38.segdups.bed.gz",
+                                           "gs://dfci-g2c-refs/ucsc/hg38/hg38.simple_repeats.bed.gz"],
+  "CollectGTFilterFeatures.bed_feature_names": ["giab_hard", "segdup", "simrep"],
+  "CollectGTFilterFeatures.g2c_analysis_docker": "vanallenlab/g2c_analysis:2d676dc",
+  "CollectGTFilterFeatures.linux_docker": "ubuntu:plucky-20251001",
+  "CollectGTFilterFeatures.output_prefix": "dfci-g2c.v1.$contig.sv",
+  "CollectGTFilterFeatures.vcf_array": "$MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/$workflow_name.vcf_inputs.$contig.tsv"
 }
 EOF
 gsutil cp "cromwell/inputs/$input_json" $WORKSPACE_BUCKET/cromwell-inputs/$workflow_base/

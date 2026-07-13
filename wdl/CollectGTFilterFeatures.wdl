@@ -23,8 +23,10 @@ workflow CollectGTFilterFeatures {
     Array[File]? vcf_idx_array
     File? vcf_info_tsv
 
-    Array[File]? bed_features         # Optional array of BED tracks with features to annotate vs. variant start/end coordinates
-    Array[String]? bed_feature_names  # Optional array of feature names for `bed_features` (specified in the same order)
+    Array[File]? bed_features            # Optional array of BED tracks with features to annotate vs. variant start/end coordinates
+    Array[String]? bed_feature_names     # Optional array of feature names for `bed_features` (specified in the same order)
+    Array[File]? bigwig_features         # Optional array of bigWig tracks with features to annotate vs. variant start/end coordinates
+    Array[String]? bigwig_feature_names  # Optional array of feature names for `bigwig_features` (specified in the same order)
 
     String output_prefix
 
@@ -64,6 +66,8 @@ workflow CollectGTFilterFeatures {
         vcf_idx = vcf_idx,
         bed_features = bed_features,
         bed_feature_names = bed_feature_names,
+        bigwig_features = bigwig_features,
+        bigwig_feature_names = bigwig_feature_names,
         g2c_analysis_docker = g2c_analysis_docker
     }
 
@@ -185,6 +189,8 @@ task CollectSiteFeatures {
 
     Array[File] bed_features = []
     Array[String] bed_feature_names = []
+    Array[File] bigwig_features = []
+    Array[String] bigwig_feature_names = []
 
     String g2c_analysis_docker
   }
@@ -204,9 +210,17 @@ task CollectSiteFeatures {
       bfa_cmd="$bfa_cmd --feature-bed $fname=$locpath"
     done < ~{write_tsv([bed_feature_names, bed_features])}
 
+    # Build options for bigWig feature annotation
+    bwa_cmd=""
+    while read fname fpath; do
+      mv "$fpath" ./
+      locpath=$( basename "$fpath" )
+      bwa_cmd="$bwa_cmd --feature-bigwig $fname=$locpath"
+    done < ~{write_tsv([bigwig_feature_names, bigwig_features])}
+
     # Build overall feature collection command
     cmd="/opt/pancan_germline_wgs/scripts/variant_filtering/collect_site_filtering_features.py "
-    cmd="$cmd -i \"~{vcf}\" $bfa_cmd | bgzip > \"~{outfile}\""
+    cmd="$cmd -i \"~{vcf}\" $bfa_cmd $bwa_cmd | bgzip > \"~{outfile}\""
     echo -e "Now collecting site features with the following command:\n$cmd"
     eval "$cmd"
 
