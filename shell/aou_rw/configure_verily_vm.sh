@@ -35,6 +35,11 @@ if [ "$( echo $CONDA_DEFAULT_ENV )" != "g2c" ]; then
   source activate g2c
 fi
 
+# Set terminal timezone to Eastern US time
+export TZDIR=$(python -c "import tzdata, os; print(os.path.join(os.path.dirname(tzdata.__file__), 'zoneinfo'))")
+export TZ=America/New_York
+date +"%Y-%m-%d %H:%M:%S %Z %z"
+
 # Infer workspace number and save as environment variable
 export WN=$( get_workspace_number )
 

@@ -146,7 +146,7 @@ cat << EOF > "cromwell/inputs/$input_json"
   "CollectGTFilterFeatures.bigwig_features": ["gs://dfci-g2c-refs/ucsc/hg38/hg38.100mer_multiUmap.bw"],
   "CollectGTFilterFeatures.bigwig_feature_names": ["umap"],
   "CollectGTFilterFeatures.bed_feature_names": ["giab_hard", "segdup", "simrep"],
-  "CollectGTFilterFeatures.g2c_analysis_docker": "vanallenlab/g2c_analysis:2d676dc",
+  "CollectGTFilterFeatures.g2c_analysis_docker": "vanallenlab/g2c_analysis:77bb125",
   "CollectGTFilterFeatures.linux_docker": "ubuntu:plucky-20251001",
   "CollectGTFilterFeatures.output_prefix": "dfci-g2c.v1.$contig.sv",
   "CollectGTFilterFeatures.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/$workflow_name.vcf_inputs.$contig.tsv"
@@ -168,8 +168,8 @@ wb workflow job run \
 
 # Check progress
 wid=$( jq .runId "cromwell/submissions/$workflow_name.$contig.submission.json" | tr -d '"' )
-wb workflow job describe --job-id $wid --format JSON \
-| python -m json.tool | jq .status
+monitor_workflow $wid
+# wb workflow job describe --job-id $wid --format JSON | python -m json.tool | jq .status
 
 # TODO: finish implementing this
 
