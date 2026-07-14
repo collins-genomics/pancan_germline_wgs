@@ -136,13 +136,6 @@ gsutil -m cp \
   $staging_dir/$workflow_name.vcf_inputs.$contig.tsv \
   $MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/
 
-
-  --feature-bed giab_hard=giab.hg38.broad_callable.hard.chr22.bed.gz \
-  --feature-bed segdup=hg38.segdups.bed.gz \
-  --feature-bed simrep=hg38.simple_repeats.bed.gz \
-  --feature-bigwig umap=hg38.100mer_multiUmap.bw \
-
-
 # Create inputs and upload to workspace bucket
 input_json="$workflow_name.$contig.inputs.$( date +"%Y%m%d_%H%M%S" ).json"
 cat << EOF > "cromwell/inputs/$input_json"
@@ -150,11 +143,13 @@ cat << EOF > "cromwell/inputs/$input_json"
   "CollectGTFilterFeatures.bed_features": ["gs://dfci-g2c-refs/giab/$contig/giab.hg38.broad_callable.hard.$contig.bed.gz",
                                            "gs://dfci-g2c-refs/ucsc/hg38/hg38.segdups.bed.gz",
                                            "gs://dfci-g2c-refs/ucsc/hg38/hg38.simple_repeats.bed.gz"],
+  "CollectGTFilterFeatures.bigwig_features": ["gs://dfci-g2c-refs/ucsc/hg38/hg38.100mer_multiUmap.bw"],
+  "CollectGTFilterFeatures.bigwig_feature_names": ["umap"],
   "CollectGTFilterFeatures.bed_feature_names": ["giab_hard", "segdup", "simrep"],
   "CollectGTFilterFeatures.g2c_analysis_docker": "vanallenlab/g2c_analysis:2d676dc",
   "CollectGTFilterFeatures.linux_docker": "ubuntu:plucky-20251001",
   "CollectGTFilterFeatures.output_prefix": "dfci-g2c.v1.$contig.sv",
-  "CollectGTFilterFeatures.vcf_array": "$MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/$workflow_name.vcf_inputs.$contig.tsv"
+  "CollectGTFilterFeatures.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/$workflow_name.vcf_inputs.$contig.tsv"
 }
 EOF
 gsutil cp "cromwell/inputs/$input_json" $WORKSPACE_BUCKET/cromwell-inputs/$workflow_base/
@@ -169,13 +164,13 @@ wb workflow job run \
   --write-to-cache \
   --format JSON \
 | python -m json.tool \
-> "cromwell/submissions/$workflow_name.submission.json"
+> "cromwell/submissions/$workflow_name.$contig.submission.json"
 
 # Check progress
-wid=$( jq .runId "cromwell/submissions/$workflow_name.submission.json" | tr -d '"' )
+wid=$( jq .runId "cromwell/submissions/$workflow_name.$contig.submission.json" | tr -d '"' )
 wb workflow job describe --job-id $wid --format JSON \
-| python -m json.tool
+| python -m json.tool | jq .status
 
-# TODO: implement this
+# TODO: finish implementing this
 
 

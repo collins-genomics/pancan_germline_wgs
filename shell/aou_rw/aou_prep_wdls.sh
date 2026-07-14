@@ -33,17 +33,19 @@ mkdir wdl wdl/pancan_germline_wgs
 cp pancan_germline_wgs/wdl/*.wdl $WRKDIR/wdl/pancan_germline_wgs/
 cp -r pancan_germline_wgs/wdl/vcf-qc $WRKDIR/wdl/pancan_germline_wgs/
 
+# Set tags of interest for GATK WDLs
+export gatksv_tag=v1.0.1
+export gatkhc_tag=2.3.1
+
 # If "all" is provided as a first positional argument, _all_ WDLs will be updated
 # Otherwise, just WDLs from this repo will be updated
 # This was introduced to avoid repeated Git clones of heavy repos
 if [ $# -gt 0 ] && [ $1 == "all" ]; then
 
   # Clone GATK-SV repo & checkout release tag of interest
-  export gatksv_tag=v1.0.1
   git clone git@github.com:broadinstitute/gatk-sv.git --branch=$gatksv_tag
 
   # Clone GATK-HC workflow repos & checkout release tag of interest
-  export gatkhc_tag=2.3.1
   git clone git@github.com:gatk-workflows/gatk4-germline-snps-indels.git --branch=$gatkhc_tag
   git clone git@github.com:gatk-workflows/utility-wdls.git
   git clone git@github.com:broadinstitute/warp.git

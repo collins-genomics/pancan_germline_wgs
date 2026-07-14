@@ -203,20 +203,28 @@ task CollectSiteFeatures {
 
     # Build options for bed feature annotation
     bfa_cmd=""
+    paste \
+      ~{write_lines(bed_feature_names)} \
+      ~{write_lines(bed_features)} \
+    > bed_features.tsv
     while read fname fpath; do
       mv "$fpath" ./
       locpath=$( basename "$fpath" )
       tabix -p bed -f $locpath
       bfa_cmd="$bfa_cmd --feature-bed $fname=$locpath"
-    done < ~{write_tsv([bed_feature_names, bed_features])}
+    done < bed_features.tsv
 
     # Build options for bigWig feature annotation
     bwa_cmd=""
+    paste \
+      ~{write_lines(bigwig_feature_names)} \
+      ~{write_lines(bigwig_features)} \
+    > bigwig_features.tsv
     while read fname fpath; do
       mv "$fpath" ./
       locpath=$( basename "$fpath" )
       bwa_cmd="$bwa_cmd --feature-bigwig $fname=$locpath"
-    done < ~{write_tsv([bigwig_feature_names, bigwig_features])}
+    done < bigwig_features.tsv
 
     # Build overall feature collection command
     cmd="/opt/pancan_germline_wgs/scripts/variant_filtering/collect_site_filtering_features.py "
