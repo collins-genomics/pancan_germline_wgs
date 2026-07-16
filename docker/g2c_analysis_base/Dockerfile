@@ -34,7 +34,7 @@ RUN conda config --env --set subdir linux-64 && \
     mamba env create --file=/opt/pancan_germline_wgs/refs/config/environment.g2c_analysis.yml
 
 # Manually install packages (only necessary for local debugging/environment rework)
-# mamba install bioconda::bcftools bioconda::pysam bioconda::tabix \
+# mamba install bioconda::bcftools bioconda::pysam bioconda::tabix bioconda::cromshell \
 #               conda-forge::biopython conda-forge::conda-pack bioconda::pybedtools
 # mamba install conda-forge::pandas conda-forge::numpy conda-forge::scipy pip==25.0 \
 #               conda-forge::scikit-learn conda-forge::cython

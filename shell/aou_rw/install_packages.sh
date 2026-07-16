@@ -40,7 +40,7 @@ if [ "$( echo $CONDA_DEFAULT_ENV )" != "g2c" ]; then
   mamba env create --yes --file=~/code/refs/config/environment.g2c_analysis.yml
   source activate g2c
 fi
-mamba install --yes -c conda-forge less zip cromshell
+mamba install --yes -c conda-forge less zip
 
 # Install all packages as optioned
 for lang in "$@"; do
