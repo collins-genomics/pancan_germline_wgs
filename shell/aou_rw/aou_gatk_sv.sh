@@ -786,6 +786,7 @@ staging_dir=staging/gq_update
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 cat << EOF > $staging_dir/SLtoGQ.inputs.template.json
 {
+  "SLtoGQ.ConcatVcfs.bcftools_concat_options": "-a",
   "SLtoGQ.g2c_analysis_docker": "vanallenlab/g2c_analysis:22963aa",
   "SLtoGQ.vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/19/\$CONTIG/RecalibrateGq/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.vcf.gz",
   "SLtoGQ.vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/19/\$CONTIG/RecalibrateGq/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.vcf.gz.tbi"

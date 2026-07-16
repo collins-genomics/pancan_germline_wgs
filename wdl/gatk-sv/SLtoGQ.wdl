@@ -47,6 +47,7 @@ workflow SLtoGQ {
       vcfs = UpdateGq.updated_vcf,
       vcf_idxs = UpdateGq.updated_vcf_idx,
       out_prefix = basename(vcf, "vcf.gz") + "gq_updated",
+      bcftools_concat_options = "-a",
       bcftools_docker = g2c_analysis_docker
   }
 
