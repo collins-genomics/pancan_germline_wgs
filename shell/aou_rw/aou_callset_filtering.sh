@@ -169,7 +169,7 @@ wb workflow job run \
 # Check progress
 wid=$( jq .runId "cromwell/submissions/$workflow_name.$contig.submission.json" | tr -d '"' )
 monitor_workflow $wid
-# wb workflow job describe --job-id $wid --format JSON | python -m json.tool | jq .status
+# wb workflow job describe --job-id=$wid --format=JSON | python -m json.tool
 
 # TODO: finish implementing this
 
