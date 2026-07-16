@@ -166,6 +166,9 @@
 
 # Get G2C workspace processing number from within an AoU RW terminal
 get_workspace_number() {
+  if [[ -z $WORKSPACE_BUCKET ]]; then
+    export WORKSPACE_BUCKET="gs://$( find ~/workspace -maxdepth 1 -name "rw-migration*" | head -n1 | xargs basename )"
+  fi
   case "$WORKSPACE_BUCKET" in
     "gs://cloned-mybucket-wb-crisp-lemon-8858"|"gs://rw-migration-aou-rw-84a0039b")
       echo "w1"

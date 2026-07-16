@@ -71,6 +71,9 @@ call-caching {
 EOF
 
 # Create cromshell config file
+if [ ! -e /home/jupyter/.cromshell ]; then
+  mkdir /home/jupyter/.cromshell
+fi
 cat << EOF > /home/jupyter/.cromshell/cromshell_config.json
 {
   "cromwell_server": "http://localhost:8000",

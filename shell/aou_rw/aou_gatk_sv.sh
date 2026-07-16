@@ -25,9 +25,9 @@ export GPROJECT="vanallen-pancan-germline-wgs"
 export MAIN_WORKSPACE_BUCKET=gs://fc-secure-d21aa6b0-1d19-42dc-93e3-42de3578da45
 
 # Prep working directory structure
-for dir in cromshell cromshell/inputs cromshell/job_ids cromshell/progress; do
-  if ! [ -e $dir ]; then
-    mkdir $dir
+for dir in staging cromshell cromshell/inputs cromshell/job_ids cromshell/progress; do
+  if ! [ -e ~/$dir ]; then
+    mkdir ~/$dir
   fi
 done
 
