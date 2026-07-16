@@ -29,6 +29,12 @@ find code/ -name "*.sh" | xargs -I {} chmod a+x {}
 . code/refs/dotfiles/aou.rw.bashrc
 . code/refs/general_bash_utils.sh
 
+# Install necessary packages
+. code/refs/install_packages.sh python R
+if [ "$( echo $CONDA_DEFAULT_ENV )" != "g2c" ]; then
+  source activate g2c
+fi
+
 # Create dependencies .zip for generic G2C workflow submissions
 cd code/wdl/pancan_germline_wgs && \
 zip -r g2c.dependencies.zip . && \
@@ -40,12 +46,6 @@ cd code/wdl/pancan_germline_wgs/vcf-qc && \
 zip qc.dependencies.zip *.wdl && \
 mv qc.dependencies.zip ~/ && \
 cd ~
-
-# Install necessary packages
-. code/refs/install_packages.sh python R
-if [ "$( echo $CONDA_DEFAULT_ENV )" != "g2c" ]; then
-  source activate g2c
-fi
 
 # Set terminal timezone to Eastern US time
 export TZDIR=$(python -c "import tzdata, os; print(os.path.join(os.path.dirname(tzdata.__file__), 'zoneinfo'))")
@@ -81,9 +81,10 @@ case "$WN" in
 esac
 
 # Set up expected directory structure for local cromshell execution
-for dir in cromshell cromshell/inputs cromshell/submissions cromshell/progress; do
-  if ! [ -e $dir ]; then
-    mkdir $dir
+for dir in cromshell cromshell/inputs cromshell/submissions cromshell/progress \
+           cromshell/job_ids; do
+  if ! [ -e ~/$dir ]; then
+    mkdir ~/$dir
   fi
 done
 

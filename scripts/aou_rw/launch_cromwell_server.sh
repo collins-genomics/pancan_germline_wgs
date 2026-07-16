@@ -9,6 +9,13 @@
 
 # Note that this must be run in a separate terminal
 
+# Set up local environment
+export GPROJECT="vanallen-pancan-germline-wgs"
+export MAIN_WORKSPACE_BUCKET=gs://rw-migration-aou-rw-84a0039b
+gcloud storage cp $MAIN_WORKSPACE_BUCKET/code/scripts/configure_verily_vm.sh ./ && \
+. configure_verily_vm.sh && \
+rm configure_verily_vm.sh
+
 # Create cromwell config file
 mkdir /home/jupyter/.cromwell
 wb cromwell generate-config \
