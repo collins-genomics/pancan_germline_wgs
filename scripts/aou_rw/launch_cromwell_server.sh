@@ -80,6 +80,8 @@ EOF
 
 # Launch cromwell in server mode
 java \
+  -Xms8G \
+  -Xmx16G \
   -Dconfig.file=/home/jupyter/.cromwell/cromwell.override.conf \
   -jar $CROMWELL_JAR \
   server
