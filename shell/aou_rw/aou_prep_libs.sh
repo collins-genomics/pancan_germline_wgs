@@ -69,6 +69,9 @@ gsutil -m cp -r \
 gsutil -m cp \
   pancan_germline_wgs/shell/aou_rw/configure_verily_vm.sh \
   $rw_bucket/code/scripts/
+gsutil -m cp \
+  pancan_germline_wgs/refs/config/environment.g2c_analysis.yml \
+  $rw_bucket/code/refs/config/
 
 # Update commit/tag info for version tracking purposes
 gsutil cp $WRKDIR/libs.version_info.txt $rw_bucket/code/refs/
