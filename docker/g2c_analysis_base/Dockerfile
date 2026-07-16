@@ -34,16 +34,18 @@ RUN conda config --env --set subdir linux-64 && \
     mamba env create --file=/opt/pancan_germline_wgs/refs/config/environment.g2c_analysis.yml
 
 # Manually install packages (only necessary for local debugging/environment rework)
-# mamba install bioconda::bcftools bioconda::pysam bioconda::tabix bioconda::cromshell \
-#               conda-forge::biopython conda-forge::conda-pack bioconda::pybedtools
-# mamba install conda-forge::pandas conda-forge::numpy conda-forge::scipy pip==25.0 \
-#               conda-forge::scikit-learn conda-forge::cython
-# mamba install conda-forge::r-base conda-forge::r-desctools r::r-eql conda-forge::r-argparse \
-#               conda-forge::r-bedr conda-forge::r-beeswarm conda-forge::r-caret \
-#               conda-forge::r-readxl conda-forge::r-survival conda-forge::r-vioplot \
-#               conda-forge::r-viridis conda-forge::r-optparse
-# mamba install conda-forge::google-cloud-sdk
-# mamba install conda-forge::r-glmnet
+# For whatever reason, it seems like zip and less are easier to install via conda than mamba
+# conda install -y conda-forge::zip conda-forge::less
+# mamba install -y bioconda::bcftools bioconda::pysam bioconda::tabix bioconda::cromshell \
+#                  conda-forge::biopython conda-forge::conda-pack bioconda::pybedtools \
+#                  bioconda::pybigwig
+# mamba install -y conda-forge::pandas conda-forge::numpy conda-forge::scipy pip==25.0 \
+#                  conda-forge::scikit-learn conda-forge::cython
+# mamba install -y conda-forge::r-base conda-forge::r-desctools r::r-eql conda-forge::r-argparse \
+#                 conda-forge::r-bedr conda-forge::r-beeswarm conda-forge::r-caret \
+#                 conda-forge::r-readxl conda-forge::r-survival conda-forge::r-vioplot \
+#                 conda-forge::r-viridis conda-forge::r-optparse
+# mamba install -y conda-forge::google-cloud-sdk conda-forge::r-glmnet
 
 # Use conda-pack to create a standalone enviornment
 RUN mamba install conda-pack && \
