@@ -762,19 +762,6 @@ submit_cohort_module 18
 submit_cohort_module 19
 
 
-##################
-# Recalibrate GQ #
-##################
-
-# As of July 2026, we discovered that GATK FilterGenotypes was not correctly
-# reassigning GQs based on their corresponding SLs. We therefore needed to 
-# implement a SL-to-GQ conversion patch at this step
-
-# Note: this module only needs to be run once in one workspace for the whole cohort
-
-# TODO: implement this
-
-
 
 #####################################
 # Collapse quasi-redundant variants #

@@ -394,7 +394,7 @@ def main():
     if len(max_cycles) > 0:
         max_cycles = np.nanmax([1, np.nanmin(max_cycles)])
     else:
-        max_cycles = np.Inf
+        max_cycles = np.inf
 
     # Report startup conditions
     if not args.quiet:

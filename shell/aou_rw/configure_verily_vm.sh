@@ -29,6 +29,18 @@ find code/ -name "*.sh" | xargs -I {} chmod a+x {}
 . code/refs/dotfiles/aou.rw.bashrc
 . code/refs/general_bash_utils.sh
 
+# Create dependencies .zip for generic G2C workflow submissions
+cd code/wdl/pancan_germline_wgs && \
+zip -r g2c.dependencies.zip . && \
+mv g2c.dependencies.zip ~/ && \
+cd ~
+
+# Create dependencies .zip for QC workflow submissions
+cd code/wdl/pancan_germline_wgs/vcf-qc && \
+zip qc.dependencies.zip *.wdl && \
+mv qc.dependencies.zip ~/ && \
+cd ~
+
 # Install necessary packages
 . code/refs/install_packages.sh python R
 if [ "$( echo $CONDA_DEFAULT_ENV )" != "g2c" ]; then
@@ -67,6 +79,13 @@ case "$WN" in
     echo "UNKNOWN WORKSPACE NUMBER"
     ;;
 esac
+
+# Set up expected directory structure for local cromshell execution
+for dir in cromshell cromshell/inputs cromshell/submissions cromshell/progress; do
+  if ! [ -e $dir ]; then
+    mkdir $dir
+  fi
+done
 
 # Download workspace-specific contig lists
 gcloud storage rsync -r \

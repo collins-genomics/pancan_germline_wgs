@@ -104,6 +104,11 @@ if [ -e legacy_mingq_wdl ]; then
     $rw_bucket/misc/
 fi
 
+# Also copy cromwell server launch script (for Verily Pre / RW v2.0)
+gsutil -m cp \
+  pancan_germline_wgs/scripts/aou_rw/launch_cromwell_server.sh \
+  $rw_bucket/code/scripts/
+
 # Update commit/tag info for version tracking purposes
 echo -e "gatk-sv\ttag\t$gatksv_tag" >> $WRKDIR/wdl.version_info.txt
 echo -e "gatk-hc\ttag\t$gatkhc_tag" >> $WRKDIR/wdl.version_info.txt

@@ -138,13 +138,14 @@ def delete_uris(uris, rm_args='', verbose=False):
                    shell=True, text=True)
 
 
-def count_vms(n_background=4):
+def count_vms(n_background=2):
     """
     Count number of active GCP VMs (useful as a proxy for Cromwell server load)
     This will also subtract n_background from the total count to reflect baseline
     VMs used by Cromwell or AoU RW all the time and unrelated to user-generated
-    server load. Based on empirical experience, this number appears to be 4
-    when using AOU RW default configurations
+    server load. Based on empirical experience, this number appeared to be 4
+    when using AOU RW v1.0 default configurations and now appears to be 2 in
+    the new Verily Pre RW v2.0 environment
     """
 
     gcheck = subprocess.run('gcloud compute instances list | wc -l', 

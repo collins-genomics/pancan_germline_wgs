@@ -229,8 +229,9 @@ EOF
     echo -e "\n"
     date
     njobs=$( gcloud compute instances list | wc -l )
-    echo -e "Current Cromwell server load: $njobs active VMs"
-    ( wb workflow job describe --job-id=$1 --format=JSON | jq .status | tr -d '"' ) 2>/dev/null 
+    echo -e "Current Cromwell server load: $(( $njobs - 2 )) active VMs"
+    ( cromshell -t 150 --no_turtle status $1 | jq .status ) 2>/dev/null 
+    cromshell -t 150 --no_turtle counts -x $1 2>/dev/null
     if [ $k -ge $iter ]; then
       return 0
     fi
@@ -238,4 +239,3 @@ EOF
     sleep ${monitor_gate}m
   done
 }
-
