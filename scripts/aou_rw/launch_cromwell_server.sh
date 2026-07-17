@@ -9,6 +9,8 @@
 
 # Note that this must be run in a separate terminal
 
+# Recommended VM configuration: 16 vCPU x 64GB RAM
+
 # Set up local environment
 export GPROJECT="vanallen-pancan-germline-wgs"
 export MAIN_WORKSPACE_BUCKET=gs://rw-migration-aou-rw-84a0039b
