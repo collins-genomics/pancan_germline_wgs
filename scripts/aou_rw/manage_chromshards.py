@@ -160,7 +160,7 @@ def relocate_outputs(workflow_id, staging_bucket, wdl_name, output_json_uri,
             dest_parts = [sub('^call-', '', x) for x in src_uri.split('/') 
                           if x.startswith('call-') or x.startswith('shard-')]
             dest_uri = '/'.join([staging_bucket] + dest_parts + [path.basename(src_uri)])
-        
+
             # Stage output
             g2cpy.relocate_uri(src_uri, dest_uri, verbose=verbose)
 

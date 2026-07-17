@@ -81,7 +81,7 @@ system {
 engine {
   filesystems {
     gcs {
-      enabled = true
+      auth = "application_default"
     }
   }
 }
