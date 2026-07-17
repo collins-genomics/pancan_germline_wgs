@@ -62,11 +62,49 @@ cat << EOF > /home/jupyter/.cromwell/cromwell.override.conf
 include "cromwell.conf"
 
 backend.providers.GCPBATCH.config {
-  concurrent-job-limit = 100
+  concurrent-job-limit = 500
 }
 
 call-caching {
   enabled = true
+}
+
+system {
+  job-rate-control {
+    jobs = 100
+    per = 10 seconds
+  }
+}
+
+engine {
+  filesystems {
+    gcs {
+      enabled = true
+    }
+  }
+}
+
+database {
+  profile = "slick.jdbc.HsqldbProfile$"
+
+  db {
+    driver = "org.hsqldb.jdbcDriver"
+
+    url = """
+      jdbc:hsqldb:file:/home/jupyter/.cromwell/db/cromwell;
+      shutdown=false;
+      hsqldb.default_table_type=cached;
+      hsqldb.tx=mvcc;
+      hsqldb.result_max_memory_rows=10000;
+      hsqldb.large_data=true;
+      hsqldb.script_format=3
+    """
+
+    connectionTimeout = 120000
+    numThreads = 4
+  }
+
+  insert-batch-size = 2000
 }
 EOF
 
@@ -81,10 +119,14 @@ cat << EOF > /home/jupyter/.cromshell/cromshell_config.json
 }
 EOF
 
+# Ensure cromwell local database exists
+mkdir -p /home/jupyter/.cromwell/db
+
 # Launch cromwell in server mode
 java \
-  -Xms8G \
-  -Xmx16G \
+  -Xms16G \
+  -Xmx32G \
+  -XX:+UseG1GC \
   -Dconfig.file=/home/jupyter/.cromwell/cromwell.override.conf \
   -jar $CROMWELL_JAR \
   server
