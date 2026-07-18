@@ -73,7 +73,7 @@ call-caching {
 
 system {
   job-rate-control {
-    jobs = 100
+    jobs = 25
     per = 10 seconds
   }
 }

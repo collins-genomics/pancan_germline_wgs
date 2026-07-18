@@ -152,7 +152,7 @@ def integrate_gts(target_record, records, consensus=True, sort_key='GQ',
         return target_record
 
     # Reheader all records, if necessary
-    if not nested_input:
+    if not nested_input and not isinstance(records, list):
         records = [records]
     if header is not None:
         for i in range(len(records)):
@@ -233,7 +233,10 @@ def integrate_gts(target_record, records, consensus=True, sort_key='GQ',
             for subrecs in records:
                 sdat.append([r.samples[sid] for r in subrecs])
         else:
-            sdat = [r.samples[sid] for r in records]
+            try:
+                sdat = [r.samples[sid] for r in records]
+            except:
+                import pdb; pdb.set_trace()
 
         # Determine which GT to keep. Behavior depends on nested_input and consensus
         if nested_input:

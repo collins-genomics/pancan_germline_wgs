@@ -786,6 +786,9 @@ staging_dir=staging/gq_update
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 cat << EOF > $staging_dir/SLtoGQ.inputs.template.json
 {
+  "SLtoGQ.ConcatVcfs.boot_disk_gb": 20,
+  "SLtoGQ.ConcatVcfs.cpu_cores": 4,
+  "SLtoGQ.ConcatVcfs.mem_gb": 16,
   "SLtoGQ.g2c_analysis_docker": "vanallenlab/g2c_analysis:7f275ca",
   "SLtoGQ.records_per_shard": 800,
   "SLtoGQ.vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/19/\$CONTIG/RecalibrateGq/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.vcf.gz",
@@ -794,9 +797,6 @@ cat << EOF > $staging_dir/SLtoGQ.inputs.template.json
 EOF
 
 # Submit, monitor, and stage/cleanup redundant variant reclustering
-gsutil -m cp -r $MAIN_WORKSPACE_BUCKET/code/src/g2cpy code/src/ && \
-gsutil -m cp $MAIN_WORKSPACE_BUCKET/code/scripts/manage_chromshards.py code/scripts/ && \
-chmod a+x code/scripts/manage_chromshards.py && \
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/gatk-sv/SLtoGQ.wdl \
   --dependencies-zip g2c.dependencies.zip \
@@ -806,37 +806,37 @@ code/scripts/manage_chromshards.py \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
   --submission-gate 0 \
+  --max-attempts 4
+
+
+#####################################
+# Collapse quasi-redundant variants #
+#####################################
+
+# Note: this module only needs to be run once in one workspace for the whole cohort
+
+# Write template input .json for reclustering
+staging_dir=staging/posthoc_recluster
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+cat << EOF > $staging_dir/CollapseRedundantSvs.inputs.template.json
+{
+  "CollapseRedundantSvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:7f275ca",
+  "CollapseRedundantSvs.vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/SLtoGQ/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.vcf.gz",
+  "CollapseRedundantSvs.vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/SLtoGQ/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.vcf.gz.tbi"
+}
+EOF
+
+# Submit, monitor, and stage/cleanup redundant variant reclustering
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/gatk-sv/CollapseRedundantSvs.wdl \
+  --input-json-template $staging_dir/CollapseRedundantSvs.inputs.template.json \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/CollapseRedundantSvs \
+  --name CollapseRedundantSvs \
+  --status-tsv cromshell/progress/dfci-g2c.v1.CollapseRedundantSvs.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 30 \
+  --submission-gate 1 \
   --max-attempts 3
-
-
-# #####################################
-# # Collapse quasi-redundant variants #
-# #####################################
-
-# # Note: this module only needs to be run once in one workspace for the whole cohort
-
-# # Write template input .json for reclustering
-# staging_dir=staging/posthoc_recluster
-# if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
-# cat << EOF > $staging_dir/CollapseRedundantSvs.inputs.template.json
-# {
-#   "CollapseRedundantSvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:e246265",
-#   "CollapseRedundantSvs.vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/19/\$CONTIG/RecalibrateGq/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.vcf.gz",
-#   "CollapseRedundantSvs.vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/19/\$CONTIG/RecalibrateGq/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.vcf.gz.tbi"
-# }
-# EOF
-
-# # Submit, monitor, and stage/cleanup redundant variant reclustering
-# code/scripts/manage_chromshards.py \
-#   --wdl code/wdl/gatk-sv/CollapseRedundantSvs.wdl \
-#   --input-json-template $staging_dir/CollapseRedundantSvs.inputs.template.json \
-#   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/CollapseRedundantSvs \
-#   --name CollapseRedundantSvs \
-#   --status-tsv cromshell/progress/dfci-g2c.v1.CollapseRedundantSvs.progress.tsv \
-#   --workflow-id-log-prefix "dfci-g2c.v1" \
-#   --outer-gate 30 \
-#   --submission-gate 0 \
-#   --max-attempts 3
 
 # # Confirm that the reclustering procedure didn't result in major VCF changes
 # for k in $( seq 1 22 ) X Y; do
