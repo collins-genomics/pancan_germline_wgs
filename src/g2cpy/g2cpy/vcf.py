@@ -78,17 +78,18 @@ def compute_allele_freq_stats(record, keys=['AC', 'AN', 'AF', 'N_REF', 'N_HET', 
         res['AN'] += int(np.max([an - mis, 0]))
 
         # Parse genotype
-        if ac == 0 and ref > 0:
+        if 'N_REF' in keys and ac == 0 and ref > 0:
             res['N_REF'] += 1
-        elif ac == an:
+            continue
+        if 'N_HOM' in keys and ac == an:
             res['N_HOM'] += 1
-        elif ac > 0 and ref > 0:
+            continue
+        if 'N_HET' in keys and ac > 0 and ref > 0:
             res['N_HET'] += 1
-        elif mis == an:
+            continue
+        if 'N_MISSING' in keys and mis == an:
             res['N_MISSING'] += 1
-        else:
-            print('Unable to parse GT {}\n'.format(record.samples[sid]['GT']))
-            import pdb; pdb.set_trace()
+            continue
 
     res['AF'] = float(res['AC'] / res['AN'])
 
@@ -159,18 +160,25 @@ def integrate_gts(target_record, records, consensus=True, sort_key='GQ',
             records[i] = [r.copy() for r in records[i]]
             for r in records[i]:
                 r.translate(header)
-        fmt_meta = {f: header.formats[f] for f in header.formats.keys()}
+        fmt_meta = {f: header.formats[f] for f in header.formats.keys()}.copy()
     else:
-        fmt_meta = {f: target_record.header.formats[f] for f in target_record.format.keys()}
+        fmt_meta = {f: target_record.header.formats[f] for f in target_record.format.keys()}.copy()
 
     # Check to ensure all samples are the same across all records
-    flat_records = recursive_flatten(records)
+    flat_records = [r for r in recursive_flatten(records)]
     sids_per_rec = [set(r.samples.keys()) for r in flat_records]
     all_sids = set(recursive_flatten(sids_per_rec))
     if len(set(map(len, [all_sids] + sids_per_rec))) > 1:
         msg = 'Attempted to integrate genotypes but failed due to inconsistent ' + \
               'samples for records {}'
         exit(msg.format(', '.join([r.id for r in flat_records])))
+
+    # Check to ensure all format fields are represented in fmt_meta
+    if header is None:
+        for r in flat_records:
+            for f in r.format.keys():
+                if f not in fmt_meta.keys():
+                    fmt_meta[f] = r.format[f]
 
     # Direct access to target GT fields
     newgts = target_record.samples
@@ -233,10 +241,7 @@ def integrate_gts(target_record, records, consensus=True, sort_key='GQ',
             for subrecs in records:
                 sdat.append([r.samples[sid] for r in subrecs])
         else:
-            try:
-                sdat = [r.samples[sid] for r in records]
-            except:
-                import pdb; pdb.set_trace()
+            sdat = [r.samples[sid] for r in records]
 
         # Determine which GT to keep. Behavior depends on nested_input and consensus
         if nested_input:
@@ -354,6 +359,8 @@ def integrate_infos(records, do_cpx_intervals=False, header=None):
     # Exclude protected keys
     protected_keys = 'END AC AN AF SVLEN'.split()
     for pk in protected_keys:
+        if pk in records[0].info.keys():
+            newinfo[pk] = records[0].info.get(pk)
         keys = [k for k in keys if not k.startswith(pk) and not k.endswith(pk)]
 
     def __resolve_numerics(key, vals, key_type='Float'):

@@ -809,6 +809,9 @@ code/scripts/manage_chromshards.py \
   --max-attempts 4
 
 
+## TODO: COLLECT RAW GATK-SV QC METRICS HERE
+
+
 #####################################
 # Collapse quasi-redundant variants #
 #####################################
@@ -820,7 +823,7 @@ staging_dir=staging/posthoc_recluster
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 cat << EOF > $staging_dir/CollapseRedundantSvs.inputs.template.json
 {
-  "CollapseRedundantSvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:7f275ca",
+  "CollapseRedundantSvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:2f2bb1f",
   "CollapseRedundantSvs.vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/SLtoGQ/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.vcf.gz",
   "CollapseRedundantSvs.vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/SLtoGQ/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.vcf.gz.tbi"
 }

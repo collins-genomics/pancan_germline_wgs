@@ -13,9 +13,9 @@ Extract and collapse clusters of records from an input VCF
 
 import argparse
 import csv
+import g2cpy
 import numpy as np
 import pysam
-from g2cpy import integrate_cpx_intervals, integrate_gts, integrate_infos, recursive_flatten
 from sys import stdin, stdout
 
 
@@ -104,8 +104,8 @@ def main():
                 write_nonredundant_records(records, outvcf)
                 continue
             try:
-                cpx_ints = integrate_cpx_intervals(records, cpx_types[0], 
-                                                   chrom, cpos, cend)
+                cpx_ints = g2cpy.integrate_cpx_intervals(records, cpx_types[0], 
+                                                         chrom, cpos, cend)
             except:
                 write_nonredundant_records(records, outvcf)
                 continue
@@ -116,21 +116,29 @@ def main():
         # Assign basic (non-INFO) record information
         newrec.pos = cpos
         newrec.stop = cend
-        newrec.info['SVLEN'] = int(np.nanmax([newrec.stop - newrec.pos, 0]))
         newrec.id = '{}_{}'.format(args.prefix, k)
         newrec.qual = int(np.round(np.nanmean([r.qual for r in records])))
         newrec.filter.clear()
-        for f in list(set(recursive_flatten([r.filter.items() for r in records]))):
+        for f in list(set(g2cpy.recursive_flatten([r.filter.items() for r in records]))):
             newrec.filter.add(f)
 
         # Merge INFOs
         newrec.info.clear()
-        newrec.info.update(integrate_infos(records, do_cpx_intervals=False))
+        newrec.info.update(g2cpy.integrate_infos(records, do_cpx_intervals=False))
         if newrec.info['SVTYPE'] == 'CPX':
             newrec.info['CPX_INTERVALS'] = cpx_ints
+        if newrec.info.get('SVLEN', 0) < 50:
+            newrec.info['SVLEN'] = int(np.nanmax([newrec.stop - newrec.pos, 0]))
+        if newrec.info['SVLEN'] == 'INS':
+            import pdb; pdb.set_trace()
 
         # Merge GTs
-        newrec = integrate_gts(newrec, records)
+        newrec = g2cpy.integrate_gts(newrec, records)
+
+        # Update AC/AN/AF
+        af_stats = g2cpy.compute_allele_freq_stats(newrec, keys='AN AC AF'.split())
+        for key, value in af_stats.items():
+            newrec.info[key] = value
 
         # Write clustered record to output VCF
         outvcf.write(newrec)
