@@ -146,30 +146,6 @@ code/scripts/manage_chromshards.py \
   --max-attempts 3
 
 
-#############################
-# Curate GATK-SV QC targets #
-#############################
-
-# Reaffirm staging directory
-staging_dir=staging/qc_targets
-if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
-
-# Estimate number of variants per genome in gnomAD for the necessary contigs
-for k in $( seq 1 22 ) X Y; do
-  gsutil cat \
-    gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/chr$k/gnomad.v4.1.gatksv.chr$k.*.sites.bed.gz
-done | gunzip -c \
-| code/scripts/estimate_vpg_from_sites.py \
-| fgrep -v "#" \
-| awk -v OFS="\t" '{ print "variants_per_genome."$1":median", $2 }' \
-> $staging_dir/dfci-g2c.v1.gatksv.qc_targets.tsv
-
-# Copy QC targets to central bucket for reference by Cromwell
-gsutil -m cp \
-  $staging_dir/dfci-g2c.v1.gatksv.qc_targets.tsv \
-  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/
-
-
 ##################################################
 # Analyze & visualize initial GATK-SV QC metrics #
 ##################################################
