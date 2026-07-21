@@ -137,18 +137,17 @@ EOF
 }
 
 
-# Legacy function (RW v1.0); unsure if this needs to be updated for Verily Pre
-# # Concatenate a single-column text file into a Cromwell-parseable list of quoted strings
-# collapse_txt() {
-#    # Check inputs
-#   if [ $# -ne 1 ]; then
-#     echo "Must pass a single text file as input"
-#     return
-#   fi
-#   echo "["
-#   awk -v ORS='",' '{ print "\""$1 }' $1 | sed 's/,$//g' | sed 's/,/,\n/g'
-#   echo "]"
-# }
+# Concatenate a single-column text file into a Cromwell-parseable list of quoted strings
+collapse_txt() {
+   # Check inputs
+  if [ $# -ne 1 ]; then
+    echo "Must pass a single text file as input"
+    return
+  fi
+  echo "["
+  awk -v ORS='",' '{ print "\""$1 }' $1 | sed 's/,$//g' | sed 's/,/,\n/g'
+  echo "]"
+}
 
 
 # Legacy function (RW v1.0); unsure if this needs to be updated for Verily Pre

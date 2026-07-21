@@ -49,9 +49,11 @@ load.groups <- function(groups.tsv, target.sids){
     g.df <- data.frame(target.sids, "ALL")
     groups <- "ALL"
   }
-  sapply(groups, function(gid){
+  g.l <- lapply(groups, function(gid){
     as.character(g.df[which(g.df[, 2] == gid), 1])
   })
+  names(g.l) <- groups
+  return(g.l)
 }
 
 # Filter and collapse groups to ensure sufficiently dense data for imputation
@@ -422,6 +424,15 @@ args <- parser$parse_args()
 #              "min_snv_ac" = 10,
 #              "min_accuracy" = 0.7,
 #              "min_r2" = 0.2,
+#              "out_tsv" = "~/scratch/sv_imp.test.tsv")
+# args <- list("ad" = "~/scratch/PedSV.2.5.2_DEL_chr2_13547.ad.tsv.gz",
+#              "sv_id" = "PedSV.2.5.2_DEL_chr2_13547",
+#              "sample_covariates" = NULL,
+#              "sample_group_labels" = NULL,
+#              "min_ac" = 10,
+#              "min_snv_ac" = 1,
+#              "min_accuracy" = 0.7,
+#              "min_r2" = 0.3,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
 
 # Initialize reporting
