@@ -1198,53 +1198,236 @@ code/scripts/manage_chromshards.py \
   --max-attempts 3
 
 
-# # Test downstream tool compatability by trying to annotate all CPX variants
+#############################################################
+# Analyze & visualize GATK-SV QC metrics after reclustering #
+#############################################################
 
-# # Make tarball with SV annotation dependencies
-# cd code/wdl/gatk-sv/svannotation_v1.1 && \
-# zip svannotation.dependencies.zip *.wdl && \
-# mv svannotation.dependencies.zip ~/ && \
-# cd ~
+# Note: this only needs to be run once for the entire cohort across all workspaces
 
-# # Extract CPX variants from chr1 (we know there's a INVdup at the end that has been problematic)
-# gsutil -m cat \
-#   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/CollapseRedundantSvs/chr1/RC3/dfci-g2c.v1.chr1.concordance.gq_recalibrated.identical.reclustered.vcf.gz \
-# | bcftools view \
-#   -i 'INFO/SVTYPE = "CPX"' \
-#   -Oz -o scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz
-# tabix -p vcf -f scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz
-# gsutil -m cp \
-#   scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz* \
-#   $WORKSPACE_BUCKET/scratch/
+# Reaffirm staging directory
+staging_dir=staging/reclustered_gatksv_qc
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
-# # Write .json input for chr1 annotation test
-# cat << EOF > cromshell/inputs/AnnotateVcf.inputs.chr1_test.json
-# {
-#   "AnnotateVcf.contig_list": "gs://dfci-g2c-refs/hg38/contig_lists/chr1.list",
-#   "AnnotateVcf.external_af_population": ["ALL","AFR","AMR","EAS","EUR","MID","FIN","ASJ","RMI","SAS","AMI"],
-#   "AnnotateVcf.external_af_ref_bed": "gs://gatk-sv-resources-public/gnomad_AF/gnomad_v4_SV.Freq.tsv.gz",
-#   "AnnotateVcf.external_af_ref_prefix": "gnomad_v4.1_sv",
-#   "AnnotateVcf.gatk_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/gatk:2025-05-20-4.6.2.0-4-g1facd911e-NIGHTLY-SNAPSHOT",
-#   "AnnotateVcf.par_bed": "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/hg38.par.bed",
-#   "AnnotateVcf.prefix": "dfci-ufc.v1.sv.annotation_test.chr1",
-#   "AnnotateVcf.protein_coding_gtf": "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/gencode.v47.basic.protein_coding.canonical.gtf",
-#   "AnnotateVcf.runtime_attr_svannotate": {"cpu_cores" : 4, "mem_gb": 7.5},
-#   "AnnotateVcf.sv_base_mini_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
-#   "AnnotateVcf.sv_per_shard": 5000,
-#   "AnnotateVcf.sv_pipeline_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-pipeline:2025-09-02-v1.0.5-631368eb",
-#   "AnnotateVcf.vcf": "$WORKSPACE_BUCKET/scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz"
-# }
-# EOF
+cat << EOF > $staging_dir/main_keys.list
+size_distrib
+af_distrib
+size_vs_af_distrib
+all_svs_bed
+common_svs_bed
+genotype_distrib
+ld_stats
+EOF
 
-# # Submit chr1 annotation test
-# cromshell --no_turtle -t 120 -mc submit \
-#   --options-json code/refs/json/aou.cromwell_options.default.json \
-#   --dependencies-zip svannotation.dependencies.zip \
-#   code/wdl/gatk-sv/svannotation_v1.1/AnnotateVcf.wdl \
-#   cromshell/inputs/AnnotateVcf.inputs.chr1_test.json \
-# | jq .id | tr -d '"' \
-# >> cromshell/job_ids/annotation_test.job_ids.list
+cat << EOF > $staging_dir/bench_keys.list
+site_benchmark_ppv_by_freqs
+site_benchmark_sensitivity_by_freqs
+site_benchmark_common_sv_ppv_beds
+site_benchmark_common_sv_sens_beds
+twin_genotype_benchmark_distribs
+trio_mendelian_violation_distribs
+EOF
 
-# # Monitor annotation test
-# monitor_workflow $( tail -n1 cromshell/job_ids/annotation_test.job_ids.list )
+# Clear old input arrays
+while read key; do  
+  fname=$staging_dir/$key.uris.list
+  if [ -e $fname ]; then rm $fname; fi
+done < $staging_dir/main_keys.list
+while read key; do
+  for subset in giab_easy giab_hard; do
+    fname=$staging_dir/$key.$subset.uris.list
+    if [ -e $fname ]; then rm $fname; fi
+  done
+done < $staging_dir/bench_keys.list
+for suffix in af_distribution size_distribution; do
+  fname=$staging_dir/gnomAD_$suffix.uris.list
+  if [ -e $fname ]; then rm $fname; fi
+done
+for key in sample_benchmark_ppv_distribs sample_benchmark_sensitivity_distribs; do
+  for dset in external_srwgs external_lrwgs; do
+    for subset in giab_easy giab_hard; do
+      fname=$staging_dir/$key.$subset.$dset.uris.list
+      if [ -e $fname ]; then rm $fname; fi
+    done
+  done
+done
+
+# Build input arrays
+for k in $( seq 1 22 ) X Y; do
+  
+  # Localize output tracker json and get URIs for QC metrics
+  json_fname=CollectReclusteredGatksvQcMetrics.chr$k.outputs.json
+  gsutil cp \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/reclustered-qc/GatksvQcMetrics/chr$k/$json_fname \
+    $staging_dir/
+  while read key; do
+    jq .\"CollectVcfQcMetrics.$key\" $staging_dir/$json_fname \
+    | fgrep -xv "null" | tr -d '"' \
+    >> $staging_dir/$key.uris.list
+  done < $staging_dir/main_keys.list
+  while read key; do
+    for subset in giab_easy giab_hard; do
+      jq .\"CollectVcfQcMetrics.$key\" $staging_dir/$json_fname \
+      | fgrep -xv "null" | tr -d '"[]' | sed 's/,$/\n/g' \
+      | sed '/^$/d' | awk '{ print $1 }' | fgrep $subset \
+      >> $staging_dir/$key.$subset.uris.list
+    done
+  done < $staging_dir/bench_keys.list
+
+  # Due to delisting behavior of manage_chromshards.py, external sample benchmark
+  # results need to be parsed in a custom manner as below
+  for key in sample_benchmark_ppv_distribs sample_benchmark_sensitivity_distribs; do
+    for dset in external_srwgs external_lrwgs; do
+      for subset in giab_easy giab_hard; do
+        jq .\"CollectVcfQcMetrics.$key\" $staging_dir/$json_fname \
+        | fgrep -xv "null" | tr -d '"[]' | sed 's/,$/\n/g' \
+        | sed '/^$/d' | awk '{ print $1 }' | fgrep $dset | fgrep $subset \
+        >> $staging_dir/$key.$subset.$dset.uris.list
+      done
+    done
+  done
+
+  # Clear local copy of output tracker json
+  rm $staging_dir/$json_fname
+
+  # Add precomputed gnomAD v4.1 reference distributions to file lists
+  for suffix in af_distribution size_distribution; do
+    echo "gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/chr$k/gnomad.v4.1.gatksv.chr$k.$suffix.merged.tsv.gz" \
+    >> $staging_dir/gnomAD_$suffix.uris.list
+  done
+done
+
+# Write input .json
+cat << EOF | python -m json.tool > cromshell/inputs/PlotReclusteredGatksvQcMetrics.inputs.json
+{
+  "PlotVcfQcMetrics.af_distribution_tsvs": $( collapse_txt $staging_dir/af_distrib.uris.list ),
+  "PlotVcfQcMetrics.all_sv_beds": $( collapse_txt $staging_dir/all_svs_bed.uris.list ),
+  "PlotVcfQcMetrics.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+  "PlotVcfQcMetrics.benchmark_interval_names": ["Easy", "Hard"],
+  "PlotVcfQcMetrics.common_af_cutoff": 0.001,
+  "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
+  "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/refs/qc/dfci-g2c.v1.gatksv.qc_targets.tsv",
+  "PlotVcfQcMetrics.deduplicate": true,
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:ed9676d",
+  "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.reclustered_gatksv_qc",
+  "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
+  "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
+  "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
+  "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 32,
+  "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
+  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotGatksvQc/dfci-g2c.v1.initial_gatksv_qc.all_qc_summary_metrics.tsv",
+  "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
+  "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
+  "PlotVcfQcMetrics.ref_cohort_prefix": "gnomAD_v4.1",
+  "PlotVcfQcMetrics.ref_cohort_plot_title": "gnomAD v4.1",
+  "PlotVcfQcMetrics.sample_ancestry_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_ancestry.tsv",
+  "PlotVcfQcMetrics.sample_phenotype_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_phenotype.tsv",
+  "PlotVcfQcMetrics.sample_benchmark_dataset_prefixes": ["external_srwgs", "external_lrwgs"],
+  "PlotVcfQcMetrics.sample_benchmark_dataset_titles": ["external srWGS", "external lrWGS"],
+  "PlotVcfQcMetrics.sample_benchmark_ppv_distribs": [[ $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_easy.external_srwgs.uris.list ),
+                                                       $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_hard.external_srwgs.uris.list ) ],
+                                                     [ $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_easy.external_lrwgs.uris.list ),
+                                                       $( collapse_txt $staging_dir/sample_benchmark_ppv_distribs.giab_hard.external_lrwgs.uris.list ) ]],
+  "PlotVcfQcMetrics.sample_benchmark_sensitivity_distribs": [[ $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_easy.external_srwgs.uris.list ),
+                                                               $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_hard.external_srwgs.uris.list ) ],
+                                                             [ $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_easy.external_lrwgs.uris.list ),
+                                                               $( collapse_txt $staging_dir/sample_benchmark_sensitivity_distribs.giab_hard.external_lrwgs.uris.list ) ]],
+  "PlotVcfQcMetrics.sample_genotype_distribution_tsvs": $( collapse_txt $staging_dir/genotype_distrib.uris.list ),
+  "PlotVcfQcMetrics.site_benchmark_common_sv_ppv_beds": [[ $( collapse_txt $staging_dir/site_benchmark_common_sv_ppv_beds.giab_easy.uris.list ),
+                                                           $( collapse_txt $staging_dir/site_benchmark_common_sv_ppv_beds.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_common_sv_sens_beds": [[ $( collapse_txt $staging_dir/site_benchmark_common_sv_sens_beds.giab_easy.uris.list ),
+                                                            $( collapse_txt $staging_dir/site_benchmark_common_sv_sens_beds.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_ppv_by_freqs": [[ $( collapse_txt $staging_dir/site_benchmark_ppv_by_freqs.giab_easy.uris.list ),
+                                                     $( collapse_txt $staging_dir/site_benchmark_ppv_by_freqs.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_sensitivity_by_freqs": [[ $( collapse_txt $staging_dir/site_benchmark_sensitivity_by_freqs.giab_easy.uris.list ),
+                                                             $( collapse_txt $staging_dir/site_benchmark_sensitivity_by_freqs.giab_hard.uris.list ) ]],
+  "PlotVcfQcMetrics.site_benchmark_dataset_prefixes": ["gnomad_v4.1"],
+  "PlotVcfQcMetrics.site_benchmark_dataset_titles": ["gnomAD v4.1"],
+  "PlotVcfQcMetrics.size_distribution_tsvs": $( collapse_txt $staging_dir/size_distrib.uris.list ),
+  "PlotVcfQcMetrics.size_vs_af_distribution_tsvs": $( collapse_txt $staging_dir/size_vs_af_distrib.uris.list ),
+  "PlotVcfQcMetrics.trio_mendelian_violation_distribs": [ $( collapse_txt $staging_dir/trio_mendelian_violation_distribs.giab_easy.uris.list ),
+                                                          $( collapse_txt $staging_dir/trio_mendelian_violation_distribs.giab_hard.uris.list ) ],
+  "PlotVcfQcMetrics.twin_genotype_benchmark_distribs": [ $( collapse_txt $staging_dir/twin_genotype_benchmark_distribs.giab_easy.uris.list ),
+                                                         $( collapse_txt $staging_dir/twin_genotype_benchmark_distribs.giab_hard.uris.list ) ]
+}
+EOF
+
+# Submit QC visualization workflow
+cromshell --no_turtle -t 120 -mc submit --no-validation \
+  --options-json code/refs/json/aou.cromwell_options.default.json \
+  --do-not-flatten-wdls \
+  --dependencies-zip qc.dependencies.zip \
+  code/wdl/pancan_germline_wgs/vcf-qc/PlotVcfQcMetrics.wdl \
+  cromshell/inputs/PlotReclusteredGatksvQcMetrics.inputs.json \
+| jq .id | tr -d '"' \
+>> cromshell/job_ids/dfci-g2c.v1.PlotReclusteredGatksvQcMetrics.job_ids.list
+
+# Monitor QC visualization workflow
+monitor_workflow $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotReclusteredGatksvQcMetrics.job_ids.list ) 5
+
+# Once workflow is complete, stage output
+gsutil -m rm -rf $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/reclustered-qc/PlotGatksvQc
+cromshell -t 120 list-outputs \
+  $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotReclusteredGatksvQcMetrics.job_ids.list ) \
+| awk '{ print $2 }' \
+| gsutil -m cp -I \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/reclustered-qc/PlotGatksvQc/
+
+# Clear Cromwell execution & output buckets for plotting job
+gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotReclusteredGatksvQcMetrics.job_ids.list \
+                | awk -v bucket_prefix="$WORKSPACE_BUCKET/workflows/cromwel*/PlotVcfQcMetrics/" \
+                  '{ print bucket_prefix$1"/**" }' ) \
+> uris_to_delete.list
+cleanup_garbage
+
+
+### Test downstream tool compatability by trying to annotate all CPX variants
+
+# Make tarball with SV annotation dependencies
+cd code/wdl/gatk-sv/svannotation_v1.1 && \
+zip svannotation.dependencies.zip *.wdl && \
+mv svannotation.dependencies.zip ~/ && \
+cd ~
+
+# Extract CPX variants from chr1 (we know there's a INVdup at the end that has been problematic)
+gsutil -m cat \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/CollapseRedundantSvs/chr1/RC3/dfci-g2c.v1.chr1.concordance.gq_recalibrated.gq_updated.identical.reclustered.vcf.gz \
+| bcftools view \
+  -i 'INFO/SVTYPE = "CPX"' \
+  -Oz -o scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz
+tabix -p vcf -f scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz
+gsutil -m cp \
+  scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz* \
+  $WORKSPACE_BUCKET/scratch/
+
+# Write .json input for chr1 annotation test
+cat << EOF > cromshell/inputs/AnnotateVcf.inputs.chr1_test.json
+{
+  "AnnotateVcf.contig_list": "gs://dfci-g2c-refs/hg38/contig_lists/chr1.list",
+  "AnnotateVcf.external_af_population": ["ALL","AFR","AMR","EAS","EUR","MID","FIN","ASJ","RMI","SAS","AMI"],
+  "AnnotateVcf.external_af_ref_bed": "gs://gatk-sv-resources-public/gnomad_AF/gnomad_v4_SV.Freq.tsv.gz",
+  "AnnotateVcf.external_af_ref_prefix": "gnomad_v4.1_sv",
+  "AnnotateVcf.gatk_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/gatk:2025-05-20-4.6.2.0-4-g1facd911e-NIGHTLY-SNAPSHOT",
+  "AnnotateVcf.par_bed": "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/hg38.par.bed",
+  "AnnotateVcf.prefix": "dfci-ufc.v1.sv.annotation_test.chr1",
+  "AnnotateVcf.protein_coding_gtf": "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/gencode.v47.basic.protein_coding.canonical.gtf",
+  "AnnotateVcf.runtime_attr_svannotate": {"cpu_cores" : 4, "mem_gb": 7.5},
+  "AnnotateVcf.sv_base_mini_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+  "AnnotateVcf.sv_per_shard": 5000,
+  "AnnotateVcf.sv_pipeline_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-pipeline:2025-09-02-v1.0.5-631368eb",
+  "AnnotateVcf.vcf": "$WORKSPACE_BUCKET/scratch/dfci-g2c.v1.sv.redundant_collapsed.cpx_only.chr1.vcf.gz"
+}
+EOF
+
+# Submit chr1 annotation test
+cromshell --no_turtle -t 120 -mc submit \
+  --do-not-flatten-wdls \
+  --options-json code/refs/json/aou.cromwell_options.default.json \
+  --dependencies-zip svannotation.dependencies.zip \
+  code/wdl/gatk-sv/svannotation_v1.1/AnnotateVcf.wdl \
+  cromshell/inputs/AnnotateVcf.inputs.chr1_test.json \
+| jq .id | tr -d '"' \
+>> cromshell/job_ids/annotation_test.job_ids.list
+
+# Monitor annotation test
+monitor_workflow $( tail -n1 cromshell/job_ids/annotation_test.job_ids.list )
 

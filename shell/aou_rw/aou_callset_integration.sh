@@ -144,13 +144,16 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.ConcatVcfs.disk_gb": 500,
   "RefineSvGenotypesWithSnvs.ConcatVcfs.mem_gb": 7.5,
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 0,
-  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:a9d85cd",
+  "RefineSvGenotypesWithSnvs.UpdateGts.gq_offset": 0,
+  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:ed9676d",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
+  "RefineSvGenotypesWithSnvs.min_carrier_accuracy": 0.5,
   "RefineSvGenotypesWithSnvs.min_imputation_r2": 0.2,
   "RefineSvGenotypesWithSnvs.min_ld_r2": 0.1,
-  "RefineSvGenotypesWithSnvs.min_sv_ac": 50,
-  "RefineSvGenotypesWithSnvs.min_sv_af": 0.001,
+  "RefineSvGenotypesWithSnvs.min_snv_call_rate": 0.9,
+  "RefineSvGenotypesWithSnvs.min_sv_ac": 30,
+  "RefineSvGenotypesWithSnvs.min_sv_af": 0,
   "RefineSvGenotypesWithSnvs.min_an": 2000,
   "RefineSvGenotypesWithSnvs.output_prefix": "dfci-g2c.v1.\$CONTIG",
   "RefineSvGenotypesWithSnvs.sample_covariates": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
@@ -159,9 +162,9 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.snv_freq_scalar": 10,
   "RefineSvGenotypesWithSnvs.snv_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
   "RefineSvGenotypesWithSnvs.snv_vcfs_per_shard": 125,
-  "RefineSvGenotypesWithSnvs.svs_per_shard": 125,
-  "RefineSvGenotypesWithSnvs.sv_vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz",
-  "RefineSvGenotypesWithSnvs.sv_vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz.tbi"
+  "RefineSvGenotypesWithSnvs.svs_per_shard": 150,
+  "RefineSvGenotypesWithSnvs.sv_vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.identical.reclustered.posthoc_filtered.vcf.gz",
+  "RefineSvGenotypesWithSnvs.sv_vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.identical.reclustered.posthoc_filtered.vcf.gz.tbi"
 }
 EOF
 
@@ -181,39 +184,41 @@ code/scripts/manage_chromshards.py \
   --max-attempts 3
 
 
-##############################################
-# Fix typo in SV VCF header after imputation #
-##############################################
+# ##############################################
+# # Fix typo in SV VCF header after imputation #
+# ##############################################
 
-# This is only necessary because there was a typo in FORMAT/IMP
-# This should not be necessary for all future cohorts (typo/bug was fixed)
+# Not sure if this is necessary any longer, TBD
 
-# This is a lightweight WDL so can easily be parallelized for all chromosomes in a single workspace
+# # This is only necessary because there was a typo in FORMAT/IMP
+# # This should not be necessary for all future cohorts (typo/bug was fixed)
 
-# Reaffirm staging directory
-staging_dir=staging/sv_gt_cleanup
-if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+# # This is a lightweight WDL so can easily be parallelized for all chromosomes in a single workspace
 
-# Write template input .json
-cat << EOF > $staging_dir/FixHeaderTypo.inputs.template.json
-{
-  "FixHeaderTypo.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
-  "FixHeaderTypo.vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz",
-  "FixHeaderTypo.vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz.tbi"
-}
-EOF
+# # Reaffirm staging directory
+# staging_dir=staging/sv_gt_cleanup
+# if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
-# Submit, monitor, and stage/cleanup
-code/scripts/manage_chromshards.py \
-  --wdl code/wdl/pancan_germline_wgs/FixHeaderTypo.wdl \
-  --input-json-template $staging_dir/FixHeaderTypo.inputs.template.json \
-  --dependencies-zip g2c.dependencies.zip \
-  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix \
-  --status-tsv cromshell/progress/dfci-g2c.v1.FixHeaderTypo.progress.tsv \
-  --workflow-id-log-prefix "dfci-g2c.v1" \
-  --outer-gate 10 \
-  --submission-gate 0 \
-  --max-attempts 2
+# # Write template input .json
+# cat << EOF > $staging_dir/FixHeaderTypo.inputs.template.json
+# {
+#   "FixHeaderTypo.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+#   "FixHeaderTypo.vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz",
+#   "FixHeaderTypo.vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz.tbi"
+# }
+# EOF
+
+# # Submit, monitor, and stage/cleanup
+# code/scripts/manage_chromshards.py \
+#   --wdl code/wdl/pancan_germline_wgs/FixHeaderTypo.wdl \
+#   --input-json-template $staging_dir/FixHeaderTypo.inputs.template.json \
+#   --dependencies-zip g2c.dependencies.zip \
+#   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix \
+#   --status-tsv cromshell/progress/dfci-g2c.v1.FixHeaderTypo.progress.tsv \
+#   --workflow-id-log-prefix "dfci-g2c.v1" \
+#   --outer-gate 10 \
+#   --submission-gate 0 \
+#   --max-attempts 2
 
 
 ##########################################

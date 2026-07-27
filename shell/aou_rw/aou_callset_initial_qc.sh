@@ -635,6 +635,30 @@ gsutil -m cp \
   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/
 
 
+#####################
+# Curate QC targets #
+#####################
+
+# Reaffirm staging directory
+staging_dir=staging/qc_targets
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+
+# Estimate number of variants per genome in gnomAD for the necessary contigs
+for k in $( seq 1 22 ) X Y; do
+  gsutil cat \
+    gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/chr$k/gnomad.v4.1.chr$k.*.sites.bed.gz
+done | gunzip -c \
+| code/scripts/estimate_vpg_from_sites.py \
+| fgrep -v "#" \
+| awk -v OFS="\t" '{ print "variants_per_genome."$1":median", $2 }' \
+> $staging_dir/dfci-g2c.v1.qc_targets.tsv
+
+# Copy QC targets to central bucket for reference by Cromwell
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.qc_targets.tsv \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/
+
+
 ##############################
 # Collect initial QC metrics #
 ##############################
@@ -655,12 +679,15 @@ if ! [ -e $staging_dir/calling_intervals ]; then
 fi
 
 # Write two-column .tsv of VCF & index info for each contig
+# Note that we had to rerun this after migrating from AoU RW v1.0 to v2.0 (Verily Pre)
+# Thus, we had to re-prefix all SNV/indel VCFs per the below
 while read contig; do
   gsutil cat \
     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2/$contig/PosthocCleanupPart2.$contig.outputs.json \
   | jq '.["PosthocCleanupPart2.filtered_vcfs"]' \
-  | fgrep "gs://" | awk '{ print $1 }' | tr -d '",' \
-  | cat - <( echo -e "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/$contig/HardFilterPart2/dfci-g2c.v1.$contig.concordance.gq_recalibrated.identical.reclustered.posthoc_filtered.vcf.gz" ) \
+  | fgrep "gs://" | awk '{ print $1 }' | tr -d '",' | cut -f4- -d\/ \
+  | awk -v bucket="$MAIN_WORKSPACE_BUCKET" -v OFS="/" '{ print bucket, $1 }' \
+  | cat - <( echo -e "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/$contig/HardFilterPart2/dfci-g2c.v1.$contig.concordance.gq_recalibrated.gq_updated.identical.reclustered.posthoc_filtered.vcf.gz" ) \
   | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
   > $staging_dir/dfci-g2c.v1.initial_qc.vcf_info.$contig.tsv
 done < contig_lists/dfci-g2c.v1.contigs.$WN.list
@@ -703,7 +730,7 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.ConcatGenotypeTsvs.disk_gb": 270,
   "CollectVcfQcMetrics.ConcatGenotypeTsvs.mem_gb": 15.5,
   "CollectVcfQcMetrics.ConcatGenotypeTsvs.n_cpu": 4,
-  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:1aac84d",
+  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:ed9676d",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
   "CollectVcfQcMetrics.n_for_sample_level_analyses": 5000,
@@ -763,32 +790,8 @@ code/scripts/manage_chromshards.py \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 60 \
   --vm-gate 400 \
-  --submission-gate 60 \
+  --submission-gate 240 \
   --max-attempts 3
-
-
-#####################
-# Curate QC targets #
-#####################
-
-# Reaffirm staging directory
-staging_dir=staging/qc_targets
-if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
-
-# Estimate number of variants per genome in gnomAD for the necessary contigs
-for k in $( seq 1 22 ) X Y; do
-  gsutil cat \
-    gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/chr$k/gnomad.v4.1.chr$k.*.sites.bed.gz
-done | gunzip -c \
-| code/scripts/estimate_vpg_from_sites.py \
-| fgrep -v "#" \
-| awk -v OFS="\t" '{ print "variants_per_genome."$1":median", $2 }' \
-> $staging_dir/dfci-g2c.v1.qc_targets.tsv
-
-# Copy QC targets to central bucket for reference by Cromwell
-gsutil -m cp \
-  $staging_dir/dfci-g2c.v1.qc_targets.tsv \
-  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/
 
 
 ##########################################
