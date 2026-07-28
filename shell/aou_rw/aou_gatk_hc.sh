@@ -1622,7 +1622,7 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotSnvOutlierExcludedGatksv
   "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
   "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 32,
   "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
-  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotGatksvQc/dfci-g2c.v1.initial_gatksv_qc.all_qc_summary_metrics.tsv",
+  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/reclustered-qc/PlotGatksvQc/dfci-g2c.v1.reclustered_gatksv_qc.all_qc_summary_metrics.tsv",
   "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_cohort_prefix": "gnomAD_v4.1",
@@ -1688,7 +1688,6 @@ gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotSnvOutlierExcludedGatksvQc
 cleanup_garbage
 
 
-
 ###########################################################################################
 # Re-plot GATK-SV QC metrics just for development chromosomes after SNV outlier exclusion #
 ###########################################################################################
@@ -1743,7 +1742,6 @@ done
 # Build input arrays
 while read contig; do
 
-  
   # Localize output tracker json and get URIs for QC metrics
   json_fname=CollectSnvOutlierExcludedGatksvQcMetrics.$contig.outputs.json
   gsutil cp \
@@ -1854,12 +1852,12 @@ cromshell --no_turtle -t 120 -mc submit --no-validation \
 monitor_workflow $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotSnvOutlierExcludedDevGatksvQcMetrics.job_ids.list ) 5
 
 # Once workflow is complete, stage output
-gsutil -m rm -rf $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/snv-outlier-excluded-qc/PlotGatksvQc
+gsutil -m rm -rf $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/snv-outlier-excluded-qc/PlotDevGatksvQc
 cromshell -t 120 list-outputs \
   $( tail -n1 cromshell/job_ids/dfci-g2c.v1.PlotSnvOutlierExcludedDevGatksvQcMetrics.job_ids.list ) \
 | awk '{ print $2 }' \
 | gsutil -m cp -I \
-  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/snv-outlier-excluded-qc/PlotGatksvQc/
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/snv-outlier-excluded-qc/PlotDevGatksvQc/
 
 # Clear Cromwell execution & output buckets for plotting job
 gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotSnvOutlierExcludedDevGatksvQcMetrics.job_ids.list \
@@ -1867,9 +1865,4 @@ gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotSnvOutlierExcludedDevGatks
                   '{ print bucket_prefix$1"/**" }' ) \
 > uris_to_delete.list
 cleanup_garbage
-
-
-
-
-
 

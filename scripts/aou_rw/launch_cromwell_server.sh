@@ -53,10 +53,13 @@ case "$WN" in
 esac
 
 # Create cromwell config file
-if [ -e /home/jupyter/.cromwell ]; then
-  rm -rf /home/jupyter/.cromwell
+if ! [ -e /home/jupyter/.cromwell ]; then
+  mkdir /home/jupyter/.cromwell
 fi
-mkdir /home/jupyter/.cromwell
+if [ -e /home/jupyter/.cromwell/cromwell.conf ]; then
+  rm /home/jupyter/.cromwell/cromwell.conf
+  rm /home/jupyter/.cromwell/cromwell.override.conf
+fi
 wb cromwell generate-config \
   --google-bucket-name=$WORKSPACE_BUCKET \
   --dir=/home/jupyter/.cromwell
@@ -64,7 +67,7 @@ cat << EOF > /home/jupyter/.cromwell/cromwell.override.conf
 include "cromwell.conf"
 
 backend.providers.GCPBATCH.config {
-  concurrent-job-limit = 500
+  concurrent-job-limit = 1250
 }
 
 call-caching {
@@ -73,7 +76,7 @@ call-caching {
 
 system {
   job-rate-control {
-    jobs = 25
+    jobs = 50
     per = 10 seconds
   }
 }
@@ -103,12 +106,20 @@ database {
     """
 
     connectionTimeout = 120000
-    numThreads = 4
+    numThreads = 16
   }
 
   insert-batch-size = 2000
 }
 EOF
+
+# Ensure cromwell local database exists
+DBDIR=/home/jupyter/.cromwell/db
+mkdir -p $DBDIR
+if [[ -d "$DBDIR" ]]; then
+  size_gb=$( du -sBG "$DBDIR" | cut -f1 | tr -d 'G' )
+  echo "Cromwell DB size: $size_gb GB"
+fi
 
 # Create cromshell config file
 if [ ! -e /home/jupyter/.cromshell ]; then
@@ -121,14 +132,14 @@ cat << EOF > /home/jupyter/.cromshell/cromshell_config.json
 }
 EOF
 
-# Ensure cromwell local database exists
-mkdir -p /home/jupyter/.cromwell/db
-
 # Launch cromwell in server mode
 java \
-  -Xms16G \
-  -Xmx32G \
+  -Xms12G \
+  -Xmx48G \
   -XX:+UseG1GC \
   -Dconfig.file=/home/jupyter/.cromwell/cromwell.override.conf \
+  -Xlog:gc*:file=/home/jupyter/.cromwell/gc.log:time \
+  -XX:+HeapDumpOnOutOfMemoryError \
+  -XX:HeapDumpPath=/home/jupyter/.cromwell/ \
   -jar $CROMWELL_JAR \
   server

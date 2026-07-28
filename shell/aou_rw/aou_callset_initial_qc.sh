@@ -666,6 +666,9 @@ gsutil -m cp \
 # Note: this workflow below is scattered across all five workspaces for 
 # max parallelization. It must be submitted as below in each workspace.
 
+# Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
+~/code/scripts/rotate_cromwell_cache.sh
+
 # Reaffirm staging directory
 staging_dir=staging/initial_qc
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi

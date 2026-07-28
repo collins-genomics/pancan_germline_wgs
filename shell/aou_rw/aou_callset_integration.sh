@@ -228,6 +228,9 @@ code/scripts/manage_chromshards.py \
 # Note: this workflow below is scattered across all five workspaces for 
 # max parallelization. It must be submitted as below in each workspace.
 
+# Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
+~/code/scripts/rotate_cromwell_cache.sh
+
 # Reaffirm staging directory
 staging_dir=staging/gatksv_qc_post_imputation
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
@@ -243,7 +246,7 @@ cat << EOF > $staging_dir/CollectGatksvQcPostImputation.inputs.template.json
   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
   "CollectVcfQcMetrics.common_af_cutoff": 0.001,
   "CollectVcfQcMetrics.extra_vcf_preprocessing_commands": "| bcftools view -i 'AC > 0 | FILTER = \"MULTIALLELIC\"'",
-  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:a9d85cd",
+  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:ed9676d",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
   "CollectVcfQcMetrics.n_for_sample_level_analyses": 5000,
@@ -273,8 +276,8 @@ cat << EOF > $staging_dir/CollectGatksvQcPostImputation.inputs.template.json
   "CollectVcfQcMetrics.sv_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.gatksv.\$CONTIG.sv.sites.bed.gz"],
   "CollectVcfQcMetrics.trios_fam_file": "$MAIN_WORKSPACE_BUCKET/data/sample_info/relatedness/dfci-g2c.reported_families.fam",
   "CollectVcfQcMetrics.twins_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/InferTwins/dfci-g2c.v1.cleaned.tsv",
-  "CollectVcfQcMetrics.vcfs_array": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz"],
-  "CollectVcfQcMetrics.vcf_idxs_array": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz.tbi"]
+  "CollectVcfQcMetrics.vcfs_array": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz"],
+  "CollectVcfQcMetrics.vcf_idxs_array": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz.tbi"]
 }
 EOF
 
@@ -402,14 +405,14 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotGatksvQcPostImputation.i
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/dfci-g2c.v1.gatksv.qc_targets.tsv",
   "PlotVcfQcMetrics.deduplicate": true,
-  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:ba3328f",
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:ed9676d",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.gatksv_qc_post_imputation",
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
   "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
   "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 32,
   "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
-  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/PlotGatksvQc/dfci-g2c.v1.initial_gatksv_qc.all_qc_summary_metrics.tsv",
+  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/snv-outlier-excluded-qc/PlotDevGatksvQc/dfci-g2c.v1.snv_outlier_excluded_dev_gatksv_qc.all_qc_summary_metrics.tsv",
   "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_cohort_prefix": "gnomAD_v4.1",
@@ -447,7 +450,7 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotGatksvQcPostImputation.i
 EOF
 
 # Submit QC visualization workflow
-cromshell --no_turtle -t 120 -mc submit --no-validation \
+cromshell --no_turtle -t 120 -mc submit --no-validation --do-not-flatten-wdls \
   --options-json code/refs/json/aou.cromwell_options.default.json \
   --dependencies-zip qc.dependencies.zip \
   code/wdl/pancan_germline_wgs/vcf-qc/PlotVcfQcMetrics.wdl \
@@ -468,7 +471,7 @@ cromshell -t 120 list-outputs \
 
 # Clear Cromwell execution & output buckets for plotting job
 gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job_ids.list \
-                | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwel*/PlotVcfQcMetrics/" \
+                | awk -v bucket_prefix="$WORKSPACE_BUCKET/workflows/cromwel*/PlotVcfQcMetrics/" \
                   '{ print bucket_prefix$1"/**" }' ) \
 > uris_to_delete.list
 cleanup_garbage
@@ -578,6 +581,9 @@ gsutil -m cp \
 
 # Note: this workflow below is scattered across all five workspaces for 
 # max parallelization. It must be submitted as below in each workspace.
+
+# Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
+~/code/scripts/rotate_cromwell_cache.sh
 
 # Reaffirm staging directory
 staging_dir=staging/pre_integration_qc
@@ -896,6 +902,9 @@ cleanup_garbage
 # Integrate small SVs and large indels #
 ########################################
 
+# Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
+~/code/scripts/rotate_cromwell_cache.sh
+
 # Reaffirm staging directory
 staging_dir=staging/indel_sv_integration
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
@@ -965,6 +974,9 @@ code/scripts/manage_chromshards.py \
 
 # Note: this workflow below is scattered across all five workspaces for 
 # max parallelization. It must be submitted as below in each workspace.
+
+# Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
+~/code/scripts/rotate_cromwell_cache.sh
 
 # Reaffirm staging directory
 staging_dir=staging/integrated_qc
