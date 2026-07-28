@@ -67,7 +67,7 @@ cat << EOF > /home/jupyter/.cromwell/cromwell.override.conf
 include "cromwell.conf"
 
 backend.providers.GCPBATCH.config {
-  concurrent-job-limit = 1250
+  concurrent-job-limit = 1500
 }
 
 call-caching {
@@ -76,8 +76,13 @@ call-caching {
 
 system {
   job-rate-control {
-    jobs = 50
+    jobs = 10
     per = 10 seconds
+  }
+  workflow-heartbeats {
+    ttl = 20 minutes
+    write-failure-shutdown-duration = 15 minutes
+    write-batch-size = 250
   }
 }
 

@@ -792,8 +792,8 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.CollectInitialVcfQcMetrics.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 60 \
-  --vm-gate 400 \
-  --submission-gate 240 \
+  --vm-gate 50 \
+  --submission-gate 1000 \
   --max-attempts 3
 
 
