@@ -10,8 +10,8 @@
 
 version 1.0
 
-import "Structs.wdl"
-import "CollectCoverage.wdl" as cov
+import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/Structs.wdl"
+import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/CollectCoverage.wdl" as cov
 
 workflow MELT {
   input {

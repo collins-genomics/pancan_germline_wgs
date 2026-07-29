@@ -5,7 +5,7 @@
 
 version 1.0
 
-import "Structs.wdl"
+import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/Structs.wdl"
 
 workflow Manta {
   input {

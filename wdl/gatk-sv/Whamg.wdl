@@ -1,6 +1,6 @@
 version 1.0
 
-import "Structs.wdl"
+import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/Structs.wdl"
 
 # Run Whamg SV detection algorithm on whole genome in bam or cram file
 # If include_list is provided, run whamg on explicitly included subset of genome,

@@ -3,10 +3,10 @@ version 1.0
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/Structs.wdl"
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/CollectCoverage.wdl" as cov
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/CollectSVEvidence.wdl" as coev
-import "Manta.wdl" as manta
-import "MELT.wdl" as melt
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/refs/heads/sv_runtime_edits/wdl/gatk-sv/Manta.wdl" as manta
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/refs/heads/sv_runtime_edits/wdl/gatk-sv/MELT.wdl" as melt
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/Scramble.wdl" as scramble
-import "Whamg.wdl" as wham
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/refs/heads/sv_runtime_edits/wdl/gatk-sv/Whamg.wdl" as wham
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/GatherSampleEvidenceMetrics.wdl" as metrics
 
 # Runs selected tools on BAM/CRAM files
@@ -199,7 +199,7 @@ workflow GatherSampleEvidence {
         jobs_per_cpu = manta_jobs_per_cpu,
         mem_gb_per_job = manta_mem_gb_per_job,
         manta_docker = select_first([manta_docker]),
-        runtime_attr_override = runtime_attr_manta
+        runtime_attr_override = runtime_attr_manta,
         machine_type = select_first([manta_machine, "n2d-highcpu-8"])
     }
   }
