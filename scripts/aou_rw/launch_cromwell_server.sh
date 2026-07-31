@@ -67,7 +67,7 @@ cat << EOF > /home/jupyter/.cromwell/cromwell.override.conf
 include "cromwell.conf"
 
 backend.providers.GCPBATCH.config {
-  concurrent-job-limit = 1500
+  concurrent-job-limit = 3000
 }
 
 call-caching {
@@ -110,8 +110,8 @@ database {
       hsqldb.script_format=3
     """
 
-    connectionTimeout = 120000
-    numThreads = 16
+    connectionTimeout = 600000
+    numThreads = 8
   }
 
   insert-batch-size = 2000
