@@ -110,7 +110,7 @@ database {
       hsqldb.script_format=3
     """
 
-    connectionTimeout = 600000
+    connectionTimeout = 900000
     numThreads = 8
   }
 
