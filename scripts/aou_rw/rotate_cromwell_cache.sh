@@ -11,13 +11,25 @@ DBDIR=/home/jupyter/.cromwell/db
 
 if [[ -d "$DBDIR" ]]; then
 
-    size_gb=$(du -sBG "$DBDIR" | cut -f1 | tr -d 'G')
+    size_gb=$( du -sBG "$DBDIR" | cut -f1 | tr -d 'G' )
 
-    echo "======================================="
-    echo "Rotating Cromwell cache (${size_gb} GB)"
-    echo "======================================="
+    if [ $# -gt 0 ] && [ $1 == "delete" ]; then
 
-    mv -f "$DBDIR" "${DBDIR}.previous"
+        echo "================================"
+        echo "Clearing Cromwell cache (${size_gb} GB)"
+        echo "================================"
+
+        rm -rf "$DBDIR"
+
+    else
+
+        echo "================================"
+        echo "Rotating Cromwell cache (${size_gb} GB)"
+        echo "================================"
+
+        mv -f "$DBDIR" "${DBDIR}.previous"
+
+    fi
 
 fi
 

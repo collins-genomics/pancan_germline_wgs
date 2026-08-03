@@ -1350,7 +1350,6 @@ gsutil -m cp \
   $MAIN_WORKSPACE_BUCKET/results/gatkhc_qc/
 
 
-
 #############################################################
 # Exclude outlier samples and apply site-level hard filters #
 #############################################################

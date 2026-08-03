@@ -723,8 +723,8 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.BenchmarkSites.snv_mem_scalar": 4.0,
   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_mem_gb": 3.75,
   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_n_cpu": 2,
-  "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 40,
-  "CollectVcfQcMetrics.CalcCommonLd.max_disk_gb": 1000,
+  "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 50,
+  "CollectVcfQcMetrics.CalcCommonLd.max_disk_gb": 1500,
   "CollectVcfQcMetrics.ChunkCommonVcf.disk_gb": 1000,
   "CollectVcfQcMetrics.ChunkCommonVcf.n_preemptible": 0,
   "CollectVcfQcMetrics.ChunkCommonVcf.mem_gb": 15.5,
@@ -793,9 +793,11 @@ code/scripts/manage_chromshards.py \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 60 \
   --vm-gate 100 \
-  --submission-gate 240 \
+  --submission-gate 1080 \
   --max-attempts 6
 
+# Clear Cromwell cache after finishing these workflows
+~/code/scripts/rotate_cromwell_cache.sh delete
 
 ##########################################
 # Analyze & visualize initial QC metrics #
