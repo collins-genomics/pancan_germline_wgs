@@ -115,9 +115,7 @@ def main():
 
     # Update header for output VCF
     header = invcf.header
-    if 'IMPUTED' not in header.info.keys():
-        header.add_line('##INFO=<ID=IMPUTED,Number=0,Type=Flag,Description="SNP-' +
-                        'based imputation was attempted for this variant.">')
+    if 'FRAC_IMPUTED' not in header.info.keys():
         header.add_line('##INFO=<ID=FRAC_IMPUTED,Number=1,Type=Float,Description="' +
                         'Fraction of sample genotypes overwritten by imputation.">')
     new_formats = {'OGT' : 'Number=1,Type=String,Description="Original ' +

@@ -49,6 +49,7 @@ workflow RefineSvGenotypesWithSnvs {
     String ref_build = "hg38"            # Plink-styled reference indicator
     Float min_carrier_accuracy = 0.7     # Minimum (carrier|ref) accuracy to accept an SV imputation model as well-fit
     Float min_imputation_r2 = 0.3        # Minimum R2 between raw & imputed SV allele dosages to accept model as well-fit
+    File? training_samples_list          # Optional list of sample IDs to consider when computing LD and training imputation models
     File? sample_group_labels            # Optional two-column .tsv mapping sample IDs to major group labels (e.g., continental ancestry). No header.
     File? sample_covariates              # Optional .tsv of sample IDs + any technical covariates for SV imputation. Has header.
 
@@ -217,15 +218,27 @@ workflow RefineSvGenotypesWithSnvs {
         File merged_snv_vcf = select_first(flatten([[ConcatSnvs.merged_vcf], QuerySnvs.snv_vcf]))
         File merged_snv_vcf_idx = select_first(flatten([[ConcatSnvs.merged_vcf_idx], QuerySnvs.snv_vcf_idx]))
 
+        # Define subset of samples to use for LD computation and imputation model training, if optioned
+        if ( defined(training_samples_list) ) {
+          Array[File] training_sample_lists_preint = select_all([FindSharedSamples.intersection_file, training_samples_list])
+          call Utils.IntersectTextFiles as DefineTrainingSamples {
+            input:
+              files = training_sample_lists_preint,
+              outfile = output_prefix + ".training_samples.list",
+              docker = linux_docker
+          }
+        }
+        File training_samples_list_use = select_first(select_all([DefineTrainingSamples.intersection_file, 
+                                                                  FindSharedSamples.intersection_file]))
+
         # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
-        # TODO: need to update this to train on filtered SV VCF but apply to full cohort of SNV GTs
         call ImputeSvs {
           input:
             sv_vcf = sv_training_vcf,
             sv_vcf_idx = sv_training_vcf_idx,
             snv_vcf = merged_snv_vcf,
             snv_vcf_idx = merged_snv_vcf_idx,
-            training_samples_list = FindSharedSamples.intersection_file,
+            training_samples_list = training_samples_list_use,
             sample_group_labels = sample_group_labels,
             sample_covariates = sample_covariates,
             breakpoint_buffer_bp = breakpoint_buffer_bp,
@@ -416,6 +429,7 @@ task ImputeSvs {
 
     Float min_ld_r2
     Int min_sv_ac
+    Int min_snv_ac = 1
     Float min_accuracy
     Float min_imputation_r2
     String ref_build
@@ -438,7 +452,7 @@ task ImputeSvs {
   String covars_cmd = if defined(sample_covariates) then "--sample-covariates " + basename(select_first([sample_covariates, ""])) else ""
 
   Int min_snv_ac_nofloor = floor(min_sv_ac / snv_freq_scalar)
-  Int min_snv_ac = if min_snv_ac_nofloor < 1 then 1 else min_snv_ac_nofloor
+  Int min_snv_ac_use = if min_snv_ac_nofloor < min_snv_ac then min_snv_ac else min_snv_ac_nofloor
 
   Array[Int] retry_counter = if mask_training_sv_gts then range(sv_mask_retries + 1) else [0]
 
@@ -620,7 +634,7 @@ task ImputeSvs {
             ~{covars_cmd} \
             ~{groups_cmd} \
             --min-ac ~{min_sv_ac} \
-            --min-snv-ac ~{min_snv_ac} \
+            --min-snv-ac ~{min_snv_ac_use} \
             --min-accuracy ~{min_accuracy} \
             --min-r2 ~{min_imputation_r2} \
             --out-tsv imp_res/$svid.imputation_results.tsv \

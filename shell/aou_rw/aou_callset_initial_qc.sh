@@ -7,12 +7,8 @@
 
 # Initial quality control of G2C germline callset after joint genotyping
 
-# Note that this code is designed to be run inside the AoU Researcher Workbench
-
-
-# Note 2: this code was defined for the AoU RW v1.0, and it may not translate perfectly to AoU RW v2.0 (Verily Pre)
-# These will be updated over time as needed for forward compatability, but those
-# updates are not guaranteed to preserve reverse compatability with legacy AoU RW v1.0
+# Note that this code was ported from the All of Us Workbench v1.0 to v2.0 (Verily Pre)
+# It may no longer have reverse compatability with the legacy All of Us Workbench v1.0
 
 
 #########
@@ -21,58 +17,22 @@
 
 # Set up local environment
 export GPROJECT="vanallen-pancan-germline-wgs"
-export MAIN_WORKSPACE_BUCKET=gs://fc-secure-d21aa6b0-1d19-42dc-93e3-42de3578da45
+export MAIN_WORKSPACE_BUCKET=gs://rw-migration-aou-rw-84a0039b
+gcloud storage cp $MAIN_WORKSPACE_BUCKET/code/scripts/configure_verily_vm.sh ./ && \
+. configure_verily_vm.sh && \
+rm configure_verily_vm.sh
 
-# Prep working directory structure
-for dir in cromshell cromshell/inputs cromshell/inputs/templates \
-           cromshell/job_ids cromshell/progress staging; do
+# Set up local directory structure
+for dir in staging; do
   if ! [ -e $dir ]; then
     mkdir $dir
   fi
 done
 
-# Copy necessary code to local disk
-gsutil -m cp -r $MAIN_WORKSPACE_BUCKET/code ./
-find code/ -name "*.py" | xargs -I {} chmod a+x {}
-find code/ -name "*.R" | xargs -I {} chmod a+x {}
-find code/ -name "*.sh" | xargs -I {} chmod a+x {}
-
-# Source .bashrc and bash utility functions
-. code/refs/dotfiles/aou.rw.bashrc
-. code/refs/general_bash_utils.sh
-
-# Format local copy of Cromwell options .json to reference this workspace's storage bucket
-~/code/scripts/envsubst.py \
-  -i code/refs/json/aou.cromwell_options.default.json \
-  -o code/refs/json/aou.cromwell_options.default.json2 && \
-mv code/refs/json/aou.cromwell_options.default.json2 \
-   code/refs/json/aou.cromwell_options.default.json
-
-# Create dependencies .zip for generic G2C workflow submissions
-cd code/wdl/pancan_germline_wgs && \
-zip -r g2c.dependencies.zip . && \
-mv g2c.dependencies.zip ~/ && \
-cd ~
-
-# Create dependencies .zip for QC workflow submissions
-cd code/wdl/pancan_germline_wgs/vcf-qc && \
-zip qc.dependencies.zip *.wdl && \
-mv qc.dependencies.zip ~/ && \
-cd ~
-
-# Ensure Cromwell/Cromshell are configured
-code/scripts/setup_cromshell.py
-
-# Install necessary packages
-. code/refs/install_packages.sh python R
-
-# Infer workspace number and save as environment variable
-export WN=$( get_workspace_number )
-
-# Download workspace-specific contig lists
-gsutil cp -r \
-  gs://dfci-g2c-refs/hg38/contig_lists \
-  ./
+# Launch Cromwell in server mode on the same Verily VM
+# Note that this must be executed from a separate terminal after 
+# configuring the environment per the above:
+# code/scripts/launch_cromwell_server.sh
 
 
 ###########################################
@@ -723,8 +683,9 @@ cat << EOF > $staging_dir/CollectInitialVcfQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.BenchmarkSites.snv_mem_scalar": 4.0,
   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_mem_gb": 3.75,
   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_n_cpu": 2,
-  "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 50,
-  "CollectVcfQcMetrics.CalcCommonLd.max_disk_gb": 1500,
+  "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 150,
+  "CollectVcfQcMetrics.CalcCommonLd.min_disk_gb": 150,
+  "CollectVcfQcMetrics.CalcCommonLd.max_disk_gb": 1000,
   "CollectVcfQcMetrics.ChunkCommonVcf.disk_gb": 1000,
   "CollectVcfQcMetrics.ChunkCommonVcf.n_preemptible": 0,
   "CollectVcfQcMetrics.ChunkCommonVcf.mem_gb": 15.5,
