@@ -71,7 +71,6 @@ code/scripts/prep_covariates_for_sv_regenotyping.R \
 gzip -f $staging_dir/dfci-g2c.v1.sv_imputation_covariates.tsv
 gsutil -m cp \
   $staging_dir/dfci-g2c.v1.sv_imputation_covariates.tsv.gz \
-  $staging_dir/dfci-g2c.v1.sv_imputation.training_samples.list \
   $MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/
 
 # Define strict/clean subset of unrelated, non-admixed, high-quality genomes for model training
@@ -85,6 +84,14 @@ gsutil cat \
   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/InferTwins/dfci-g2c.v1.cleaned.tsv \
 | sed 's/\t/\n/g' | sort -V | uniq | shuf | head -n$n_twins \
 > $staging_dir/twins_to_drop.sids.list
+# Exclude related samples from high-quality subset
+fgrep -xvf \
+  <( cat $staging_dir/probands.sids.list $staging_dir/twins_to_drop.sids.list ) \
+  $staging_dir/dfci-g2c.v1.sv_imputation.training_samples.list \
+> $staging_dir/dfci-g2c.v1.sv_imputation.training_samples.unrelated.list
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.sv_imputation.training_samples.unrelated.list \
+  $MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/
 
 
 #################################################
@@ -115,17 +122,17 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.ConcatVcfs.boot_disk_gb": 25,
   "RefineSvGenotypesWithSnvs.ConcatVcfs.disk_gb": 500,
   "RefineSvGenotypesWithSnvs.ConcatVcfs.mem_gb": 7.5,
-  "RefineSvGenotypesWithSnvs.ImputeSvs.min_snv_ac": 10,
   "RefineSvGenotypesWithSnvs.ImputeSvs.sv_mask_retries": 3,
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 0,
   "RefineSvGenotypesWithSnvs.UpdateGts.gq_offset": 0,
   "RefineSvGenotypesWithSnvs.breakpoint_window_bp": 500000,
-  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:ed9676d",
+  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:070a98a",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
   "RefineSvGenotypesWithSnvs.min_carrier_accuracy": 0.25,
   "RefineSvGenotypesWithSnvs.min_imputation_r2": 0.1,
   "RefineSvGenotypesWithSnvs.min_ld_r2": 0.1,
+  "RefineSvGenotypesWithSnvs.min_snv_ac": 10,
   "RefineSvGenotypesWithSnvs.min_snv_call_rate": 0.9,
   "RefineSvGenotypesWithSnvs.min_sv_ac": 30,
   "RefineSvGenotypesWithSnvs.min_sv_af": 0,
@@ -140,7 +147,7 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.svs_per_shard": 150,
   "RefineSvGenotypesWithSnvs.sv_vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.identical.reclustered.posthoc_filtered.vcf.gz",
   "RefineSvGenotypesWithSnvs.sv_vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.identical.reclustered.posthoc_filtered.vcf.gz.tbi",
-  "RefineSvGenotypesWithSnvs.training_samples_list": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_imputation.training_samples.list"
+  "RefineSvGenotypesWithSnvs.training_samples_list": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_imputation.training_samples.unrelated.list"
 }
 EOF
 

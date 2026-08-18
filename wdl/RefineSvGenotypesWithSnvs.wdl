@@ -41,6 +41,7 @@ workflow RefineSvGenotypesWithSnvs {
     Int breakpoint_window_bp = 100000    # SNVs farther than this distance + buffer from each breakpoint will not be included
     Float min_snv_call_rate = 0.95       # Minimum call rate for SNVs to be included
     Float snv_freq_scalar = 5            # Frequency control parameter for SNVs, defined as AF ~ [min_sv_af / this, min_sv_af * this]
+    Int min_snv_ac = 1                   # Minimum SNV AC to be considered. Applied in addition to snv_freq_scalar criteria.
     File? snv_exclusion_bed              # SNVs overlapping this BED file will be excluded
 
     # Imputation parameters
@@ -197,7 +198,7 @@ workflow RefineSvGenotypesWithSnvs {
               snv_info_tsv = vcf_info_chunks[i],
               query_intervals = DefineQueryIntervals.query_intervals,
               samples_list = FindSharedSamples.intersection_file,
-              min_ac = floor(min_sv_ac / snv_freq_scalar),
+              min_ac = select_first(select_all([min_snv_ac, floor(min_sv_ac / snv_freq_scalar)])),
               min_an = min_an,
               max_ncr = 1 - min_snv_call_rate,
               output_prefix = shard_prefix + ".chunk_" + i
@@ -244,6 +245,7 @@ workflow RefineSvGenotypesWithSnvs {
             breakpoint_buffer_bp = breakpoint_buffer_bp,
             breakpoint_window_bp = breakpoint_window_bp,
             snv_freq_scalar = snv_freq_scalar,
+            min_snv_ac = min_snv_ac,
             min_ld_r2 = min_ld_r2,
             min_accuracy = min_carrier_accuracy,
             min_imputation_r2 = min_imputation_r2,

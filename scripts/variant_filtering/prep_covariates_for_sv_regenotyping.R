@@ -62,13 +62,14 @@ df.hq <- df[which(df$n_grafpop_snps > 58000 & df$n_grafpop_snps < 63000
                   & (df$pct_EUR > 0.8 | df$pct_EUR < 0.3)
                   & (df$pct_AFR > 0.6 | df$pct_AFR < 0.15)
                   & (df$pct_ASN > 0.9 | df$pct_ASN < 0.25)
+                  & !(df$grafpop_ancestry %in% c("Unknown", "Other"))
                   & apply(abs(df[, grep("chr[0-9]+_ploidy", colnames(df))] - 2) < 0.25, 1, all)
                   & df$wgd_score > -0.25 & df$wgd_score < 0.1
                   & df$hq_het_rate > 0.999 & df$mean_ref_ab_hom_alt < 0.002
                   & df$inconsistent_ab_het_rate < 0.05
                   & df$mean_coverage > 20 & df$mean_coverage < 40
-                  & df$charr < 0.0075
-                  & df$blood == 1
+                  & df$charr < 0.01
+                  & (df$blood == 1 | df$cohort == "hgsvc")
                   & df$short_reads == 0),
             ]
-
+write.table(rownames(df.hq), args$hq_samples, col.names=F, row.names=F, quote=F)
