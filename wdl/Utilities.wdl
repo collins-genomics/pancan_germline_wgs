@@ -190,13 +190,16 @@ task ConcatVcfs {
     n_vcfs=$( cat vcfs.list | wc -l )
     if [ $n_vcfs -lt 2 ]; then
       if [ $n_vcfs -eq 0 ]; then
+        echo "Zero non-empty VCFs found in input file. Writing out header-only VCF."
         bcftools view --header-only ~{vcfs[0]} -Oz -o ~{out_filename}
       else
-        cp ~{vcfs[0]} ~{out_filename}
+        echo "Just one non-empty VCF found in input. Returning this VCF as output."
+        cp $( sed -n '1p' vcfs.list ) ~{out_filename}
       fi
       tabix -p vcf -f ~{out_filename}
       exit 0
     fi
+    echo -e "Found $n_vcfs non-empty VCFs in input. Concatenating now...\n"
 
     bcftools concat \
       ~{bcftools_concat_options} \

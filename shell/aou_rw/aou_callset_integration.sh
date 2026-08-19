@@ -143,8 +143,8 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.snv_exclusion_bed": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_mask.bed.gz",
   "RefineSvGenotypesWithSnvs.snv_freq_scalar": 50,
   "RefineSvGenotypesWithSnvs.snv_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
-  "RefineSvGenotypesWithSnvs.snv_vcfs_per_shard": 125,
-  "RefineSvGenotypesWithSnvs.svs_per_shard": 150,
+  "RefineSvGenotypesWithSnvs.snv_vcfs_per_shard": 100,
+  "RefineSvGenotypesWithSnvs.svs_per_shard": 100,
   "RefineSvGenotypesWithSnvs.sv_vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.identical.reclustered.posthoc_filtered.vcf.gz",
   "RefineSvGenotypesWithSnvs.sv_vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.identical.reclustered.posthoc_filtered.vcf.gz.tbi",
   "RefineSvGenotypesWithSnvs.training_samples_list": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_imputation.training_samples.unrelated.list"

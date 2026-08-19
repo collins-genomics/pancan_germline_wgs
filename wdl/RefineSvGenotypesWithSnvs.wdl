@@ -198,6 +198,7 @@ workflow RefineSvGenotypesWithSnvs {
               snv_info_tsv = vcf_info_chunks[i],
               query_intervals = DefineQueryIntervals.query_intervals,
               samples_list = FindSharedSamples.intersection_file,
+              snv_exclusion_bed = snv_exclusion_bed,
               min_ac = select_first(select_all([min_snv_ac, floor(min_sv_ac / snv_freq_scalar)])),
               min_an = min_an,
               max_ncr = 1 - min_snv_call_rate,
@@ -229,8 +230,6 @@ workflow RefineSvGenotypesWithSnvs {
               docker = linux_docker
           }
         }
-        File training_samples_list_use = select_first(select_all([DefineTrainingSamples.intersection_file, 
-                                                                  FindSharedSamples.intersection_file]))
 
         # Compute LD for each SV, extract AD matrixes, fit regression model, and predict GTs for all samples
         call ImputeSvs {
@@ -239,7 +238,8 @@ workflow RefineSvGenotypesWithSnvs {
             sv_vcf_idx = sv_training_vcf_idx,
             snv_vcf = merged_snv_vcf,
             snv_vcf_idx = merged_snv_vcf_idx,
-            training_samples_list = training_samples_list_use,
+            inclusion_samples_list = FindSharedSamples.intersection_file,
+            training_samples_list = DefineTrainingSamples.intersection_file,
             sample_group_labels = sample_group_labels,
             sample_covariates = sample_covariates,
             breakpoint_buffer_bp = breakpoint_buffer_bp,
@@ -422,7 +422,8 @@ task ImputeSvs {
     File snv_vcf
     File snv_vcf_idx
     
-    File training_samples_list
+    File inclusion_samples_list
+    File? training_samples_list
     File? sample_group_labels
     File? sample_covariates
     Int breakpoint_buffer_bp
@@ -450,6 +451,8 @@ task ImputeSvs {
     Int n_preemptible = 1
   }
 
+  File training_samples_list_use = if defined(training_samples_list) then training_samples_list else inclusion_samples_list
+
   String groups_cmd = if defined(sample_group_labels) then "--sample-group-labels " + basename(select_first([sample_group_labels, ""])) else ""
   String covars_cmd = if defined(sample_covariates) then "--sample-covariates " + basename(select_first([sample_covariates, ""])) else ""
 
@@ -474,7 +477,7 @@ task ImputeSvs {
     > svs.bed
 
     # Make dummy .fam file
-    awk -v OFS="\t" '{ print $1, $1, 0, 0, 0, 0 }' ~{training_samples_list} > samples.fam
+    awk -v OFS="\t" '{ print $1, $1, 0, 0, 0, 0 }' ~{inclusion_samples_list} > samples.fam
 
     # Localize optional files
     if ~{defined(sample_group_labels)}; then
@@ -490,6 +493,7 @@ task ImputeSvs {
 
     # If no eligible SVs are found, write empty outputs and exit early
     if [ $( cat svs.bed | wc -l ) -eq 0 ]; then
+      echo "No eligible SVs found. Writing empty output and exiting."
       cat imp_res_header.tsv | gzip -c > ~{outfile}
       echo "0" > imputed_svs.count.txt
       touch ~{out_log}
@@ -522,13 +526,13 @@ task ImputeSvs {
         '{ print $1, $2+buffer, $2+buffer+window }' \
       | awk -v FS="\t" -v OFS="\t" '{ if ($2<0) $2=0; print }' \
       > $svid/right.window.bed
-      min_snv_af=$( echo $svaf | awk -v scalar=5 '{ af=($1 / scalar); if (af<0) af=0; print af }' )
-      max_snv_af=$( echo $svaf | awk -v scalar=5 '{ af=($1 * scalar); if (af>1) af=1; print af }' )
+      min_snv_af=$( echo $svaf | awk -v scalar=~{snv_freq_scalar} '{ af=($1 / scalar); if (af<0) af=0; print af }' )
+      max_snv_af=$( echo $svaf | awk -v scalar=~{snv_freq_scalar} '{ af=($1 * scalar); if (af>1) af=1; print af }' )
 
       # Extract SNPs and SV record
       for flank in left right; do
         bcftools view \
-          --samples-file ~{training_samples_list} \
+          --samples-file ~{inclusion_samples_list} \
           --force-samples \
           --regions-file $svid/$flank.window.bed \
           --min-af $min_snv_af \
@@ -539,7 +543,7 @@ task ImputeSvs {
         tabix -p vcf -f $svid/$flank.snvs.vcf.gz
       done
       bcftools view \
-        --samples-file ~{training_samples_list} \
+        --samples-file ~{inclusion_samples_list} \
         --force-samples \
         --include "ID = \"$svid\"" \
         -Oz -o $svid/sv.vcf.gz \
@@ -635,6 +639,7 @@ task ImputeSvs {
             --sv-id "$svid" \
             ~{covars_cmd} \
             ~{groups_cmd} \
+            --training-samples ~{training_samples_list_use} \
             --min-ac ~{min_sv_ac} \
             --min-snv-ac ~{min_snv_ac_use} \
             --min-accuracy ~{min_accuracy} \
@@ -755,6 +760,7 @@ task QuerySnvs {
     Int min_ac
     Int min_an
     Float max_ncr
+    File? snv_exclusion_bed
 
     Int max_stream_attempts = 5
 
@@ -770,7 +776,13 @@ task QuerySnvs {
   String out_vcf = output_prefix + ".snvs.vcf.gz"
   String out_tbi = out_vcf + ".tbi"
 
-  String samples_cmd = if defined(samples_list) then "--force-samples --samples-file " + basename(select_first([samples_list, ""])) else ""
+  String samples_cmd = if defined(samples_list) 
+                       then "--force-samples --samples-file " + basename(select_first([samples_list, ""]))
+                       else ""
+
+  String excl_cmd = if defined(snv_exclusion_bed) 
+                    then "--targets-file ^" + basename(select_first([snv_exclusion_bed, ""]))
+                    else ""
 
   Int concat_threads = 2 * n_cpu
   Int sort_mem_mb = floor(1000 * (mem_gb / 3))
@@ -814,6 +826,7 @@ task QuerySnvs {
         --min-ac ~{min_ac} \
         --include 'INFO/AN >= ~{min_an}' \
         ~{samples_cmd} \
+        ~{excl_cmd} \
       | bcftools +fill-tags -- -t AC,AN,AF,F_MISSING \
       | bcftools view \
         --min-ac ~{min_ac} \
