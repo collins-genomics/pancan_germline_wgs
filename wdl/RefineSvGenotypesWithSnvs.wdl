@@ -790,9 +790,12 @@ task QuerySnvs {
   command <<<
     set -eu -o pipefail
 
-    # Relocate sample list, if provided
+    # Relocate sample list and exclusion bed, if provided
     if ~{defined(samples_list)}; then
       cp ~{default=" " samples_list} ./
+    fi
+    if ~{defined(snv_exclusion_bed)}; then
+      cp ~{default=" " snv_exclusion_bed} ./
     fi
 
     # Get absolute minimum & maximum frequencies to permit in any interval
