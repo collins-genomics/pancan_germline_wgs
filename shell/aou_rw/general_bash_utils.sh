@@ -150,16 +150,15 @@ collapse_txt() {
 }
 
 
-# Legacy function (RW v1.0); unsure if this needs to be updated for Verily Pre
-# # Collect a table of peak task resource usage for an entire Cromwell workflow
-# gather_resource_usage() {
-#    # Check inputs
-#   if [ $# -ne 1 ]; then
-#     echo "Must pass a single workflow ID as input"
-#     return
-#   fi
-#   ~/code/scripts/summarize_workflow_resources.sh $wid
-# }
+# Collect a table of peak task resource usage for an entire Cromwell workflow
+gather_resource_usage() {
+   # Check inputs
+  if [ $# -ne 1 ]; then
+    echo "Must pass a single workflow ID as input"
+    return
+  fi
+  ~/code/scripts/summarize_workflow_resources.sh $wid
+}
 
 
 # Get G2C workspace processing number from within an AoU RW terminal

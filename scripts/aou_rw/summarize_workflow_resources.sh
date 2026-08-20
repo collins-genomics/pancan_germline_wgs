@@ -17,7 +17,7 @@ USAGE: ./summarize_workflow_resources.sh workflow_id [execution_bucket]
        Options:
        - Can provide a file listing multiple workflow IDs instead of single workflow ID
        - Can provide execution bucket URI as a second argument
-         (default bucket: \$WORKSPACE_BUCKET/cromwell-execution/)
+         (default bucket: \$WORKSPACE_BUCKET/workflows/cromwell-executions/)
 
 EOF
 }
@@ -32,7 +32,7 @@ if [ $# -lt 1 ]; then
 fi
 
 if [ -z $EXEC_BUCKET ]; then
-  EXEC_BUCKET="$WORKSPACE_BUCKET/cromwell-execution"
+  EXEC_BUCKET="$WORKSPACE_BUCKET/workflows/cromwell-executions"
 fi
 
 WRKDIR=`mktemp -d`
