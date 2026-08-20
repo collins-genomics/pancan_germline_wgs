@@ -46,6 +46,7 @@ task CalcBedDensity {
 
     String output_prefix
     
+    String gcp_machine_type = "n2d-standard-2"
     String bedtools_docker
   }
 
@@ -69,6 +70,7 @@ task CalcBedDensity {
   }
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     docker: bedtools_docker
     memory: "3.75 GB"
     cpu: 2
@@ -136,6 +138,7 @@ task ConcatVcfs {
 
     Boolean check_index_localization = false # If true, will check that vcf_idxs are in the same localization directory as vcfs
 
+    String gcp_machine_type = "n2d-standard-2"
     Float mem_gb = 3.5
     Int cpu_cores = 2
     Int? disk_gb
@@ -220,6 +223,7 @@ task ConcatVcfs {
   }
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     docker: bcftools_docker
     memory: mem_gb + " GB"
     cpu: cpu_cores
@@ -235,6 +239,7 @@ task CopyGcpObjects {
     Array[File] files_to_copy
     String destination
     String gsutil_cp_options = ""
+    String gcp_machine_type = "n2d-standard-2"
   }
 
   Int disk_gb = ceil(1.2 * size(files_to_copy, "GB")) + 10
@@ -248,6 +253,7 @@ task CopyGcpObjects {
   output {}
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     docker: "google/cloud-sdk"
     memory: "3.75 GB"
     cpu: 2
@@ -298,6 +304,7 @@ task FtpDownload {
 
     String lftp_docker
     
+    String gcp_machine_type = "n2d-standard-4"
     Int max_download_tries = 3
     Int disk_gb = 150
     Int n_cpu = 4
@@ -334,6 +341,7 @@ task FtpDownload {
   }
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     docker: lftp_docker
     disks: "local-disk " + disk_gb + " HDD"
     cpu: n_cpu
@@ -418,6 +426,7 @@ task GetSamplesFromVcfHeader {
     File vcf
     File vcf_idx
     String bcftools_docker
+    String gcp_machine_type = "n2d-standard-2"
   }
 
   String out_filename = basename(vcf, ".vcf.gz") + ".samples.list"
@@ -439,6 +448,7 @@ task GetSamplesFromVcfHeader {
   }
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     docker: bcftools_docker
     memory: "3.75 GB"
     cpu: 2
@@ -523,6 +533,7 @@ task MakeTabixIndex {
     File input_file
     String file_type = "vcf"
     String docker
+    String gcp_machine_type = "n2d-standard-2"
     Int n_cpu = 2
     Float mem_gb = 3.5
   }
@@ -546,6 +557,7 @@ task MakeTabixIndex {
   }
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     docker: docker
     memory: "3.5 GB"
     cpu: 2
@@ -871,6 +883,7 @@ task ShardVcf {
     File vcf_idx
     Int records_per_shard
     String bcftools_docker
+    String gcp_machine_type = "n2d-standard-2"
     Int? disk_gb
     Int n_preemptible = 3
   }
@@ -903,6 +916,7 @@ task ShardVcf {
   }
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     cpu: 2
     memory: "3.75 GiB"
     disks: "local-disk " + use_disk_gb + " HDD"
@@ -920,6 +934,7 @@ task SplitIntervalList {
     File interval_list
     String linux_docker = "ubuntu:plucky-20251001"
 
+    String gcp_machine_type = "n2d-standard-2"
     Float mem_gb = 3.5
     Int n_cpu = 2
     Int disk_gb = 25
@@ -948,6 +963,7 @@ task SplitIntervalList {
   }
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     cpu: n_cpu
     memory: mem_gb + " GiB"
     disks: "local-disk " + disk_gb + " HDD"
@@ -967,6 +983,7 @@ task StreamedMcnvHeaderCheck {
     File vcf
     File vcf_idx
     String docker
+    String gcp_machine_type = "n2d-standard-2"
   }
 
   parameter_meta {
@@ -1000,6 +1017,7 @@ task StreamedMcnvHeaderCheck {
   }
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     docker: docker
     memory: "3.75 GB"
     cpu: 2
@@ -1082,6 +1100,7 @@ task SumSvCountsPerSample {
     String output_prefix
 
     String docker
+    String gcp_machine_type = "n2d-standard-2"
     Float mem_gb = 3.75
     Int n_cpu = 2
   }
@@ -1102,6 +1121,7 @@ task SumSvCountsPerSample {
   }
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     docker: docker
     memory: mem_gb + " GB"
     cpu: n_cpu

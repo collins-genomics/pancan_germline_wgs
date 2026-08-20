@@ -446,6 +446,7 @@ task ImputeSvs {
 
     String g2c_analysis_docker
 
+    String? gcp_machine_type
     Float mem_gb = 3.5
     Int n_cpu = 2
     Int n_preemptible = 1
@@ -464,6 +465,7 @@ task ImputeSvs {
   String outfile = output_prefix + ".imputation_results.tsv.gz"
   String out_log  = output_prefix + ".sv_imputation.log"
 
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int disk_gb = ceil(2 * size([sv_vcf, snv_vcf], "GB")) + 10
 
   Int bcftools_threads = (2 * n_cpu) - 1
@@ -678,6 +680,7 @@ task ImputeSvs {
   }
 
   runtime {
+    predefinedMachineType: machine_type
     docker: g2c_analysis_docker
     memory: mem_gb + " GB"
     cpu: n_cpu
@@ -766,6 +769,7 @@ task QuerySnvs {
 
     String output_prefix
 
+    String? gcp_machine_type
     Int disk_gb = 30
     Float mem_gb = 7.5
     Int n_cpu = 2
@@ -784,6 +788,7 @@ task QuerySnvs {
                     then "--targets-file ^" + basename(select_first([snv_exclusion_bed, ""]))
                     else ""
 
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int concat_threads = 2 * n_cpu
   Int sort_mem_mb = floor(1000 * (mem_gb / 3))
 
@@ -921,6 +926,7 @@ task QuerySnvs {
   }
 
   runtime {
+    predefinedMachineType: machine_type
     docker: gatk_docker
     memory: mem_gb + " GB"
     cpu: n_cpu
@@ -945,6 +951,7 @@ task SplitSvs {
 
     String output_prefix
 
+    String gcp_machine_type = "n2d-standard-2"
     String g2c_analysis_docker
   }
 
@@ -977,6 +984,7 @@ task SplitSvs {
   }
 
   runtime {
+    predefinedMachineType: gcp_machine_type
     docker: g2c_analysis_docker
     memory: "3.75 GB"
     cpu: 2
@@ -1046,7 +1054,7 @@ task UpdateGts {
 
   runtime {
     docker: g2c_analysis_docker
-    memory: "3.75 GB"
+    memory: "1.75 GB"
     cpu: 2
     disks: "local-disk " + disk_gb + " HDD"
     preemptible: 1

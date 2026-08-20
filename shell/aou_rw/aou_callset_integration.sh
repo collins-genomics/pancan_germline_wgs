@@ -121,8 +121,10 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
   "RefineSvGenotypesWithSnvs.ConcatVcfs.boot_disk_gb": 25,
   "RefineSvGenotypesWithSnvs.ConcatVcfs.disk_gb": 500,
-  "RefineSvGenotypesWithSnvs.ConcatVcfs.mem_gb": 7.5,
+  "RefineSvGenotypesWithSnvs.ConcatSnvs.gcp_machine_type": "n2d-standard-2", 
+  "RefineSvGenotypesWithSnvs.ImputeSvs.gcp_machine_type": "n2d-standard-2",
   "RefineSvGenotypesWithSnvs.ImputeSvs.sv_mask_retries": 2,
+  "RefineSvGenotypesWithSnvs.QuerySnvs.gcp_machine_type": "n2d-standard-2",
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 1,
   "RefineSvGenotypesWithSnvs.UpdateGts.gq_offset": 10,
   "RefineSvGenotypesWithSnvs.breakpoint_window_bp": 500000,
@@ -162,8 +164,8 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.RefineSvGenotypesWithSnvs.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
-  --submission-gate 240 \
-  --vm-gate 600 \
+  --submission-gate 720 \
+  --vm-gate 200 \
   --max-attempts 3
 
 
