@@ -119,8 +119,10 @@ gsutil -m cp \
 # Write template input .json for SV GT refinement
 cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
-  "RefineSvGenotypesWithSnvs.ConcatVcfs.boot_disk_gb": 25,
+  "RefineSvGenotypesWithSnvs.ConcatVcfs.boot_disk_gb": 30,
+  "RefineSvGenotypesWithSnvs.ConcatVcfs.cpu_cores": 8,
   "RefineSvGenotypesWithSnvs.ConcatVcfs.disk_gb": 500,
+  "RefineSvGenotypesWithSnvs.ConcatVcfs.mem_gb": 32,
   "RefineSvGenotypesWithSnvs.ConcatSnvs.gcp_machine_type": "n2d-standard-2", 
   "RefineSvGenotypesWithSnvs.ImputeSvs.gcp_machine_type": "n2d-standard-2",
   "RefineSvGenotypesWithSnvs.ImputeSvs.sv_mask_retries": 2,
@@ -145,7 +147,7 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.snv_exclusion_bed": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_mask.bed.gz",
   "RefineSvGenotypesWithSnvs.snv_freq_scalar": 50,
   "RefineSvGenotypesWithSnvs.snv_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
-  "RefineSvGenotypesWithSnvs.snv_vcfs_per_shard": 125,
+  "RefineSvGenotypesWithSnvs.snv_vcfs_per_shard": 150,
   "RefineSvGenotypesWithSnvs.svs_per_shard": 50,
   "RefineSvGenotypesWithSnvs.sv_vcf": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.identical.reclustered.posthoc_filtered.vcf.gz",
   "RefineSvGenotypesWithSnvs.sv_vcf_idx": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/ExcludeSnvOutliersFromSvCallset/\$CONTIG/HardFilterPart2/dfci-g2c.v1.\$CONTIG.concordance.gq_recalibrated.gq_updated.identical.reclustered.posthoc_filtered.vcf.gz.tbi",
@@ -165,7 +167,7 @@ code/scripts/manage_chromshards.py \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
   --submission-gate 720 \
-  --vm-gate 200 \
+  --vm-gate 300 \
   --max-attempts 3
 
 

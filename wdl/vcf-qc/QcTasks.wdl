@@ -29,6 +29,7 @@ task BenchmarkGenotypes {
     Boolean report_by_gt = false
     Float common_af_cutoff = 0.01
 
+    String? gcp_machine_type
     Float mem_gb = 7.5
     Int n_cpu = 4
     
@@ -46,6 +47,8 @@ task BenchmarkGenotypes {
 
   String gt_report_cmd = if report_by_gt then "--report-by-genotype" else ""
   String invert_sid_cmd = if invert_sample_map then "--invert-sid" else ""
+
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int disk_gb = ceil(5 * size([source_gt_tarball, target_gt_tarball, source_site_metrics], "GB")) + 20
 
   command <<<
@@ -141,6 +144,7 @@ task BenchmarkGenotypes {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: machine_type
     memory: "~{mem_gb} GB"
     cpu: n_cpu
     maxRetries: 1
@@ -196,6 +200,7 @@ task CollectSampleGenotypeMetrics {
     Float? common_af_cutoff
 
     String g2c_analysis_docker
+    String gcp_machine_type = "n2d-standard-2"
   }
 
   String out_base = basename(vcf, ".vcf.gz")
@@ -228,6 +233,7 @@ task CollectSampleGenotypeMetrics {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: gcp_machine_type
     memory: "3.5 GB"
     cpu: 2
     disks: "local-disk ~{disk_gb} HDD"
@@ -749,6 +755,7 @@ task MakeTabixIndex {
     File input_file
     String file_type = "vcf"
     String docker
+    String gcp_machine_type = "n2d-standard-2"
     Int n_cpu = 2
     Float mem_gb = 3.5
   }
@@ -773,6 +780,7 @@ task MakeTabixIndex {
 
   runtime {
     docker: docker
+    predefinedMachineType: gcp_machine_type
     memory: "3.5 GB"
     cpu: 2
     disks: "local-disk ~{disk_gb} HDD"
@@ -874,6 +882,7 @@ task PrepSites {
     String prefix
     
     String g2c_analysis_docker
+    String gcp_machine_type = "n2d-standard-2"
   }
 
   Int loose_min_size = floor(min_size / lenient_size_scalar)
@@ -925,6 +934,7 @@ task PrepSites {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: gcp_machine_type
     memory: "3.5 GB"
     cpu: 2
     disks: "local-disk ~{disk_gb} HDD"
@@ -941,6 +951,7 @@ task ShardIntervals {
     String prefix
     String g2c_analysis_docker
 
+    String gcp_machine_type = "n2d-standard-2"
     Float mem_gb = 3.75
     Int n_cpu = 2
     Int? disk_gb
@@ -1010,6 +1021,7 @@ task ShardIntervals {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: gcp_machine_type
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) +" HDD"
@@ -1025,6 +1037,7 @@ task ShardTextFile {
     Int n_splits
     String out_prefix
     Boolean shuffle = false
+    String gcp_machine_type = "n2d-standard-2"
     Float mem_gb = 3.5
     String g2c_analysis_docker
   }
@@ -1052,6 +1065,7 @@ task ShardTextFile {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: gcp_machine_type
     memory: "~{mem_gb} GB"
     cpu: 2
     disks: "local-disk ~{disk_gb} HDD"
@@ -1134,6 +1148,7 @@ task StreamSliceVcf {
     String? outfile_name
     
     Int? disk_gb
+    String gcp_machine_type = "n2d-standard-2"
     Float mem_gb = 4
     Int n_cpu = 2
 
@@ -1192,6 +1207,7 @@ task StreamSliceVcf {
 
   runtime {
     docker: bcftools_docker
+    predefinedMachineType: gcp_machine_type
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + hdd_gb + " HDD"

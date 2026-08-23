@@ -239,6 +239,7 @@ task SubsetTargetVcf {
     File id_map_tsv
     File source_sample_id_list
     String bcftools_docker
+    String gcp_machine_type = "n2d-standard-2"
   }
 
   Int disk_gb = ceil(2.5 * size(vcf, "GB")) + 10
@@ -310,6 +311,7 @@ task SubsetTargetVcf {
 
   runtime {
     docker: bcftools_docker
+    predefinedMachineType: gcp_machine_type
     memory: "3.5 GB"
     cpu: 2
     disks: "local-disk ~{disk_gb} HDD"

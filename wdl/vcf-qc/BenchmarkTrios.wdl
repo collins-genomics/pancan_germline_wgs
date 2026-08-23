@@ -29,8 +29,8 @@ workflow BenchmarkTrios {
     String output_prefix
     Float common_af_cutoff = 0.01
 
-    Float benchmarking_mem_gb = 1.75
-    Int benchmarking_n_cpu = 1
+    Float benchmarking_mem_gb = 3.75
+    Int benchmarking_n_cpu = 2
 
     String bcftools_docker
     String g2c_analysis_docker
@@ -123,12 +123,15 @@ task BenchmarkTrios {
     Float common_af_cutoff = 0.01
     String output_prefix
     
+    String gcp_machine_type = "n2d-standard-2"
     Float mem_gb
     Int n_cpu
     String g2c_analysis_docker
   }
 
   String out_fname = "~{output_prefix}.mendelian_violations.distribs.tsv.gz"
+
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int disk_gb = ceil(3 * size([vcf, eligible_sites_bed], "GB")) + 20
 
   command <<<
@@ -164,6 +167,7 @@ task BenchmarkTrios {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: machine_type
     memory: "~{mem_gb} GB"
     cpu: n_cpu
     disks: "local-disk ~{disk_gb} HDD"

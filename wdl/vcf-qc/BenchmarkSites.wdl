@@ -314,6 +314,7 @@ task DetectBadRuns {
     Int min_run_length = 50000
 
     String g2c_analysis_docker
+    String gcp_machine_type = "n2d-standard-2"
   }
 
   Int disk_gb = ceil(2 * size(bed, "GB")) + 10
@@ -335,6 +336,7 @@ task DetectBadRuns {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: gcp_machine_type
     memory: "3.7 GB"
     cpu: 2
     disks: "local-disk " + disk_gb + " HDD"

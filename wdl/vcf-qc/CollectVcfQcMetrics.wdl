@@ -791,6 +791,7 @@ task CalcLd {
     Float plink_ld_window_min_r2 = 0.05
     
     String out_prefix
+    String? gcp_machine_type
     String g2c_analysis_docker
     Int min_disk_gb = 20
     Int max_disk_gb = 500
@@ -804,6 +805,7 @@ task CalcLd {
   Boolean has_svs = defined(common_svs_bed)
   String sv_opt = if has_svs then "--sv-list sv.list" else ""
 
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int disk_gb_auto = ceil(5 * size(vcf, "GB")) + 25
   Int disk_gb_ceil = if disk_gb_auto > max_disk_gb then max_disk_gb else disk_gb_auto
   Int disk_gb = if disk_gb_ceil < min_disk_gb then min_disk_gb else disk_gb_ceil
@@ -905,6 +907,7 @@ task CalcLd {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: machine_type
     memory: "3.75 GB"
     cpu: 2
     disks: "local-disk " + disk_gb + " HDD"
@@ -1240,6 +1243,7 @@ task MergeAndReshardVcfs {
 
     String bcftools_concat_options = ""
 
+    String gcp_machine_type = "n2d-standard-2"
     Float mem_gb = 3.5
     Int cpu_cores = 2
     Int? disk_gb
@@ -1285,6 +1289,7 @@ task MergeAndReshardVcfs {
 
   runtime {
     docker: bcftools_docker
+    predefinedMachineType: gcp_machine_type
     memory: mem_gb + " GB"
     cpu: cpu_cores
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"
@@ -1301,6 +1306,7 @@ task MergePeakLdChunks {
     Array[File] chunks
     String out_filename
     String docker
+    String gcp_machine_type = "n2d-standard-2"
   }
 
   Int disk_gb = ceil(5 * size(chunks, "GB")) + 25
@@ -1327,6 +1333,7 @@ task MergePeakLdChunks {
 
   runtime {
     docker: docker
+    predefinedMachineType: gcp_machine_type
     memory: "3.5 GB"
     cpu: 2
     disks: "local-disk ~{disk_gb} HDD"
@@ -1354,6 +1361,7 @@ task PreprocessVcf {
     
     String out_prefix
     
+    String? gcp_machine_type
     Int? disk_gb
     Float mem_gb = 4
     Int n_cpu = 2
@@ -1369,6 +1377,7 @@ task PreprocessVcf {
   String dedup_cmd = if deduplicate then "--remove-duplicates" else ""
   String mcnv_anno = if has_mcnvs then "| /opt/pancan_germline_wgs/scripts/gatksv_helpers/annotate_mcnv_freqs.py - -" else ""
 
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int default_disk_gb = ceil(4 * size(vcf, "GB")) + 10
   Int hdd_gb = select_first([disk_gb, default_disk_gb])
   Int n_threads = floor(2 * n_cpu)
@@ -1450,6 +1459,7 @@ task PreprocessVcf {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: machine_type
     memory: "~{mem_gb} GB"
     cpu: n_cpu
     disks: "local-disk ~{hdd_gb} HDD"

@@ -456,6 +456,7 @@ task CompareSites {
     
     String prefix
 
+    String? gcp_machine_type
     Int? disk_gb
     Float mem_gb = 4
     Int? n_cpu
@@ -463,6 +464,7 @@ task CompareSites {
     String g2c_analysis_docker
   }
 
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int n_cpu_default = floor(ceil(mem_gb) / 2)
   Int default_disk_gb = ceil(2 * size([query_bed, ref_bed], "GB")) + 20
   Int use_disk_gb = select_first([disk_gb, default_disk_gb])
@@ -503,6 +505,7 @@ task CompareSites {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: machine_type
     memory: "~{mem_gb} GB"
     cpu: select_first([n_cpu, n_cpu_default])
     disks: "local-disk ~{use_disk_gb} HDD"
