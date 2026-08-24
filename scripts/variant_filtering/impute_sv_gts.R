@@ -57,14 +57,16 @@ load.groups <- function(groups.tsv, target.sids){
 }
 
 # Filter and collapse groups to ensure sufficiently dense data for imputation
-filter.groups <- function(g.mems, ad, min.ac){
+filter.groups <- function(g.mems, ad, min.ac, train.sids=NULL){
   groups <- names(g.mems)
   # Count number of ref & alt alleles per group
+  # If `train.sids` provided, this will be limited to training samples
   if(is.vector(ad)){
     ad <- as.data.frame(ad)
   }
   g.k <- as.data.frame(do.call("rbind", lapply(groups, function(gid){
-    apply(apply(ad[intersect(rownames(ad), g.mems[[gid]]), , drop=FALSE],
+    g.sids <- if(!is.null(train.sids)){intersect(g.mems[[gid]], train.sids)}else{g.mems[[gid]]}
+    apply(apply(ad[intersect(rownames(ad), g.sids), , drop=FALSE],
                 2, function(ad.v){
                   c(sum(ad.v == 0, na.rm=T), sum(ad.v > 0, na.rm=T))
                 }), 1, max, na.rm=T)
@@ -75,21 +77,21 @@ filter.groups <- function(g.mems, ad, min.ac){
 
   # Iteratively collapse groups until all groups are >= min.ac
   if(any(apply(g.k, 1, min) < min.ac)){
-    if(!("remaining" %in% rownames(g.k))){
+    if("remaining" %in% rownames(g.k)){
+      other.g <- g.mems[["remaining"]]
+    }else{
       g.k["remaining", ] <- c(0, 0)
       other.g <- c()
-    }else{
-      other.g <- g.mems[["remaining"]]
     }
     while(any(apply(g.k, 1, min) < min.ac)){
       next.g <- tail(setdiff(rownames(g.k), "remaining"), 1)
-      other.g <- c(other.g, next.g)
+      other.g <- unique(c(other.g, g.mems[[next.g]]))
       g.k["remaining", ] <- g.k["remaining", ] + g.k[next.g, ]
       g.k <- g.k[setdiff(rownames(g.k), next.g), ]
       g.k <- g.k[order(-apply(g.k, 1, min)), ]
     }
     groups <- rownames(g.k)
-    g.mems[["remaining"]] <- unique(unlist(g.mems[other.g]))
+    g.mems[["remaining"]] <- unique(unlist(other.g))
     g.mems <- g.mems[groups]
   }
 
@@ -398,7 +400,7 @@ parser$add_argument("--min-accuracy", metavar="float", type="numeric", default=0
                                "imputation model as trustworthy. Models with",
                                "carrier accuracy below this threshold will only",
                                "write a header to --out-tsv."))
-parser$add_argument("--min-r2", metavar="float", type="numeric", default=0.3,
+parser$add_argument("--min-r2", metavar="float", type="numeric", default=0.2,
                     help=paste("Minimum coefficient of determination (R2) for ",
                                "adjusted/original and imputed SV allele dosages",
                                "to accept the imputation model as trustworthy.",
@@ -419,14 +421,15 @@ args <- parser$parse_args()
 #              "min_accuracy" = 0.25,
 #              "min_r2" = 0.1,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_6647.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr22.final_cleanup_DEL_chr22_6647",
-#              "sample_covariates" = "~/Downloads/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
-#              "sample_group_labels" = "~/scratch/dfci-g2c.v1.qc_ancestry.tsv",
+# args <- list("ad" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_1405.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_1405",
+#              "training_samples" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.chr19.training_samples.list",
+#              "sample_covariates" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
+#              "sample_group_labels" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.qc_ancestry.tsv",
 #              "min_ac" = 50,
-#              "min_snv_ac" = 10,
-#              "min_accuracy" = 0.7,
-#              "min_r2" = 0.2,
+#              "min_snv_ac" = 25,
+#              "min_accuracy" = 0.5,
+#              "min_r2" = 0.1,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
 # args <- list("ad" = "~/scratch/PedSV.2.5.2_DEL_chr2_13547.ad.tsv.gz",
 #              "sv_id" = "PedSV.2.5.2_DEL_chr2_13547",
@@ -474,8 +477,8 @@ if(!is.null(covars)){
 
 # If provided, load groups and evaluate filtering to group-specific strata
 groups <- load.groups(args$sample_group_labels, target.sids)
-groups <- filter.groups(groups, snp.ad, args$min_snv_ac)
-groups <- filter.groups(groups, sv.ad, args$min_ac)
+groups <- filter.groups(groups, snp.ad, args$min_snv_ac, train.sids)
+groups <- filter.groups(groups, sv.ad, args$min_ac, train.sids)
 
 # Adjust SV ADs if covariates were provided
 sv.ad.adj <- adjust.sv.ad(sv.ad, train.sids, args$sv_id, covars, groups)

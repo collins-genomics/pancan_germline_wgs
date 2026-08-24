@@ -135,7 +135,7 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
   "RefineSvGenotypesWithSnvs.min_carrier_accuracy": 0.50,
   "RefineSvGenotypesWithSnvs.min_imputation_r2": 0.1,
-  "RefineSvGenotypesWithSnvs.min_ld_r2": 0.1,
+  "RefineSvGenotypesWithSnvs.min_ld_r2": 0.05,
   "RefineSvGenotypesWithSnvs.min_snv_ac": 25,
   "RefineSvGenotypesWithSnvs.min_snv_call_rate": 0.95,
   "RefineSvGenotypesWithSnvs.min_sv_ac": 50,
