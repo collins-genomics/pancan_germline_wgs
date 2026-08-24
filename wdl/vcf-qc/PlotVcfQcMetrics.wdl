@@ -813,6 +813,7 @@ task PlotSampleBenchmarking {
     Float common_af_cutoff
     File? custom_plotting_constants
 
+    String gcp_machine_type = "n2d-standard-4"
     Float mem_gb = 7.5
     Int n_cpu = 4
     Int disk_gb = 50
@@ -896,6 +897,7 @@ CODE
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: gcp_machine_type
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
@@ -920,6 +922,7 @@ task PlotSampleMetrics {
     String output_prefix
     File? custom_plotting_constants
 
+    String gcp_machine_type = "n2d-standard-4"
     Float mem_gb = 7.5
     Int n_cpu = 4
     Int? disk_gb
@@ -1005,6 +1008,7 @@ task PlotSampleMetrics {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: gcp_machine_type
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"
@@ -1028,6 +1032,7 @@ task PlotSiteBenchmarking {
     Boolean deduplicate = false
     File? custom_plotting_constants
 
+    String? gcp_machine_type
     Float mem_gb = 7.5
     Int n_cpu = 4
     Int disk_gb = 50
@@ -1045,6 +1050,8 @@ task PlotSiteBenchmarking {
                                                  then flatten([eval_interval_names, ["All"]]) 
                                                  else eval_interval_names
   Int n_sets = length(eval_interval_names_plus_union)
+
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
 
   command <<<
     set -euo pipefail
@@ -1279,6 +1286,7 @@ CODE
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: machine_type
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
@@ -1320,6 +1328,7 @@ task PlotSiteMetrics {
     File? custom_plotting_constants
     Boolean deduplicate = false
 
+    String? gcp_machine_type
     Float mem_gb = 7.5
     Int n_cpu = 4
     Int? disk_gb
@@ -1375,6 +1384,8 @@ task PlotSiteMetrics {
   String ld_cmd = if has_ld then "--ld-stats ~{ld_stat_bname}" else ""
 
   Boolean has_common_variants = has_common_snvs || has_common_indels || has_common_svs
+
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
 
   command <<<
     set -eu -o pipefail
@@ -1456,6 +1467,7 @@ task PlotSiteMetrics {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: machine_type
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"
