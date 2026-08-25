@@ -75,7 +75,7 @@ filter.groups <- function(g.mems, ad, min.ac, train.sids=NULL){
   rownames(g.k) <- groups
   g.k <- g.k[order(-apply(g.k, 1, min)), ]
 
-  # Iteratively collapse groups until all groups are >= min.ac
+  # Iteratively collapse groups until all groups are >= min.ac or only one group remains
   if(any(apply(g.k, 1, min) < min.ac)){
     if("remaining" %in% rownames(g.k)){
       other.g <- g.mems[["remaining"]]
@@ -83,7 +83,7 @@ filter.groups <- function(g.mems, ad, min.ac, train.sids=NULL){
       g.k["remaining", ] <- c(0, 0)
       other.g <- c()
     }
-    while(any(apply(g.k, 1, min) < min.ac)){
+    while(any(apply(g.k, 1, min) < min.ac) & nrow(g.k) > 1){
       next.g <- tail(setdiff(rownames(g.k), "remaining"), 1)
       other.g <- unique(c(other.g, g.mems[[next.g]]))
       g.k["remaining", ] <- g.k["remaining", ] + g.k[next.g, ]
@@ -98,7 +98,6 @@ filter.groups <- function(g.mems, ad, min.ac, train.sids=NULL){
   # Return named list of group memberships
   names(g.mems) <- groups
   return(g.mems)
-
 }
 
 # Create cross-validation folds balanced by non-ref GT count
@@ -165,11 +164,16 @@ train.imputation <- function(sv.ad, snp.ad, train.sids, k=5, seed=2025){
   train.snp.ad <- snp.ad[intersect(train.sids, rownames(snp.ad)), , drop=FALSE]
 
   # Split samples into cross-validation folds balanced by number of non-ref GTs
-  fold.indexes <- make.cv.folds(round(train.sv.ad), k=k, seed=seed)
+  fold.indexes <- tryCatch(make.cv.folds(round(train.sv.ad), k=k, seed=seed),
+                           error=function(e){NULL})
+  if(is.null(fold.indexes)){return(NULL)}
 
   # Fit imputation model
-  suppressWarnings(train.elastic.net.cv(train.snp.ad, train.sv.ad,
-                                        fold.indexes=fold.indexes, seed=seed))
+  tryCatch(suppressWarnings(train.elastic.net.cv(train.snp.ad,
+                                                 train.sv.ad,
+                                                 fold.indexes=fold.indexes,
+                                                 seed=seed)),
+           error=function(e){NULL})
 }
 
 # Impute & scale SV allele dosages from a trained allele dosage regression model
@@ -493,13 +497,25 @@ for(group in names(groups)){
             "tag SNPs in",
             prettyNum(length(g.train.ids), big.mark=","), group,
             "training samples...\n"))
+  group.fit <- NULL
   group.fit <- train.imputation(sv.ad.adj, snp.ad, g.train.ids)
+  if(is.null(group.fit)){
+    cat(paste(" - SV imputation model failed to converge for", group,
+              "samples. Skipping to next group...\n"))
+    next
+  }
   cat(paste(" - Imputing SV allele dosages for",
             prettyNum(n.samples, big.mark=","), group, "samples...\n"))
   g.pred.ad <- impute.sv.ads(group.fit,
                              snp.ad[intersect(rownames(snp.ad), groups[[group]]), ],
                              sv.ad[g.train.ids])
   pred.ad <- c(pred.ad, g.pred.ad)
+}
+
+# Error out if model unable to fit for any group
+if(length(pred.ad) == 0){
+  cat("\nError: no imputation models fit successfully for any groups. Exiting.\n")
+  quit(status=1)
 }
 
 # Probabilistic genotype assignment

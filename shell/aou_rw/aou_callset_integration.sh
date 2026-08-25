@@ -8,7 +8,6 @@
 # Variant class integration after initial callset QC
 
 # Note that this code was ported from the All of Us Workbench v1.0 to v2.0 (Verily Pre)
-# It may no longer have reverse compatability with the legacy All of Us Workbench v1.0
 
 
 #########
