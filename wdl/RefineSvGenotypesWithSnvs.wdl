@@ -432,6 +432,7 @@ task ImputeSvs {
 
     Float min_ld_r2
     Int min_sv_ac
+    Int? min_train_sv_ac
     Int min_snv_ac = 1
     Float min_accuracy
     Float min_imputation_r2
@@ -461,6 +462,8 @@ task ImputeSvs {
   Int min_snv_ac_use = if min_snv_ac_nofloor < min_snv_ac then min_snv_ac else min_snv_ac_nofloor
 
   Array[Int] retry_counter = if mask_training_sv_gts then range(sv_mask_retries + 1) else [0]
+
+  Int min_training_ac = if defined(min_train_sv_ac) then min_train_sv_ac else min_sv_ac
 
   String outfile = output_prefix + ".imputation_results.tsv.gz"
   String out_log  = output_prefix + ".sv_imputation.log"
@@ -643,6 +646,7 @@ task ImputeSvs {
             ~{groups_cmd} \
             --training-samples ~{training_samples_list_use} \
             --min-ac ~{min_sv_ac} \
+            --min-training-ac ~{min_training_ac} \
             --min-snv-ac ~{min_snv_ac_use} \
             --min-accuracy ~{min_accuracy} \
             --min-r2 ~{min_imputation_r2} \

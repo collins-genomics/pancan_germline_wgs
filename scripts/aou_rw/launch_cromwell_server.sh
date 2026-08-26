@@ -15,9 +15,18 @@
 export GPROJECT="vanallen-pancan-germline-wgs"
 export MAIN_WORKSPACE_BUCKET=gs://rw-migration-aou-rw-84a0039b
 
+cd ~
+
 # Source .bashrc and bash utility functions
 . code/refs/dotfiles/aou.rw.bashrc
 . code/refs/general_bash_utils.sh
+
+# Ensure we are using Cromwell v92 to expose default machine types
+if ! [ -e ~/bin/cromwell-92.jar ]; then
+  mkdir ~/bin
+  wget -P ~/bin/ https://github.com/broadinstitute/cromwell/releases/download/92/cromwell-92.jar
+fi
+export CROMWELL_JAR=~/bin/cromwell-92.jar
 
 # Set terminal timezone to Eastern US time
 export TZDIR=$(python -c "import tzdata, os; print(os.path.join(os.path.dirname(tzdata.__file__), 'zoneinfo'))")
@@ -139,7 +148,7 @@ EOF
 
 # Launch cromwell in server mode
 echo -e "\nNow launching cromwell server using $CROMWELL_JAR"
-java -jar $CROMWELL_JAR --version
+echo -e "Cromwell version detected as: $( java -jar $CROMWELL_JAR --version )"
 java \
   -Xms12G \
   -Xmx48G \

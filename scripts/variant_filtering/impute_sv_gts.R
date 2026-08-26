@@ -223,11 +223,14 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, max.ref.start=0.1, seed=2
   # between het and hom clearly. In this case, we first try to filter more strictly
   # on high-quality hom alt GTs, otherwise we pretend no hom GTs exist
   if(hom.start <= 1.5*het.start){
-    # TODO: implement this
-    # stricter.hom.cutoff <- 1.5 * het.start
-    # hq.hom.ids <- which(pred.ad > stricter.hom.cutoff)
-    hom.start <- NULL
-    obs.acs <- setdiff(obs.acs, 2)
+    stricter.hom.cutoff <- 1.5 * het.start
+    hq.hom.ids <- which(pred.ad > stricter.hom.cutoff)
+    if(length(hq.hom.ids) > 10){
+      hom.start <- max(c(1.5*het.start, median(pred.ad[hq.hom.ids])))
+    }else{
+      hom.start <- NULL
+      obs.acs <- setdiff(obs.acs, 2)
+    }
   }else{
     # Otherwise, ensure hom.start is at least 75% greater than het start
     hom.start <- max(hom.start, het.start + (0.75*(het.start-ref.start)))
@@ -253,7 +256,12 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, max.ref.start=0.1, seed=2
   # Cluster all samples in untransformed AD space to identify high-confidence samples
   if(length(k.start) > 1){
     set.seed(seed)
-    pred.ac <- obs.acs[kmeans(pred.ad, centers=k.start)$cluster]
+    # In rare cases where technical covariates explain a large fraction of variance
+    # in raw SV ADs, we have observed pred.ad being almost completely uninformative.
+    # In these cases, kmeans fails because it returns one or more empty clusters.
+    # As a workaround, we can simply round predicted ADs to integers
+    pred.ac <- tryCatch(obs.acs[kmeans(pred.ad, centers=k.start)$cluster],
+                        error=function(e){round(pred.ad, 0)})
   }else{
     pred.ac <- rep(obs.acs, times=length(pred.ad))
   }
@@ -391,9 +399,13 @@ parser$add_argument("--sample-group-labels", metavar=".tsv", type="character",
                                "attempt imputation within each group that meets",
                                "--min-ac requirement"))
 parser$add_argument("--min-ac", metavar="int", type="numeric", default=20,
-                    help=paste("Minimum number of alt and ref alleles per group",
-                               "in --sample-group-labels to permit",
+                    help=paste("Minimum total number of alt and ref alleles per",
+                               "group in --sample-group-labels to permit",
                                "group-specific training."))
+parser$add_argument("--min-training-ac", metavar="int", type="numeric",
+                    help=paste("Minimum number of alt and ref alleles across all ",
+                               "--training-samples required to attempt imputation.",
+                               "Will default to --min-ac if not provided."))
 parser$add_argument("--min-snv-ac", metavar="int", type="numeric", default=10,
                     help=paste("Minimum number of alt and ref alleles for at least",
                                "one tag SNP per group in --sample-group-labels to",
@@ -425,12 +437,13 @@ args <- parser$parse_args()
 #              "min_accuracy" = 0.25,
 #              "min_r2" = 0.1,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_1405.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DEL_chr19_1405",
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DUP_chr19_466.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DUP_chr19_466",
 #              "training_samples" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.chr19.training_samples.list",
 #              "sample_covariates" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.qc_ancestry.tsv",
 #              "min_ac" = 50,
+#              "min_training_ac" = 25,
 #              "min_snv_ac" = 25,
 #              "min_accuracy" = 0.5,
 #              "min_r2" = 0.1,
@@ -440,6 +453,7 @@ args <- parser$parse_args()
 #              "sample_covariates" = NULL,
 #              "sample_group_labels" = NULL,
 #              "min_ac" = 10,
+#              "min_training_ac" = 10,
 #              "min_snv_ac" = 1,
 #              "min_accuracy" = 0.7,
 #              "min_r2" = 0.3,
@@ -477,6 +491,24 @@ if(!is.null(args$training_samples)){
 }
 if(!is.null(covars)){
   train.sids <- intersect(rownames(covars), train.sids)
+}
+
+# Enforce --min-training-ac here. If insufficient training data, exit without
+# error as this outcome is not indicative of an error during model fitting
+min.train.ac <- args$min_training_ac
+if(is.null(min.train.ac)){
+  min.train.ac <- args$min_ac
+}
+min.train.ac <- min(c(args$min_ac, min.train.ac))
+if(sum(sv.ad[train.sids] == 0) < min.train.ac){
+  cat(paste(" - Insufficient reference SV genotypes among training samples to",
+            "fit imputation model. Exiting with no error.\n"))
+  quit(status=0)
+}
+if(sum(sv.ad[train.sids] > 0) < min.train.ac){
+  cat(paste(" - Insufficient non-ref SV carriers among training samples to",
+            "fit imputation model. Exiting with no error.\n"))
+  quit(status=0)
 }
 
 # If provided, load groups and evaluate filtering to group-specific strata

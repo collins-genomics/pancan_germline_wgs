@@ -124,6 +124,7 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.ConcatVcfs.mem_gb": 32,
   "RefineSvGenotypesWithSnvs.ConcatSnvs.gcp_machine_type": "n2d-standard-2", 
   "RefineSvGenotypesWithSnvs.ImputeSvs.gcp_machine_type": "n2d-standard-2",
+  "RefineSvGenotypesWithSnvs.ImputeSvs.min_train_sv_ac": 25,
   "RefineSvGenotypesWithSnvs.ImputeSvs.sv_mask_retries": 2,
   "RefineSvGenotypesWithSnvs.QuerySnvs.gcp_machine_type": "n2d-standard-2",
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 1,
