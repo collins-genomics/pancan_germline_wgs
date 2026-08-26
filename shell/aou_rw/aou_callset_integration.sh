@@ -129,7 +129,7 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 1,
   "RefineSvGenotypesWithSnvs.UpdateGts.gq_offset": 10,
   "RefineSvGenotypesWithSnvs.breakpoint_window_bp": 500000,
-  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:e7f9386",
+  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:5271cd7",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
   "RefineSvGenotypesWithSnvs.min_carrier_accuracy": 0.50,

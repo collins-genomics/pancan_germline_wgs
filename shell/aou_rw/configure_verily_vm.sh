@@ -25,6 +25,13 @@ find code/ -name "*.py" | xargs -I {} chmod a+x {}
 find code/ -name "*.R" | xargs -I {} chmod a+x {}
 find code/ -name "*.sh" | xargs -I {} chmod a+x {}
 
+# Upgrade to Cromwell v92
+if ! [ -e ~/bin/cromwell-92.jar ]; then
+  mkdir ~/bin
+  wget -P ~/bin/ https://github.com/broadinstitute/cromwell/releases/download/92/cromwell-92.jar
+fi
+export CROMWELL_JAR=~/bin/cromwell-92.jar
+
 # Source .bashrc and bash utility functions
 . code/refs/dotfiles/aou.rw.bashrc
 . code/refs/general_bash_utils.sh

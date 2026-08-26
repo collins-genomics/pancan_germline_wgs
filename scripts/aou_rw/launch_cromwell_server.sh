@@ -138,6 +138,8 @@ cat << EOF > /home/jupyter/.cromshell/cromshell_config.json
 EOF
 
 # Launch cromwell in server mode
+echo -e "\nNow launching cromwell server using $CROMWELL_JAR"
+java -jar $CROMWELL_JAR --version
 java \
   -Xms12G \
   -Xmx48G \
