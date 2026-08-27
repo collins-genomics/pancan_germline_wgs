@@ -668,13 +668,18 @@ task ImputeSvs {
     done < svs.bed
 
     # Concatenate imputation results
-    cat imp_res/*.tsv \
-    | { grep -ve '^#' || true; } \
-    | cat imp_res_header.tsv - \
-    | gzip -c > ~{outfile}
-    n_imputed=$( zcat ~{outfile} | grep -ve '^#' | cut -f1 \
-                 | sort | uniq | wc -l || true )
-    echo "$n_imputed" > imputed_svs.count.txt
+    find imp_res -name "*.tsv" > results.list
+    if [ $( cat results.list | wc -l ) -eq 0 ]; then
+      cat imp_res_header.tsv | gzip -c > ~{outfile}
+      echo "0" > imputed_svs.count.txt
+    else
+      cat imp_res/*.tsv \
+      | { grep -ve '^#' || true; } \
+      | cat imp_res_header.tsv - \
+      | gzip -c > ~{outfile}
+      n_imputed=$( zcat ~{outfile} | grep -ve '^#' | cut -f1 | sort | uniq | wc -l || true )
+      echo "$n_imputed" > imputed_svs.count.txt
+    fi
   >>>
 
   output {
