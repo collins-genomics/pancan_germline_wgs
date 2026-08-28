@@ -46,6 +46,7 @@ workflow RefineSvGenotypesWithSnvs {
 
     # Imputation parameters
     Int max_snps_per_flank = 10          # Max number of SNPs to include per flank
+    Int min_tag_snps = 1                 # Minimum number of SNPs in LD with each SV to require before attempting imputation
     Float min_ld_r2 = 0.2                # Minimum LD between SNV & SV to permit for imputation
     String ref_build = "hg38"            # Plink-styled reference indicator
     Float min_carrier_accuracy = 0.7     # Minimum (carrier|ref) accuracy to accept an SV imputation model as well-fit
@@ -246,6 +247,7 @@ workflow RefineSvGenotypesWithSnvs {
             breakpoint_window_bp = breakpoint_window_bp,
             snv_freq_scalar = snv_freq_scalar,
             min_snv_ac = min_snv_ac,
+            min_tag_snvs = min_tag_snps,
             min_ld_r2 = min_ld_r2,
             min_accuracy = min_carrier_accuracy,
             min_imputation_r2 = min_imputation_r2,
@@ -434,6 +436,7 @@ task ImputeSvs {
     Int min_sv_ac
     Int? min_train_sv_ac
     Int min_snv_ac = 1
+    Int min_tag_snvs = 1
     Float min_accuracy
     Float min_imputation_r2
     String ref_build
@@ -606,10 +609,11 @@ task ImputeSvs {
           --out $svid/ld
         cut -f6,7 $svid/ld.vcor | sed '1d' | sort -nrk2,2 -k1,1V > $svid/ld.vcor.slim
 
-        # If no tag SNPs are found, do nothing more
-        if [ $( cat $svid/ld.vcor.slim | wc -l ) -eq 0 ]; then
+        # If insufficient tag SNPs are found, do nothing more
+        n_tag_snps=$( cat $svid/ld.vcor.slim | wc -l )
+        if [ $n_tag_snps -lt ~{min_tag_snvs} ]; then
           cp imp_res_header.tsv imp_res/$svid.imputation_results.tsv
-          echo -e "Found no tag SNPs for $svid; continuing...\n"
+          echo -e "Number of tag SNVs identified for $svid ($n_tag_snps) below minimum required (~{min_tag_snvs}); skipping...\n"
 
         # Otherwise, continue with imputation
         else
@@ -672,6 +676,7 @@ task ImputeSvs {
     if [ $( cat results.list | wc -l ) -eq 0 ]; then
       cat imp_res_header.tsv | gzip -c > ~{outfile}
       echo "0" > imputed_svs.count.txt
+      touch ~{out_log}
     else
       cat imp_res/*.tsv \
       | { grep -ve '^#' || true; } \

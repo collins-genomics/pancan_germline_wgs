@@ -100,16 +100,6 @@ filter.groups <- function(g.mems, ad, min.ac, train.sids=NULL){
   return(g.mems)
 }
 
-# Create cross-validation folds balanced by non-ref GT count
-make.cv.folds <- function(ad.v, k=5, seed=2025){
-  set.seed(seed)
-  ref.folds <- createFolds(which(ad.v == 0), k)
-  alt.folds <- createFolds(which(ad.v > 0), k)
-  lapply(1:k, function(i){
-    sort(unique(c(ref.folds[[i]], alt.folds[[i]])))
-  })
-}
-
 # Adjust SV allele dosages for covariates
 adjust.sv.ad <- function(sv.ad, train.sids, sv.id, covars=NULL, groups=NULL, k=5, seed=2025){
   # If covariates aren't supplied, do nothing
@@ -157,6 +147,33 @@ adjust.sv.ad <- function(sv.ad, train.sids, sv.id, covars=NULL, groups=NULL, k=5
   return(adj.ad)
 }
 
+# Create cross-validation folds balanced by non-ref GT count
+make.cv.folds <- function(ad.v, k=5, seed=2025){
+  set.seed(seed)
+
+  ref.idxs <- which(ad.v == 0)
+  if(length(ref.idxs) < k){
+    ref.folds <- lapply(1:k, function(i){
+      if(i <= length(ref.idxs)){ref.idxs[i]}else{c()}
+    })
+  }else{
+    ref.folds <- createFolds(ref.idxs, k)
+  }
+
+  alt.idxs <- which(ad.v > 0)
+  if(length(alt.idxs) < k){
+    alt.folds <- lapply(1:k, function(i){
+      if(i <= length(alt.idxs)){alt.idxs[i]}else{c()}
+    })
+  }else{
+    alt.folds <- createFolds(alt.idxs, k)
+  }
+
+  lapply(1:k, function(i){
+    sort(unique(c(ref.folds[[i]], alt.folds[[i]])))
+  })
+}
+
 # Train an SV genotype imputation model
 train.imputation <- function(sv.ad, snp.ad, train.sids, k=5, seed=2025){
   # Subset input data to training sids
@@ -198,12 +215,13 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, max.ref.start=0.1, seed=2
   train.sv.ac <- sapply(obs.acs, function(k){
     length(which(train.sv.ad[elig.train.ids] == k))
   })
-  ref.start <- if(0 %in% obs.acs & train.sv.ac[1] > 0){
+  names(train.sv.ac) <- obs.acs
+  ref.start <- if(0 %in% obs.acs & train.sv.ac["0"] > 0){
     min(c(median(pred.ad[names(which(train.sv.ad == 0))]), max.ref.start))
   }else{0}
   het.start <- hom.start <- NULL
   het.start <- if(1 %in% obs.acs){
-    if(train.sv.ac[which(obs.acs == 1)] > 0){
+    if(train.sv.ac["1"] > 0){
       median(pred.ad[intersect(names(which(train.sv.ad == 1)), elig.train.ids)])
     }
   }
@@ -211,7 +229,7 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, max.ref.start=0.1, seed=2
     het.start <- sum(range(pred.ad, na.rm=T))/2
   }
   hom.start <- if(2 %in% obs.acs){
-    if(train.sv.ac[which(obs.acs == 2)] > 0){
+    if(train.sv.ac["2"] > 0){
       median(pred.ad[intersect(names(which(train.sv.ad == 2)), elig.nonref)])
     }
   }
@@ -226,7 +244,7 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, max.ref.start=0.1, seed=2
     stricter.hom.cutoff <- 1.5 * het.start
     hq.hom.ids <- which(pred.ad > stricter.hom.cutoff)
     if(length(hq.hom.ids) > 10){
-      hom.start <- max(c(1.5*het.start, median(pred.ad[hq.hom.ids])))
+      hom.start <- max(c(1.5*het.start, median(pred.ad[hq.hom.ids], na.rm=T)))
     }else{
       hom.start <- NULL
       obs.acs <- setdiff(obs.acs, 2)
@@ -251,6 +269,13 @@ impute.sv.ads <- function(sv.fit, snp.ad, train.sv.ad, max.ref.start=0.1, seed=2
       names(new.pred.ad) <- names(pred.ad)
       return(pred.ad)
     }
+  }
+
+  # If only ref and hom GTs are observed, we should still consider the likelihood of
+  # heterozygotes during clustering, which we can instantiate as half of homozygotes
+  if(length(k.start) == 2 & !(1 %in% obs.acs)){
+    k.start <- c(k.start[1], k.start[2]/2, k.start[2])
+    obs.acs <- 0:2
   }
 
   # Cluster all samples in untransformed AD space to identify high-confidence samples
@@ -437,8 +462,8 @@ args <- parser$parse_args()
 #              "min_accuracy" = 0.25,
 #              "min_r2" = 0.1,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DUP_chr19_466.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DUP_chr19_466",
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DUP_chr19_2305.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DUP_chr19_2305",
 #              "training_samples" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.chr19.training_samples.list",
 #              "sample_covariates" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.qc_ancestry.tsv",
@@ -519,6 +544,18 @@ groups <- filter.groups(groups, sv.ad, args$min_ac, train.sids)
 # Adjust SV ADs if covariates were provided
 sv.ad.adj <- adjust.sv.ad(sv.ad, train.sids, args$sv_id, covars, groups)
 
+# After AD adjustment, re-check if training AC counts are too sparse,
+# in which case we fall back to using the raw ADs for model training
+if(sum(round(sv.ad.adj[train.sids], 0) == 0) < min.train.ac){
+  cat(paste(" - Insufficient reference SV genotypes remain among training",
+            "samples after adjustment. Reverting to raw SV ADs.\n"))
+  sv.ad.adj <- sv.ad
+}else if(sum(round(sv.ad.adj[train.sids], 0) > 0) < min.train.ac){
+  cat(paste(" - Insufficient non-ref SV carriers remain among training samples",
+            "after adjustment. Reverting to raw SV ADs.\n"))
+  sv.ad.adj <- sv.ad
+}
+
 # Train & apply imputation model for each group
 pred.ad <- c()
 for(group in names(groups)){
@@ -546,8 +583,10 @@ for(group in names(groups)){
 
 # Error out if model unable to fit for any group
 if(length(pred.ad) == 0){
-  cat("\nError: no imputation models fit successfully for any groups. Exiting.\n")
-  quit(status=1)
+  cat(paste("\nError: no imputation models fit successfully for any groups.",
+            "This may infrequently happen by chance, but also may indicate a",
+            "pathologic error. Exiting.\n"))
+  quit(status=0)
 }
 
 # Probabilistic genotype assignment

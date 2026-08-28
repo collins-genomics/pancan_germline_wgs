@@ -115,6 +115,27 @@ gsutil -m cp \
   $staging_dir/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.*.tsv \
   $MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/
 
+# Write contig-specific no-call rate to account for higher NCR on chrY
+if ! [ -e $staging_dir/dfci-g2c.sample_meta.gatkhc_posthoc_outliers.tsv.gz ]; then
+  gsutil -m cp \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/qc-filtering/dfci-g2c.sample_meta.gatkhc_posthoc_outliers.tsv.gz \
+    $staging_dir/
+fi
+echo "{ " > $staging_dir/RefineSvGenotypesWithSnvs.contig_variable_overrides.json
+while read contig; do
+  if [ $contig == "chrY" ]; then
+    callrate=$( zcat $staging_dir/dfci-g2c.sample_meta.gatkhc_posthoc_outliers.tsv.gz \
+                | awk -v FS="\t" '{ if ($NF=="True") print }' \
+                | awk -v FS="\t" '{ if ($5=="male") nmale+=1 }END{ print (nmale / NR) - 0.05 }' )
+  else
+    callrate=0.95
+  fi
+  echo "\"$contig\" : {\"CONTIG_CALL_RATE\" : $callrate},"
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
+| paste -s -d\  | sed 's/,$//g' \
+>> $staging_dir/RefineSvGenotypesWithSnvs.contig_variable_overrides.json
+echo " }" >> $staging_dir/RefineSvGenotypesWithSnvs.contig_variable_overrides.json
+
 # Write template input .json for SV GT refinement
 cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
@@ -133,14 +154,15 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:9b68ca3",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
+  "RefineSvGenotypesWithSnvs.min_an": 2000,
   "RefineSvGenotypesWithSnvs.min_carrier_accuracy": 0.50,
   "RefineSvGenotypesWithSnvs.min_imputation_r2": 0.1,
   "RefineSvGenotypesWithSnvs.min_ld_r2": 0.05,
   "RefineSvGenotypesWithSnvs.min_snv_ac": 25,
-  "RefineSvGenotypesWithSnvs.min_snv_call_rate": 0.95,
+  "RefineSvGenotypesWithSnvs.min_snv_call_rate": \$CONTIG_CALL_RATE,
   "RefineSvGenotypesWithSnvs.min_sv_ac": 50,
   "RefineSvGenotypesWithSnvs.min_sv_af": 0,
-  "RefineSvGenotypesWithSnvs.min_an": 2000,
+  "RefineSvGenotypesWithSnvs.min_tag_snps": 2,
   "RefineSvGenotypesWithSnvs.output_prefix": "dfci-g2c.v1.\$CONTIG",
   "RefineSvGenotypesWithSnvs.sample_covariates": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
   "RefineSvGenotypesWithSnvs.sample_group_labels": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_ancestry.tsv",
@@ -159,6 +181,7 @@ EOF
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/pancan_germline_wgs/RefineSvGenotypesWithSnvs.wdl \
   --input-json-template $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json \
+  --contig-variable-overrides $staging_dir/RefineSvGenotypesWithSnvs.contig_variable_overrides.json \
   --dependencies-zip g2c.dependencies.zip \
   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup \
   --name RefineSvGenotypesWithSnvs \
