@@ -391,15 +391,22 @@ impute.gts <- function(pred.ad, train.sv.ad, min.n.per.ac=10,
 
   # Compute GT and GQ per sample
   gt.gq <- t(apply(gt.pl.norm, 1, function(pls){
-    best.idx <- head(which(pls == min(pls)), 1)
-    gt <- c("0/0", "0/1", "1/1")[best.idx]
-    gq <- round(min(c(abs(min(pls[-best.idx]) - pls[best.idx]), 99)), 0)
-    c(gt, gq)
+    if(all(is.na(pls))){
+      c(NA, NA)
+    }else if(all(pls == 0)){
+      c(NA, NA)
+    }else{
+      best.idx <- head(which(pls == min(pls)), 1)
+      gt <- c("0/0", "0/1", "1/1")[best.idx]
+      gq <- round(min(c(abs(min(pls[-best.idx]) - pls[best.idx]), 99)), 0)
+      c(gt, gq)
+    }
   }))
 
   # Summarize imputation results
   res <- as.data.frame(merge(gt.gq, as.data.frame(pred.ad), by="row.names"))
   colnames(res) <- c("sample", "GT", "GQ", "AD")
+  res$AD[which(is.infinite(res$AD))] <- NA
   res$AD <- round(res$AD, 2)
   return(res)
 }
@@ -462,8 +469,8 @@ args <- parser$parse_args()
 #              "min_accuracy" = 0.25,
 #              "min_r2" = 0.1,
 #              "out_tsv" = "~/scratch/sv_imp.test.tsv")
-# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chr19.final_cleanup_DUP_chr19_2305.ad.tsv.gz",
-#              "sv_id" = "dfci-g2c.v1.chr19.final_cleanup_DUP_chr19_2305",
+# args <- list("ad" = "~/Downloads/dfci-g2c.v1.chrY.final_cleanup_DEL_chrY_3347.ad.tsv.gz",
+#              "sv_id" = "dfci-g2c.v1.chrY.final_cleanup_DEL_chrY_3347",
 #              "training_samples" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.chr19.training_samples.list",
 #              "sample_covariates" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.sv_imputation_covariates.tsv.gz",
 #              "sample_group_labels" = "~/Downloads/sv_imp_dbg_data/dfci-g2c.v1.qc_ancestry.tsv",
@@ -596,7 +603,8 @@ cat(paste(" - Predicting SV genotypes for",
 imp.res <- impute.gts(pred.ad, sv.ad[train.sids])
 
 # Check concordance of imputed GTs vs. original genotypes
-c.dat <- merge(data.frame("sv.ad"=sv.ad[which(!is.na(sv.ad))]), imp.res,
+c.dat <- merge(data.frame("sv.ad"=sv.ad[which(!is.na(sv.ad))]),
+               imp.res,
                by.x="row.names", by.y="sample",
                all=F, sort=F)[, c("sv.ad", "AD", "GT")]
 final.r2 <- cor(c.dat$sv.ad, c.dat$AD, use="complete.obs")^2
@@ -604,7 +612,7 @@ if(is.na(final.r2)){
   final.r2 <- 0
 }
 c.dat$OGT <- remap(c.dat$sv.ad, c("0" = "0/0", "1" = "0/1", "2" = "1/1"))
-gt.acc <- sum(c.dat$OGT == c.dat$GT) / nrow(c.dat)
+gt.acc <- sum(c.dat$OGT == c.dat$GT, na.rm=T) / nrow(c.dat)
 carrier.acc <- sum(apply(c.dat[, c("GT", "OGT")], 1, function(v){
   length(unique(v == "0/0")) == 1
 })) / nrow(c.dat)

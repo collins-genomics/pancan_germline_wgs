@@ -139,11 +139,12 @@ echo " }" >> $staging_dir/RefineSvGenotypesWithSnvs.contig_variable_overrides.js
 # Write template input .json for SV GT refinement
 cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
 {
+  "RefineSvGenotypesWithSnvs.ConcatSnvs.gcp_machine_type": "n2d-standard-2", 
   "RefineSvGenotypesWithSnvs.ConcatVcfs.boot_disk_gb": 30,
   "RefineSvGenotypesWithSnvs.ConcatVcfs.cpu_cores": 8,
   "RefineSvGenotypesWithSnvs.ConcatVcfs.disk_gb": 500,
   "RefineSvGenotypesWithSnvs.ConcatVcfs.mem_gb": 32,
-  "RefineSvGenotypesWithSnvs.ConcatSnvs.gcp_machine_type": "n2d-standard-2", 
+  "RefineSvGenotypesWithSnvs.ConcatVcfs.gcp_machine_type": "",
   "RefineSvGenotypesWithSnvs.ImputeSvs.gcp_machine_type": "n2d-standard-2",
   "RefineSvGenotypesWithSnvs.ImputeSvs.min_train_sv_ac": 25,
   "RefineSvGenotypesWithSnvs.ImputeSvs.sv_mask_retries": 2,
@@ -151,7 +152,7 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 1,
   "RefineSvGenotypesWithSnvs.UpdateGts.gq_offset": 10,
   "RefineSvGenotypesWithSnvs.breakpoint_window_bp": 500000,
-  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:9b68ca3",
+  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:bd635b6",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
   "RefineSvGenotypesWithSnvs.min_an": 2000,
@@ -189,8 +190,8 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.RefineSvGenotypesWithSnvs.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
-  --submission-gate 720 \
-  --vm-gate 300 \
+  --submission-gate 360 \
+  --vm-gate 500 \
   --max-attempts 3
 
 
