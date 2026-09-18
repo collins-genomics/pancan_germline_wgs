@@ -503,8 +503,15 @@ sv.ad <- ad[, args$sv_id]
 names(sv.ad) <- rownames(ad)
 snp.ad <- ad[, setdiff(colnames(ad), args$sv_id), drop=F]
 rownames(snp.ad) <- rownames(ad)
-snp.ad <- impute.missing.values(snp.ad)
+# To handle chrY, we need to outright remove samples with no called SNP genotypes
+no.snps <- which(apply(snp.ad, 1, function(v){all(is.na(v))}))
+if(length(no.snps) > 0){
+  snp.ad <- snp.ad[-no.snps, ]
+}
 target.sids <- rownames(snp.ad)
+sv.ad <- sv.ad[target.sids]
+ad <- ad[target.sids, ]
+snp.ad <- impute.missing.values(snp.ad)
 # For glmnet compatability, the snp.ad matrix must have at least two columns
 # If only one tag SNP is identified, we add a dummy second SNP with all AD=0
 if(ncol(snp.ad) == 1){

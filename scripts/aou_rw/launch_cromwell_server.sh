@@ -103,7 +103,7 @@ backend {
         }
 
         batch {
-          auth = "application-default"
+          auth = "application_default"
           compute-service-account = "${PET_SA_EMAIL}"
           location = "us-central1"
         }
@@ -114,7 +114,7 @@ backend {
         
         filesystems {
           gcs {
-              auth = "application-default"
+              auth = "application_default"
           }
         }
       }
