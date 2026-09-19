@@ -152,7 +152,7 @@ cat << EOF > $staging_dir/RefineSvGenotypesWithSnvs.inputs.template.json
   "RefineSvGenotypesWithSnvs.QuerySnvs.n_preemptible": 1,
   "RefineSvGenotypesWithSnvs.UpdateGts.gq_offset": 10,
   "RefineSvGenotypesWithSnvs.breakpoint_window_bp": 500000,
-  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:4223258",
+  "RefineSvGenotypesWithSnvs.g2c_analysis_docker": "vanallenlab/g2c_analysis:e4eaf92",
   "RefineSvGenotypesWithSnvs.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "RefineSvGenotypesWithSnvs.linux_docker": "ubuntu:plucky-20251001",
   "RefineSvGenotypesWithSnvs.min_an": 2000,
@@ -202,8 +202,8 @@ code/scripts/manage_chromshards.py \
 # Note: this workflow below is scattered across all five workspaces for 
 # max parallelization. It must be submitted as below in each workspace.
 
-# Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
-~/code/scripts/rotate_cromwell_cache.sh
+# Clear Cromwell cache before embarking on these workflows, which have large scatter counts
+~/code/scripts/rotate_cromwell_cache.sh delete
 
 # Reaffirm staging directory
 staging_dir=staging/gatksv_qc_post_imputation
@@ -383,7 +383,7 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotGatksvQcPostImputation.i
   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv-gt-imputation-qc/dfci-g2c.v1.gatksv.qc_targets.tsv",
   "PlotVcfQcMetrics.deduplicate": true,
-  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:ed9676d",
+  "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:e4eaf92",
   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.gatksv_qc_post_imputation",
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.gcp_machine_type": "n2d-standard-8",
