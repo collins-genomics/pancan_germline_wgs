@@ -1243,7 +1243,7 @@ task MergeAndReshardVcfs {
 
     String bcftools_concat_options = ""
 
-    String gcp_machine_type = "n2d-standard-2"
+    String? gcp_machine_type
     Float mem_gb = 3.5
     Int cpu_cores = 2
     Int? disk_gb
@@ -1252,6 +1252,7 @@ task MergeAndReshardVcfs {
     String bcftools_docker
   }
 
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int default_disk_gb = ceil(5 * size(vcfs, "GB")) + 25
 
   command <<<
@@ -1289,7 +1290,7 @@ task MergeAndReshardVcfs {
 
   runtime {
     docker: bcftools_docker
-    predefinedMachineType: gcp_machine_type
+    predefinedMachineType: machine_type
     memory: mem_gb + " GB"
     cpu: cpu_cores
     disks: "local-disk " + select_first([disk_gb, default_disk_gb]) + " HDD"

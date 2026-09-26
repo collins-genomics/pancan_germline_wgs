@@ -388,7 +388,7 @@ cat << EOF | python -m json.tool > cromshell/inputs/PlotGatksvQcPostImputation.i
   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
   "PlotVcfQcMetrics.PlotSiteBenchmarking.gcp_machine_type": "n2d-standard-8",
   "PlotVcfQcMetrics.PlotSiteMetrics.gcp_machine_type": "n2d-standard-8",
-  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/snv-outlier-excluded-qc/PlotDevGatksvQc/dfci-g2c.v1.snv_outlier_excluded_dev_gatksv_qc.all_qc_summary_metrics.tsv",
+  "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/snv-outlier-excluded-qc/PlotGatksvQc/dfci-g2c.v1.snv_outlier_excluded_gatksv_qc.all_qc_summary_metrics.tsv",
   "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
   "PlotVcfQcMetrics.ref_cohort_prefix": "gnomAD_v4.1",
@@ -453,241 +453,240 @@ gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotGatksvQcPostImputation.job
 cleanup_garbage
 
 
-### ALL CODE BELOW THIS POINT IS STILL BEING PORTED TO AOU RW v2.0
-### It will be uncommented as it is ported
+####################################
+# Determine final variant sharding #
+####################################
 
+# The below must be run once for each workspace
 
-# ####################################
-# # Determine final variant sharding #
-# ####################################
+# Reaffirm staging directory
+staging_dir=staging/indel_sv_integration
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+gsutil cp gs://dfci-g2c-refs/hg38/hg38.genome $staging_dir/
 
-# # The below must be run once for each workspace
+# Download & index raw VCF QC maps
+while read contig; do
+  # Prep contig-specific directory
+  csdir=$staging_dir/$contig
+  if [ -e $csdir ]; then rm -rf $csdir; fi
+  mkdir $csdir
 
-# # Reaffirm staging directory
-# staging_dir=staging/indel_sv_integration
-# if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
-# gsutil cp gs://dfci-g2c-refs/hg38/hg38.genome $staging_dir/
+  # Localize & index variant maps
+  for vc in snvs indels svs; do
+    key="all_${vc}_bed"
+    gsutil -m cat \
+      $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/VcfQcMetrics/$contig/CollectInitialVcfQcMetrics.$contig.outputs.json \
+    | jq .\"CollectVcfQcMetrics.$key\" \
+    | tr -d '"' \
+    | gsutil -m cp -I $csdir/
+    tabix -p bed -f $csdir/dfci-g2c.v1.initial_qc.$contig.all_$vc.bed.gz
+  done
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list
 
-# # Download & index raw VCF QC maps
-# while read contig; do
-#   # Prep contig-specific directory
-#   csdir=$staging_dir/$contig
-#   if [ -e $csdir ]; then rm -rf $csdir; fi
-#   mkdir $csdir
+# Define final analysis shard intervals for SNVs, indels, and SVs
+# Rough logic: all chromosomes in a workspace should sum to ~1.5x AoU Cromwell quota (2k x 1.5 ~ 3k)
+# These 3k shards should be divided among chromosomes based on total variant count
+# Then, within each chromosome, they should be partitioned by variant class count
+# And along each chromosome should be segmented based on density
+# Desired end result: all VCF shards should have roughly the same number of records
 
-#   # Localize & index variant maps
-#   for vc in snvs indels svs; do
-#     key="all_${vc}_bed"
-#     gsutil -m cat \
-#       $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/VcfQcMetrics/$contig/CollectInitialVcfQcMetrics.$contig.outputs.json \
-#     | jq .\"CollectVcfQcMetrics.$key\" \
-#     | tr -d '"' \
-#     | gsutil -m cp -I $csdir/
-#     tabix -p bed -f $csdir/dfci-g2c.v1.initial_qc.$contig.all_$vc.bed.gz
-#   done
-# done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+# First, get variant counts by class per contig
+while read contig; do
+  for wrapper in 1; do
+    echo $contig
+    for vc in snv indel sv; do
+      zcat $staging_dir/$contig/dfci-g2c.v1.initial_qc.$contig.all_${vc}s.bed.gz \
+      | grep -ve '^#' | wc -l
+    done
+  done | paste -s \
+  | awk -v FS="\t" -v OFS="\t" '{ sum=$2+$3+$4 }END{ print $0, sum }'
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
+> $staging_dir/contig.variant_counts.tsv
 
-# # Define final analysis shard intervals for SNVs, indels, and SVs
-# # Rough logic: all chromosomes in a workspace should sum to ~2x AoU Cromwell quota (1.1k x 2 ~ 2k)
-# # These 2k shards should be divided among chromosomes based on total variant count
-# # Then, within each chromosome, they should be partitioned by variant class count
-# # And along each chromosome should be segmented based on density
-# # Desired end result: all VCF shards should have roughly the same number of records
+# Second, determine shards allocated per contig
+denom=$( awk '{ sum+=$5 }END{ print sum }' $staging_dir/contig.variant_counts.tsv )
+awk -v scalar=3000 -v denom=$denom -v FS="\t" -v OFS="\t" \
+  '{ print $1, int(scalar * $5 / denom) }' \
+  $staging_dir/contig.variant_counts.tsv \
+> $staging_dir/shards_per_contig.tsv
 
-# # First, get variant counts by class per contig
-# while read contig; do
-#   for wrapper in 1; do
-#     echo $contig
-#     for vc in snv indel sv; do
-#       zcat $staging_dir/$contig/dfci-g2c.v1.initial_qc.$contig.all_${vc}s.bed.gz \
-#       | grep -ve '^#' | wc -l
-#     done
-#   done | paste -s \
-#   | awk -v FS="\t" -v OFS="\t" '{ sum=$2+$3+$4 }END{ print $0, sum }'
-# done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
-# > $staging_dir/contig.variant_counts.tsv
-
-# # Second, determine shards allocated per contig
-# denom=$( awk '{ sum+=$5 }END{ print sum }' $staging_dir/contig.variant_counts.tsv )
-# awk -v scalar=2000 -v denom=$denom -v FS="\t" -v OFS="\t" \
-#   '{ print $1, int(scalar * $5 / denom) }' \
-#   $staging_dir/contig.variant_counts.tsv \
-# > $staging_dir/shards_per_contig.tsv
-
-# # Third, partition shards across variant classes per contig
-# while read contig; do
-#   # Compute number of variants to allocate per shard
-#   total_var=$( awk -v FS="\t" -v contig=$contig \
-#                  '{ if ($1==contig) print $5 }' \
-#                  $staging_dir/contig.variant_counts.tsv )
-#   total_shards=$( awk -v FS="\t" -v contig=$contig \
-#                     '{ if ($1==contig) print $2 }' \
-#                     $staging_dir/shards_per_contig.tsv )
-#   vps=$( echo "" | awk -v n=$total_var -v d=$total_shards '{ print int(n/d) }' )
+# Third, partition shards across variant classes per contig
+while read contig; do
+  # Compute number of variants to allocate per shard
+  total_var=$( awk -v FS="\t" -v contig=$contig \
+                 '{ if ($1==contig) print $5 }' \
+                 $staging_dir/contig.variant_counts.tsv )
+  total_shards=$( awk -v FS="\t" -v contig=$contig \
+                    '{ if ($1==contig) print $2 }' \
+                    $staging_dir/shards_per_contig.tsv )
+  vps=$( echo "" | awk -v n=$total_var -v d=$total_shards '{ print int(n/d) }' )
   
-#   # Shard intervals for each variant class
-#   csdir=$staging_dir/$contig
-#   awk -v contig=$contig -v OFS="\t" \
-#     '{ if ($1==contig) print contig, 1, $2, "+", contig }' \
-#     $staging_dir/hg38.genome \
-#   > $csdir/$contig.full.interval_list
-#   for vc in snv indel sv; do
-#     code/scripts/split_intervals.py \
-#       -i $csdir/$contig.full.interval_list \
-#       --var-sites $csdir/dfci-g2c.v1.initial_qc.$contig.all_${vc}s.bed.gz \
-#       --vars-per-shard $vps \
-#       --bed-style \
-#       --verbose \
-#     | awk -v OFS="\t" -v prefix="dfci-g2c.v1.$vc.$contig" \
-#       '{ print $0, prefix"."NR }' \
-#     | bgzip -c \
-#     > $staging_dir/dfci-g2c.v1.analysis_shards.$contig.$vc.bed.gz
-#     tabix -p bed -f $staging_dir/dfci-g2c.v1.analysis_shards.$contig.$vc.bed.gz
-#   done
-# done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+  # Shard intervals for each variant class
+  csdir=$staging_dir/$contig
+  awk -v contig=$contig -v OFS="\t" \
+    '{ if ($1==contig) print contig, 1, $2, "+", contig }' \
+    $staging_dir/hg38.genome \
+  > $csdir/$contig.full.interval_list
+  for vc in snv indel sv; do
+    code/scripts/split_intervals.py \
+      -i $csdir/$contig.full.interval_list \
+      --var-sites $csdir/dfci-g2c.v1.initial_qc.$contig.all_${vc}s.bed.gz \
+      --vars-per-shard $vps \
+      --bed-style \
+      --verbose \
+    | awk -v OFS="\t" -v prefix="dfci-g2c.v1.$vc.$contig" \
+      '{ print $0, prefix"."NR }' \
+    | bgzip -c \
+    > $staging_dir/dfci-g2c.v1.analysis_shards.$contig.$vc.bed.gz
+    tabix -p bed -f $staging_dir/dfci-g2c.v1.analysis_shards.$contig.$vc.bed.gz
+  done
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list
 
-# # Once complete, copy all final sharded intervals to a permanent staging bucket
-# gsutil -m cp \
-#   $staging_dir/dfci-g2c.v1.analysis_shards.chr*.*.bed.gz* \
-#   $MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/
+# Once complete, copy all final sharded intervals to a permanent staging bucket
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.analysis_shards.chr*.*.bed.gz* \
+  $MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/
 
 
-# #############################################################
-# # Collect baseline indel + SV QC metrics before integration #
-# #############################################################
+#############################################################
+# Collect baseline indel + SV QC metrics before integration #
+#############################################################
 
-# # To accurately assess the impact of indel/SV integration, we must first 
-# # rerun QC on the raw callset after restricting to raw indels + post-imputation SVs
+# To accurately assess the impact of indel/SV integration, we must first 
+# rerun QC on the raw callset after restricting to raw indels + post-imputation SVs
 
-# # Note: this workflow below is scattered across all five workspaces for 
-# # max parallelization. It must be submitted as below in each workspace.
+# Note: this workflow below is scattered across all five workspaces for 
+# max parallelization. It must be submitted as below in each workspace.
 
-# # Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
-# ~/code/scripts/rotate_cromwell_cache.sh
+# Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
+~/code/scripts/rotate_cromwell_cache.sh delete
 
-# # Reaffirm staging directory
-# staging_dir=staging/pre_integration_qc
-# if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+# Reaffirm staging directory
+staging_dir=staging/pre_integration_qc
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
-# # Check to ensure there is a local copy of calling intervals
-# if ! [ -e $staging_dir/calling_intervals ]; then
-#   mkdir $staging_dir/calling_intervals
-#   gsutil -m cp \
-#     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/*.sharded.interval_list \
-#     $staging_dir/calling_intervals/
-# fi
+# Check to ensure there is a local copy of calling intervals
+if ! [ -e $staging_dir/calling_intervals ]; then
+  mkdir $staging_dir/calling_intervals
+  gsutil -m cp \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/refs/*.sharded.interval_list \
+    $staging_dir/calling_intervals/
+fi
 
-# # Write two-column .tsv of VCF & index info for each contig
-# while read contig; do
-#   gsutil cat \
-#     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2/$contig/PosthocCleanupPart2.$contig.outputs.json \
-#   | jq '.["PosthocCleanupPart2.filtered_vcfs"]' \
-#   | fgrep "gs://" | awk '{ print $1 }' | tr -d '",' \
-#   | cat - <( echo -e "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/$contig/FixTypo/dfci-g2c.v1.$contig.imputed.typo_fixed.vcf.gz" ) \
-#   | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
-#   > $staging_dir/dfci-g2c.v1.pre_integration_qc.vcf_info.$contig.tsv
-# done < contig_lists/dfci-g2c.v1.contigs.$WN.list
-# gsutil -m cp \
-#   $staging_dir/dfci-g2c.v1.pre_integration_qc.vcf_info.*.tsv \
-#   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/vcf_list_inputs/
+# Write two-column .tsv of VCF & index info for each contig
+# Note that we had to rerun this after migrating from AoU RW v1.0 to v2.0 (Verily Pre)
+# Thus, we had to re-prefix all SNV/indel VCFs per the below
+while read contig; do
+  gsutil cat \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-hc/PosthocCleanupPart2/$contig/PosthocCleanupPart2.$contig.outputs.json \
+  | jq '.["PosthocCleanupPart2.filtered_vcfs"]' \
+  | fgrep "gs://" | awk '{ print $1 }' | tr -d '",' | cut -f4- -d\/ \
+  | awk -v bucket="$MAIN_WORKSPACE_BUCKET" -v OFS="/" '{ print bucket, $1 }' \
+  | cat - <( echo -e "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/$contig/ConcatVcfs/dfci-g2c.v1.$contig.imputed.vcf.gz" ) \
+  | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
+  > $staging_dir/dfci-g2c.v1.pre_integration_qc.vcf_info.$contig.tsv
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.pre_integration_qc.vcf_info.*.tsv \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/vcf_list_inputs/
 
-# # Initialize .json of contig-specific overrides for scatter counts
-# echo "{ " > $staging_dir/CollectPreIntegrationQcMetrics.contig_variable_overrides.json
-# while read contig; do
-#   kc=$( fgrep -v "@" \
-#           $staging_dir/calling_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
-#         | wc -l | awk '{ printf "%i\n", $1 / 3 }' )
-#   echo "\"$contig\" : {\"CONTIG_SCATTER_COUNT\" : $kc},"
-# done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
-# | paste -s -d\  | sed 's/,$//g' \
-# >> $staging_dir/CollectPreIntegrationQcMetrics.contig_variable_overrides.json
-# echo " }" >> $staging_dir/CollectPreIntegrationQcMetrics.contig_variable_overrides.json
+# Initialize .json of contig-specific overrides for scatter counts
+echo "{ " > $staging_dir/CollectPreIntegrationQcMetrics.contig_variable_overrides.json
+while read contig; do
+  kc=$( fgrep -v "@" \
+          $staging_dir/calling_intervals/gatkhc.wgs_calling_regions.hg38.$contig.sharded.interval_list \
+        | wc -l | awk '{ printf "%i\n", $1 / 3 }' )
+  echo "\"$contig\" : {\"CONTIG_SCATTER_COUNT\" : $kc},"
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
+| paste -s -d\  | sed 's/,$//g' \
+>> $staging_dir/CollectPreIntegrationQcMetrics.contig_variable_overrides.json
+echo " }" >> $staging_dir/CollectPreIntegrationQcMetrics.contig_variable_overrides.json
 
-# # Write template input .json for QC metric collection
-# cat << EOF > $staging_dir/CollectPreIntegrationQcMetrics.inputs.template.json
-# {
-#   "CollectVcfQcMetrics.all_samples_fam_file": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/refs/dfci-g2c.all_samples.ped",
-#   "CollectVcfQcMetrics.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
-#   "CollectVcfQcMetrics.benchmarking_shards": \$CONTIG_SCATTER_COUNT,
-#   "CollectVcfQcMetrics.benchmark_interval_beds": ["gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.easy.\$CONTIG.bed.gz",
-#                                                   "gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz"],
-#   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
-#   "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.0,
-#   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_mem_gb": 3.75,
-#   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_n_cpu": 2,
-#   "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 40,
-#   "CollectVcfQcMetrics.CalcCommonLd.max_disk_gb": 1000,
-#   "CollectVcfQcMetrics.ChunkCommonVcf.disk_gb": 1000,
-#   "CollectVcfQcMetrics.ChunkCommonVcf.n_preemptible": 0,
-#   "CollectVcfQcMetrics.ChunkCommonVcf.mem_gb": 15.5,
-#   "CollectVcfQcMetrics.ChunkCommonVcf.cpu_cores": 4,
-#   "CollectVcfQcMetrics.common_af_cutoff": 0.001,
-#   "CollectVcfQcMetrics.ConcatGenotypeTsvs.disk_gb": 270,
-#   "CollectVcfQcMetrics.ConcatGenotypeTsvs.mem_gb": 15.5,
-#   "CollectVcfQcMetrics.ConcatGenotypeTsvs.n_cpu": 4,
-#   "CollectVcfQcMetrics.extra_vcf_preprocessing_commands": "| bcftools view --exclude-types snps ",
-#   "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:e721bdf",
-#   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
-#   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
-#   "CollectVcfQcMetrics.n_for_sample_level_analyses": 5000,
-#   "CollectVcfQcMetrics.output_prefix": "dfci-g2c.v1.pre_integration_qc.\$CONTIG",
-#   "CollectVcfQcMetrics.PreprocessVcf.mem_gb": 24,
-#   "CollectVcfQcMetrics.PreprocessVcf.n_cpu": 4,
-#   "CollectVcfQcMetrics.ref_build": "hg38",
-#   "CollectVcfQcMetrics.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
-#   "CollectVcfQcMetrics.ref_fasta_idx" : "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai",
-#   "CollectVcfQcMetrics.sample_benchmark_dataset_names": ["external_srwgs", "external_lrwgs"],
-#   "CollectVcfQcMetrics.sample_benchmark_id_maps": [["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv"],
-#                                                    ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv"]],
-#   "CollectVcfQcMetrics.sample_benchmark_vcfs": [["gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/snv_indel/1KGP.srWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
-#                                                  "gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/sv/1KGP.srWGS.sv.cleaned.\$CONTIG.vcf.gz",
-#                                                  "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/snv_indel/AoU.srWGS.snv_indel.cleaned.\$CONTIG.vcf.bgz",
-#                                                  "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/sv/AoU.srWGS.sv.cleaned.\$CONTIG.vcf.gz"],
-#                                                 ["gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/snv_indel/1KGP.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
-#                                                  "gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/sv/1KGP.lrWGS.sv.cleaned.\$CONTIG.vcf.gz",
-#                                                  "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/snv_indel/AoU.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
-#                                                  "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/sv/AoU.lrWGS.sv.cleaned.\$CONTIG.vcf.gz"]],
-#   "CollectVcfQcMetrics.sample_benchmark_vcf_idxs": [["gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/snv_indel/1KGP.srWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
-#                                                      "gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/sv/1KGP.srWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi",
-#                                                      "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/snv_indel/AoU.srWGS.snv_indel.cleaned.\$CONTIG.vcf.bgz",
-#                                                      "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/sv/AoU.srWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi"],
-#                                                     ["gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/snv_indel/1KGP.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
-#                                                      "gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/sv/1KGP.lrWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi",
-#                                                      "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/snv_indel/AoU.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
-#                                                      "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/sv/AoU.lrWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi"]],
-#   "CollectVcfQcMetrics.sample_priority_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.sample_qc_priority.tsv",
-#   "CollectVcfQcMetrics.shard_vcf": false,
-#   "CollectVcfQcMetrics.site_benchmark_dataset_names": ["gnomad_v4"],
-#   "CollectVcfQcMetrics.snv_site_benchmark_beds": [],
-#   "CollectVcfQcMetrics.indel_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.\$CONTIG.indel.sites.bed.gz"],
-#   "CollectVcfQcMetrics.sv_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.\$CONTIG.sv.sites.bed.gz"],
-#   "CollectVcfQcMetrics.trios_fam_file": "$MAIN_WORKSPACE_BUCKET/data/sample_info/relatedness/dfci-g2c.reported_families.fam",
-#   "CollectVcfQcMetrics.twins_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/InferTwins/dfci-g2c.v1.cleaned.tsv",
-#   "CollectVcfQcMetrics.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/vcf_list_inputs/dfci-g2c.v1.pre_integration_qc.vcf_info.\$CONTIG.tsv"
-# }
-# EOF
+# Write template input .json for QC metric collection
+cat << EOF > $staging_dir/CollectPreIntegrationQcMetrics.inputs.template.json
+{
+  "CollectVcfQcMetrics.all_samples_fam_file": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/refs/dfci-g2c.all_samples.ped",
+  "CollectVcfQcMetrics.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+  "CollectVcfQcMetrics.benchmarking_shards": \$CONTIG_SCATTER_COUNT,
+  "CollectVcfQcMetrics.benchmark_interval_beds": ["gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.easy.\$CONTIG.bed.gz",
+                                                  "gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz"],
+  "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
+  "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.0,
+  "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_mem_gb": 3.75,
+  "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_n_cpu": 2,
+  "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 40,
+  "CollectVcfQcMetrics.CalcCommonLd.max_disk_gb": 1000,
+  "CollectVcfQcMetrics.ChunkCommonVcf.disk_gb": 1000,
+  "CollectVcfQcMetrics.ChunkCommonVcf.n_preemptible": 0,
+  "CollectVcfQcMetrics.ChunkCommonVcf.mem_gb": 15.5,
+  "CollectVcfQcMetrics.ChunkCommonVcf.cpu_cores": 4,
+  "CollectVcfQcMetrics.common_af_cutoff": 0.001,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.disk_gb": 270,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.mem_gb": 15.5,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.n_cpu": 4,
+  "CollectVcfQcMetrics.extra_vcf_preprocessing_commands": "| bcftools view --exclude-types snps ",
+  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:e4eaf92",
+  "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
+  "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
+  "CollectVcfQcMetrics.n_for_sample_level_analyses": 5000,
+  "CollectVcfQcMetrics.output_prefix": "dfci-g2c.v1.pre_integration_qc.\$CONTIG",
+  "CollectVcfQcMetrics.PreprocessVcf.mem_gb": 24,
+  "CollectVcfQcMetrics.PreprocessVcf.n_cpu": 4,
+  "CollectVcfQcMetrics.ref_build": "hg38",
+  "CollectVcfQcMetrics.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
+  "CollectVcfQcMetrics.ref_fasta_idx" : "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai",
+  "CollectVcfQcMetrics.sample_benchmark_dataset_names": ["external_srwgs", "external_lrwgs"],
+  "CollectVcfQcMetrics.sample_benchmark_id_maps": [["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv"],
+                                                   ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv"]],
+  "CollectVcfQcMetrics.sample_benchmark_vcfs": [["gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/snv_indel/1KGP.srWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
+                                                 "gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/sv/1KGP.srWGS.sv.cleaned.\$CONTIG.vcf.gz",
+                                                 "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/snv_indel/AoU.srWGS.snv_indel.cleaned.\$CONTIG.vcf.bgz",
+                                                 "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/sv/AoU.srWGS.sv.cleaned.\$CONTIG.vcf.gz"],
+                                                ["gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/snv_indel/1KGP.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
+                                                 "gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/sv/1KGP.lrWGS.sv.cleaned.\$CONTIG.vcf.gz",
+                                                 "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/snv_indel/AoU.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
+                                                 "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/sv/AoU.lrWGS.sv.cleaned.\$CONTIG.vcf.gz"]],
+  "CollectVcfQcMetrics.sample_benchmark_vcf_idxs": [["gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/snv_indel/1KGP.srWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
+                                                     "gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/sv/1KGP.srWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi",
+                                                     "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/snv_indel/AoU.srWGS.snv_indel.cleaned.\$CONTIG.vcf.bgz",
+                                                     "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/sv/AoU.srWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi"],
+                                                    ["gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/snv_indel/1KGP.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
+                                                     "gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/sv/1KGP.lrWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi",
+                                                     "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/snv_indel/AoU.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
+                                                     "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/sv/AoU.lrWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi"]],
+  "CollectVcfQcMetrics.sample_priority_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.sample_qc_priority.tsv",
+  "CollectVcfQcMetrics.shard_vcf": false,
+  "CollectVcfQcMetrics.site_benchmark_dataset_names": ["gnomad_v4"],
+  "CollectVcfQcMetrics.snv_site_benchmark_beds": [],
+  "CollectVcfQcMetrics.indel_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.\$CONTIG.indel.sites.bed.gz"],
+  "CollectVcfQcMetrics.sv_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.\$CONTIG.sv.sites.bed.gz"],
+  "CollectVcfQcMetrics.trios_fam_file": "$MAIN_WORKSPACE_BUCKET/data/sample_info/relatedness/dfci-g2c.reported_families.fam",
+  "CollectVcfQcMetrics.twins_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/InferTwins/dfci-g2c.v1.cleaned.tsv",
+  "CollectVcfQcMetrics.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/vcf_list_inputs/dfci-g2c.v1.pre_integration_qc.vcf_info.\$CONTIG.tsv"
+}
+EOF
 
-# # Submit, monitor, stage, and cleanup QC metric collection workflows
-# code/scripts/manage_chromshards.py \
-#   --wdl code/wdl/pancan_germline_wgs/vcf-qc/CollectVcfQcMetrics.wdl \
-#   --input-json-template $staging_dir/CollectPreIntegrationQcMetrics.inputs.template.json \
-#   --contig-variable-overrides $staging_dir/CollectPreIntegrationQcMetrics.contig_variable_overrides.json \
-#   --dependencies-zip qc.dependencies.zip \
-#   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/VcfQcMetrics/ \
-#   --name CollectPreIntegrationQcMetrics \
-#   --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
-#   --status-tsv cromshell/progress/dfci-g2c.v1.CollectPreIntegrationQcMetrics.progress.tsv \
-#   --workflow-id-log-prefix "dfci-g2c.v1" \
-#   --outer-gate 60 \
-#   --vm-gate 400 \
-#   --submission-gate 60 \
-#   --max-attempts 3
+# Submit, monitor, stage, and cleanup QC metric collection workflows
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/pancan_germline_wgs/vcf-qc/CollectVcfQcMetrics.wdl \
+  --input-json-template $staging_dir/CollectPreIntegrationQcMetrics.inputs.template.json \
+  --contig-variable-overrides $staging_dir/CollectPreIntegrationQcMetrics.contig_variable_overrides.json \
+  --dependencies-zip qc.dependencies.zip \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/VcfQcMetrics/ \
+  --name CollectPreIntegrationQcMetrics \
+  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
+  --status-tsv cromshell/progress/dfci-g2c.v1.CollectPreIntegrationQcMetrics.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 60 \
+  --vm-gate 400 \
+  --submission-gate 60 \
+  --max-attempts 3
 
 
 # ###########################################################
@@ -878,74 +877,74 @@ cleanup_garbage
 # cleanup_garbage
 
 
-# ########################################
-# # Integrate small SVs and large indels #
-# ########################################
+########################################
+# Integrate small SVs and large indels #
+########################################
 
-# # Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
-# ~/code/scripts/rotate_cromwell_cache.sh
+# Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
+~/code/scripts/rotate_cromwell_cache.sh delete
 
-# # Reaffirm staging directory
-# staging_dir=staging/indel_sv_integration
-# if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+# Reaffirm staging directory
+staging_dir=staging/indel_sv_integration
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
-# # Curate reference data required for this workflow
-# # This only need to be run once for the project
-# # This should be run locally so it can be staged in a public bucket
-# wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/gap.txt.gz
-# zcat gap.txt.gz \
-# | cut -f2-4 \
-# | sort -Vk1,1 -k2,2n -k3,3n \
-# | bedtools merge -i - \
-# | fgrep -v "_" \
-# | grep -e '^chr' \
-# | bgzip -c \
-# > hg38.gaps.bed.gz
-# gsutil -m cp hg38.gaps.bed.gz gs://dfci-g2c-refs/hg38/
-# gsutil -m cp gs://dfci-g2c-refs/hg38/hg38.genome ./
-# mkdir contig_genome_files
-# for k in $( seq 1 22 ) X Y; do
-#   contig="chr$k"
-#   awk -v contig=$contig '{ if ($1==contig) print }' hg38.genome \
-#   > contig_genome_files/hg38.$contig.genome
-# done
-# gsutil -m cp -r contig_genome_files gs://dfci-g2c-refs/hg38/
+# Curate reference data required for this workflow
+# This only need to be run once for the project
+# This should be run locally so it can be staged in a public bucket
+wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/gap.txt.gz
+zcat gap.txt.gz \
+| cut -f2-4 \
+| sort -Vk1,1 -k2,2n -k3,3n \
+| bedtools merge -i - \
+| fgrep -v "_" \
+| grep -e '^chr' \
+| bgzip -c \
+> hg38.gaps.bed.gz
+gsutil -m cp hg38.gaps.bed.gz gs://dfci-g2c-refs/hg38/
+gsutil -m cp gs://dfci-g2c-refs/hg38/hg38.genome ./
+mkdir contig_genome_files
+for k in $( seq 1 22 ) X Y; do
+  contig="chr$k"
+  awk -v contig=$contig '{ if ($1==contig) print }' hg38.genome \
+  > contig_genome_files/hg38.$contig.genome
+done
+gsutil -m cp -r contig_genome_files gs://dfci-g2c-refs/hg38/
 
-# # All of the below must be run once for each workspace
+# All of the below must be run once for each workspace
 
-# # Write template input .json 
-# cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
-# {
-#   "UnifyGatkCallsets.DefineClusters.n_cpu": 4,
-#   "UnifyGatkCallsets.DefineClusters.mem_gb": 12,
-#   "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:84838e6",
-#   "UnifyGatkCallsets.gatkhc_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
-#   "UnifyGatkCallsets.gatksv_vcfs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz"],
-#   "UnifyGatkCallsets.gatksv_vcf_idxs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup_header_fix/\$CONTIG/FixTypo/dfci-g2c.v1.\$CONTIG.imputed.typo_fixed.vcf.gz.tbi"],
-#   "UnifyGatkCallsets.genome_file": "gs://dfci-g2c-refs/hg38/contig_genome_files/hg38.\$CONTIG.genome",
-#   "UnifyGatkCallsets.indel_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.indel.bed.gz",
-#   "UnifyGatkCallsets.intervals_per_shard_sv_partition": 1,
-#   "UnifyGatkCallsets.large_sv_interval_name": "dfci-g2c.v1.sv.\$CONTIG.large",
-#   "UnifyGatkCallsets.min_interval_size": 1000000,
-#   "UnifyGatkCallsets.PartitionSvOutputs.reshard_task_mem_gb": 15.5,
-#   "UnifyGatkCallsets.snv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.snv.bed.gz",
-#   "UnifyGatkCallsets.sv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.sv.bed.gz",
-#   "UnifyGatkCallsets.vcfs_per_shard_sv_partition": 2
-# }
-# EOF
+# Write template input .json 
+cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
+{
+  "UnifyGatkCallsets.DefineClusters.n_cpu": 4,
+  "UnifyGatkCallsets.DefineClusters.mem_gb": 12,
+  "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:e4eaf92",
+  "UnifyGatkCallsets.gatkhc_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
+  "UnifyGatkCallsets.gatksv_vcfs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz"],
+  "UnifyGatkCallsets.gatksv_vcf_idxs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz.tbi"],
+  "UnifyGatkCallsets.genome_file": "gs://dfci-g2c-refs/hg38/contig_genome_files/hg38.\$CONTIG.genome",
+  "UnifyGatkCallsets.indel_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.indel.bed.gz",
+  "UnifyGatkCallsets.intervals_per_shard_sv_partition": 1,
+  "UnifyGatkCallsets.large_sv_interval_name": "dfci-g2c.v1.sv.\$CONTIG.large",
+  "UnifyGatkCallsets.min_interval_size": 1000000,
+  "UnifyGatkCallsets.PartitionSvOutputs.reshard_task_mem_gb": 15.5,
+  "UnifyGatkCallsets.snv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.snv.bed.gz",
+  "UnifyGatkCallsets.sv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.sv.bed.gz",
+  "UnifyGatkCallsets.vcfs_per_shard_sv_partition": 2
+}
+EOF
 
-# # Submit, monitor, and stage/cleanup indelSV integration
-# code/scripts/manage_chromshards.py \
-#   --wdl code/wdl/pancan_germline_wgs/UnifyGatkCallsets.wdl \
-#   --input-json-template $staging_dir/UnifyGatkCallsets.inputs.template.json \
-#   --dependencies-zip g2c.dependencies.zip \
-#   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration \
-#   --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
-#   --status-tsv cromshell/progress/dfci-g2c.v1.UnifyGatkCallsets.progress.tsv \
-#   --workflow-id-log-prefix "dfci-g2c.v1" \
-#   --outer-gate 240 \
-#   --submission-gate 240 \
-#   --max-attempts 3
+# Submit, monitor, and stage/cleanup indelSV integration
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/pancan_germline_wgs/UnifyGatkCallsets.wdl \
+  --input-json-template $staging_dir/UnifyGatkCallsets.inputs.template.json \
+  --dependencies-zip g2c.dependencies.zip \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration \
+  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
+  --status-tsv cromshell/progress/dfci-g2c.v1.UnifyGatkCallsets.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 240 \
+  --submission-gate 240 \
+  --max-attempts 3
 
 
 # ###################################################
