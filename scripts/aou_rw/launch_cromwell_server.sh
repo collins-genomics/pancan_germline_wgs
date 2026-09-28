@@ -61,6 +61,13 @@ case "$WN" in
     ;;
 esac
 
+# Format local copy of Cromwell options .json to reference this workspace's storage bucket
+~/code/scripts/envsubst.py \
+  -i code/refs/json/aou.cromwell_options.default.json \
+  -o code/refs/json/aou.cromwell_options.default.json2 && \
+mv code/refs/json/aou.cromwell_options.default.json2 \
+   code/refs/json/aou.cromwell_options.default.json
+
 # Create cromwell config file
 if ! [ -e /home/jupyter/.cromwell ]; then
   mkdir /home/jupyter/.cromwell

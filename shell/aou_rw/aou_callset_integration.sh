@@ -267,7 +267,7 @@ code/scripts/manage_chromshards.py \
   --status-tsv cromshell/progress/dfci-g2c.v1.CollectGatksvQcPostImputation.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 30 \
-  --submission-gate 3 \
+  --submission-gate 240 \
   --max-attempts 3
 
 # Clear Cromwell cache after finishing these workflows
@@ -685,7 +685,7 @@ code/scripts/manage_chromshards.py \
   --workflow-id-log-prefix "dfci-g2c.v1" \
   --outer-gate 60 \
   --vm-gate 400 \
-  --submission-gate 60 \
+  --submission-gate 360 \
   --max-attempts 3
 
 

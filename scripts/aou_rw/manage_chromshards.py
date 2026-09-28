@@ -266,7 +266,7 @@ def main():
                         'each chromosome will have outputs staged in separate ' +
                         'directory.')
     parser.add_argument('-D', '--dependencies-zip', help='WDL dependencies .zip')
-    parser.add_argument('-O', '--cromwell-options-json', help='Cromwell options .zip',
+    parser.add_argument('-O', '--cromwell-options-json', help='Cromwell options .json',
                         default='code/refs/json/aou.cromwell_options.default.json')
     parser.add_argument('-V', '--contig-variable-overrides', help='Optional .json ' +
                         'of { $contig : { variable : value, ...} } pairs ' +
