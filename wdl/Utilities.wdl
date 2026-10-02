@@ -694,9 +694,10 @@ task ReshardVcfs {
 
     String g2c_analysis_docker
 
+    String? gcp_machine_type
     Int? disk_gb
     Float mem_gb = 7.5
-    Float max_sort_mem_gb = 6.0
+    Float? max_sort_mem_gb
     Int n_cpu = 4
     Int boot_gb = 15
     Int n_preemptible = 1
@@ -709,11 +710,12 @@ task ReshardVcfs {
   String int_bed_loc = basename(intervals_bed)
   String out_header_cmd = if defined(output_header) then "--out-header " + basename(select_first(select_all([output_header]))) else ""
 
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int default_disk_gb = ceil(2 * size(vcfs, "GB")) + 20
   Int disk_gb_use = select_first([disk_gb, default_disk_gb])
   Int sort_mem_mb_default = floor(1000 * (mem_gb - 3.5))
   Int sort_mem_mb_lower = if sort_mem_mb_default < 1000 then 1000 else sort_mem_mb_default
-  Int max_sort_mem_mb = floor(1000 * max_sort_mem_gb)
+  Int max_sort_mem_mb = if defined(max_sort_mem_gb) then floor(1000 * max_sort_mem_gb) else (1000 * mem_gb) - 1500
   Int sort_mem_mb = if sort_mem_mb_lower > max_sort_mem_mb then max_sort_mem_mb else sort_mem_mb_lower
 
   command <<<
@@ -828,6 +830,7 @@ task ReshardVcfs {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: machine_type
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb_use + " SSD"

@@ -114,7 +114,8 @@ workflow UnifyGatkCallsets {
       keep_empty_resharded_vcfs = true,
       vcfs_per_shard = vcfs_per_shard_indel_clustering,
       intervals_per_shard = intervals_per_shard_indel_clustering,
-      reshard_task_mem_gb = 12,
+      reshard_task_gcp_machine_type = "n2d-standard-4",
+      reshard_task_mem_gb = 15,
       reshard_task_n_cpu = 4,
       g2c_analysis_docker = g2c_analysis_docker,
       linux_docker = linux_docker
@@ -227,6 +228,7 @@ workflow UnifyGatkCallsets {
       keep_empty_resharded_vcfs = false,
       vcfs_per_shard = vcfs_per_shard_snv_partition,
       intervals_per_shard = intervals_per_shard_snv_partition,
+      reshard_task_gcp_machine_type = "n2d-standard-4",
       reshard_task_mem_gb = 12,
       reshard_task_n_cpu = 4,
       g2c_analysis_docker = g2c_analysis_docker,
@@ -248,6 +250,7 @@ workflow UnifyGatkCallsets {
       keep_empty_resharded_vcfs = false,
       vcfs_per_shard = vcfs_per_shard_indel_partition,
       intervals_per_shard = intervals_per_shard_indel_partition,
+      reshard_task_gcp_machine_type = "n2d-standard-4",
       reshard_task_mem_gb = 12,
       reshard_task_n_cpu = 4,
       g2c_analysis_docker = g2c_analysis_docker,
@@ -550,6 +553,7 @@ task PrepareSvs {
     File vcf_idx
     Int max_size
     String g2c_analysis_docker
+    String gcp_machine_type = "n2d-standard-2"
   }
 
   String output_prefix = basename(vcf, ".vcf.gz")
@@ -606,6 +610,7 @@ task PrepareSvs {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: gcp_machine_type
     memory: "3.5 GB"
     cpu: 2
     disks: "local-disk " + disk_gb + " HDD"
@@ -676,10 +681,12 @@ task DefineClusters {
 
     String g2c_analysis_docker
 
+    String? gcp_machine_type
     Float mem_gb = 3.5
     Int n_cpu = 2
   }
 
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int disk_gb = ceil(2.5 * size([sv_vcf, indel_vcf], "GB")) + 20
   String output_prefix = basename(sv_vcf, ".svs.vcf.gz")
   String out_fname = "~{output_prefix}.final_clusters.tsv.gz"
@@ -911,6 +918,7 @@ task DefineClusters {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: machine_type
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
@@ -935,10 +943,12 @@ task ResolveClusters {
 
     String g2c_analysis_docker
 
+    String? gcp_machine_type
     Float mem_gb = 3.5
     Int n_cpu = 2
   }
 
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int sort_mem_mb = floor(1000 * (mem_gb - 2))
   Int disk_gb = ceil(3.5 * size([sv_vcf, indel_vcf], "GB")) + 10
   String output_prefix = basename(sv_vcf, ".svs.vcf.gz")
@@ -1022,6 +1032,7 @@ task ResolveClusters {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: machine_type
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
@@ -1081,6 +1092,7 @@ task ExtractLargeSvs {
     File vcf_idx
     Int size_cutoff
     String bcftools_docker
+    String gcp_machine_type = "n2d-standard-4"
   }
 
   Int disk_gb = ceil(3 * size(vcf, "GB")) + 20
@@ -1137,6 +1149,7 @@ task ExtractLargeSvs {
 
   runtime {
     docker: bcftools_docker
+    predefinedMachineType: gcp_machine_type
     memory: "8 GB"
     cpu: 4
     disks: "local-disk " + disk_gb + " SSD"

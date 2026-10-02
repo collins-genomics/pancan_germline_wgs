@@ -686,7 +686,8 @@ code/scripts/manage_chromshards.py \
   --outer-gate 60 \
   --vm-gate 400 \
   --submission-gate 360 \
-  --max-attempts 3
+  --contig-gate 3 \
+  --max-attempts 4
 
 
 # ###########################################################
@@ -915,8 +916,7 @@ gsutil -m cp -r contig_genome_files gs://dfci-g2c-refs/hg38/
 # Write template input .json 
 cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
 {
-  "UnifyGatkCallsets.DefineClusters.n_cpu": 4,
-  "UnifyGatkCallsets.DefineClusters.mem_gb": 12,
+  "UnifyGatkCallsets.DefineClusters.gcp_machine_type": "n2d-standard-4",
   "UnifyGatkCallsets.g2c_analysis_docker": "vanallenlab/g2c_analysis:e4eaf92",
   "UnifyGatkCallsets.gatkhc_vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_regenotyping/dfci-g2c.v1.sv_regenotyping.snv_vcf_info.\$CONTIG.tsv",
   "UnifyGatkCallsets.gatksv_vcfs": ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/sv_gt_cleanup/\$CONTIG/ConcatVcfs/dfci-g2c.v1.\$CONTIG.imputed.vcf.gz"],
@@ -926,7 +926,13 @@ cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
   "UnifyGatkCallsets.intervals_per_shard_sv_partition": 1,
   "UnifyGatkCallsets.large_sv_interval_name": "dfci-g2c.v1.sv.\$CONTIG.large",
   "UnifyGatkCallsets.min_interval_size": 1000000,
+  "UnifyGatkCallsets.PartitionIndelOutputs.concatenate_task_gcp_machine_type": "n2d-standard-2",
+  "UnifyGatkCallsets.PartitionSnvOutputs.concatenate_task_gcp_machine_type": "n2d-standard-2",
+  "UnifyGatkCallsets.PartitionSvOutputs.concatenate_task_gcp_machine_type": "n2d-standard-2",
+  "UnifyGatkCallsets.PartitionSvOutputs.reshard_task_gcp_machine_type": "n2d-standard-4",
   "UnifyGatkCallsets.PartitionSvOutputs.reshard_task_mem_gb": 15.5,
+  "UnifyGatkCallsets.ResolveClusters.gcp_machine_type": "n2d-standard-2",
+  "UnifyGatkCallsets.SplitIndelsForClustering.concatenate_task_gcp_machine_type": "n2d-standard-2",
   "UnifyGatkCallsets.snv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.snv.bed.gz",
   "UnifyGatkCallsets.sv_partition_intervals": "$MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/dfci-g2c.v1.analysis_shards.\$CONTIG.sv.bed.gz",
   "UnifyGatkCallsets.vcfs_per_shard_sv_partition": 2
@@ -942,8 +948,10 @@ code/scripts/manage_chromshards.py \
   --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
   --status-tsv cromshell/progress/dfci-g2c.v1.UnifyGatkCallsets.progress.tsv \
   --workflow-id-log-prefix "dfci-g2c.v1" \
-  --outer-gate 240 \
-  --submission-gate 240 \
+  --outer-gate 60 \
+  --submission-gate 480 \
+  --vm-gate 200 \
+  --contig-gate 2 \
   --max-attempts 3
 
 

@@ -544,7 +544,7 @@ def main():
 
                 # Update status according to most recent workflow unless
                 wid = wids[-1]
-                status = g2cpy.check_workflow_status(wid, timeout=120)
+                status = g2cpy.check_workflow_status(wid, timeout=300)
 
                 # If most recent workflow was successful, stage outputs and clear all 
                 # files from Cromwell execution & output buckets

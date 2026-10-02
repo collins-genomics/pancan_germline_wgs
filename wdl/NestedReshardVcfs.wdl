@@ -34,9 +34,11 @@ workflow NestedReshardVcfs {
     Int vcfs_per_shard = 10                        # Parallelization control for ReshardVcf tasks
     Int intervals_per_shard = 10                   # Parallelization control for merging resharded VCFs per interval
 
+    String? reshard_task_gcp_machine_type          # Predefined machine type, overrides mem_gb and n_cpu
     Float reshard_task_mem_gb = 7.5
     Int reshard_task_n_cpu = 4
 
+    String? concatenate_task_gcp_machine_type      # Predefined machine type, overrides mem_gb and n_cpu
     Float concatenate_task_mem_gb = 3.5
     Int concatenate_task_n_cpu = 2
 
@@ -86,6 +88,7 @@ workflow NestedReshardVcfs {
         output_header = resharded_vcf_header,
         rename = rename_variants,
         delete_empty = true,
+        gcp_machine_type = reshard_task_gcp_machine_type,
         mem_gb = reshard_task_mem_gb,
         n_cpu = reshard_task_n_cpu,
         g2c_analysis_docker = g2c_analysis_docker
@@ -131,6 +134,7 @@ workflow NestedReshardVcfs {
       input:
         vcfs = ReadIntervalVcfShard.vcf_uris,
         vcf_idxs = ReadIntervalVcfShard.vcf_tbi_uris,
+        gcp_machine_type = concatenate_task_gcp_machine_type,
         mem_gb = concatenate_task_mem_gb,
         n_cpu = concatenate_task_n_cpu,
         bcftools_docker = g2c_analysis_docker
@@ -168,6 +172,8 @@ task ChunkReshardedVcfsByIntervals {
     Boolean shuffle
 
     String g2c_analysis_docker
+
+    String gcp_machine_type = "n2d-standard-2"
   }
 
   String int_cat_cmd = if intervals_are_compressed then "zcat" else "cat"
@@ -221,6 +227,7 @@ task ChunkReshardedVcfsByIntervals {
 
   runtime {
     docker: g2c_analysis_docker
+    predefinedMachineType: gcp_machine_type
     memory: "3.5 GB"
     cpu: 2
     disks: "local-disk 25 HDD"
@@ -238,10 +245,12 @@ task ConcatenateIntervalVcfs {
 
     String bcftools_docker
 
+    String? gcp_machine_type
     Float mem_gb = 3.5
     Int n_cpu = 2
   }
 
+  String machine_type = if defined(gcp_machine_type) then gcp_machine_type else ""
   Int disk_gb = ceil(3.5 * size(vcfs, "GB")) + 25
   Int sort_mem_mb = floor(1000 * (mem_gb - 2))
   Int concat_threads = floor(2 * n_cpu) - 1
@@ -253,7 +262,7 @@ task ConcatenateIntervalVcfs {
     (
       while true; do
         echo "[ConcatenateIntervalVcfs] still running at $(date)"
-        sleep 60
+        sleep 30
       done
     ) &
     HEARTBEAT_PID=$!
@@ -327,6 +336,7 @@ task ConcatenateIntervalVcfs {
 
   runtime {
     docker: bcftools_docker
+    predefinedMachineType: machine_type
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
