@@ -42,7 +42,7 @@ workflow FilterGenotypes {
       input:
         vcf=ScatterForFilter.shards[i],
         ploidy_table=ploidy_table,
-        args=select_first([OptimizeCutoffs.filter_args, sl_filter_args]) + " --ncr-threshold ~{no_call_rate_cutoff}",
+        args=sl_filter_args + " --ncr-threshold ~{no_call_rate_cutoff}",
         output_prefix="~{output_prefix_}.filter_genotypes.shard_~{i}",
         sv_pipeline_docker=sv_pipeline_docker
     }

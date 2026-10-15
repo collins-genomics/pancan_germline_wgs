@@ -937,7 +937,7 @@ cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
 }
 EOF
 
-# Submit, monitor, and stage/cleanup indelSV integration
+# Submit, monitor, and stage/cleanup indel/SV integration
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/pancan_germline_wgs/UnifyGatkCallsets.wdl \
   --input-json-template $staging_dir/UnifyGatkCallsets.inputs.template.json \
