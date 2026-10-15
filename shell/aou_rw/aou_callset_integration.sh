@@ -686,8 +686,8 @@ code/scripts/manage_chromshards.py \
   --outer-gate 60 \
   --vm-gate 400 \
   --submission-gate 360 \
-  --contig-gate 3 \
-  --max-attempts 4
+  --contig-gate 2 \
+  --max-attempts 5
 
 
 # ###########################################################
@@ -806,10 +806,8 @@ code/scripts/manage_chromshards.py \
 #   "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:84838e6",
 #   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.pre_integration_qc",
 #   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
-#   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
-#   "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
-#   "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 48,
-#   "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
+#   "PlotVcfQcMetrics.PlotSiteBenchmarking.gcp_machine_type": "n2d-standard-8",
+#   "PlotVcfQcMetrics.PlotSiteMetrics.gcp_machine_type": "n2d-standard-16",
 #   "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
 #   "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
 #   "PlotVcfQcMetrics.ref_cohort_prefix": "gnomAD_v4.1",
@@ -851,7 +849,7 @@ code/scripts/manage_chromshards.py \
 # EOF
 
 # # Submit QC visualization workflow
-# cromshell --no_turtle -t 120 -mc submit --no-validation \
+# cromshell --no_turtle -t 120 -mc submit --no-validation --do-not-flatten-wdls \
 #   --options-json code/refs/json/aou.cromwell_options.default.json \
 #   --dependencies-zip qc.dependencies.zip \
 #   code/wdl/pancan_germline_wgs/vcf-qc/PlotVcfQcMetrics.wdl \
@@ -872,7 +870,7 @@ code/scripts/manage_chromshards.py \
 
 # # Clear Cromwell execution & output buckets for plotting job
 # gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotPreIntegrationQcMetricsMetrics.job_ids.list \
-#                 | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell*/PlotVcfQcMetrics/" \
+#                 | awk -v bucket_prefix="$WORKSPACE_BUCKET/workflows/cromwell*/PlotVcfQcMetrics/" \
 #                   '{ print bucket_prefix$1"/**" }' ) \
 # > uris_to_delete.list
 # cleanup_garbage
@@ -928,7 +926,7 @@ cat << EOF > $staging_dir/UnifyGatkCallsets.inputs.template.json
   "UnifyGatkCallsets.min_interval_size": 1000000,
   "UnifyGatkCallsets.PartitionIndelOutputs.concatenate_task_gcp_machine_type": "n2d-standard-2",
   "UnifyGatkCallsets.PartitionSnvOutputs.concatenate_task_gcp_machine_type": "n2d-standard-2",
-  "UnifyGatkCallsets.PartitionSvOutputs.concatenate_task_gcp_machine_type": "n2d-standard-2",
+  "UnifyGatkCallsets.PartitionSvOutputs.concatenate_task_gcp_machine_type": "n2d-standard-4",
   "UnifyGatkCallsets.PartitionSvOutputs.reshard_task_gcp_machine_type": "n2d-standard-4",
   "UnifyGatkCallsets.PartitionSvOutputs.reshard_task_mem_gb": 15.5,
   "UnifyGatkCallsets.ResolveClusters.gcp_machine_type": "n2d-standard-2",
@@ -955,137 +953,138 @@ code/scripts/manage_chromshards.py \
   --max-attempts 3
 
 
-# ###################################################
-# # Collect indel + SV QC metrics after integration #
-# ###################################################
+###################################################
+# Collect indel + SV QC metrics after integration #
+###################################################
 
-# # Note: this workflow below is scattered across all five workspaces for 
-# # max parallelization. It must be submitted as below in each workspace.
+# Note: this workflow below is scattered across all five workspaces for 
+# max parallelization. It must be submitted as below in each workspace.
 
-# # Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
-# ~/code/scripts/rotate_cromwell_cache.sh
+# Rotate Cromwell cache before embarking on these workflows, which have large scatter counts
+~/code/scripts/rotate_cromwell_cache.sh delete
 
-# # Reaffirm staging directory
-# staging_dir=staging/integrated_qc
-# if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+# Reaffirm staging directory
+staging_dir=staging/integrated_qc
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
-# # Check to ensure there is a local copy of final partition maps
-# if ! [ -e $staging_dir/partition_maps ]; then
-#   mkdir $staging_dir/partition_maps
-#   gsutil -m cp \
-#     $MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/*bed.gz \
-#     $staging_dir/partition_maps/
-# fi
+# Check to ensure there is a local copy of final partition maps
+if ! [ -e $staging_dir/partition_maps ]; then
+  mkdir $staging_dir/partition_maps
+  gsutil -m cp \
+    $MAIN_WORKSPACE_BUCKET/data/g2c_partition_maps/*bed.gz \
+    $staging_dir/partition_maps/
+fi
 
-# # Write two-column .tsv of VCF & index info for indels and SVs from each contig
-# while read contig; do
-#   gsutil -m ls \
-#     $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration/$contig/**.vcf.gz \
-#   | fgrep -v ".snv." \
-#   | sort -Vk1,1 \
-#   | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
-#   > $staging_dir/dfci-g2c.v1.integrated_qc.vcf_info.$contig.tsv
-# done < contig_lists/dfci-g2c.v1.contigs.$WN.list
-# gsutil -m cp \
-#   $staging_dir/dfci-g2c.v1.integrated_qc.vcf_info.*.tsv \
-#   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/integrated-indel-sv-qc/vcf_list_inputs/
+# Write two-column .tsv of VCF & index info for indels and SVs from each contig
+while read contig; do
+  gsutil -m ls \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration/$contig/**.vcf.gz \
+  | fgrep -v ".snv." \
+  | sort -Vk1,1 \
+  | awk -v OFS="\t" '{ print $1, $1".tbi" }' \
+  > $staging_dir/dfci-g2c.v1.integrated_qc.vcf_info.$contig.tsv
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+gsutil -m cp \
+  $staging_dir/dfci-g2c.v1.integrated_qc.vcf_info.*.tsv \
+  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/integrated-indel-sv-qc/vcf_list_inputs/
 
-# # Initialize .json of contig-specific overrides for scatter counts
-# echo "{ " > $staging_dir/CollectIntegratedIndelSvQcMetrics.contig_variable_overrides.json
-# while read contig; do
-#   kc=$( zcat $staging_dir/partition_maps/dfci-g2c.v1.analysis_shards.$contig.*.bed.gz \
-#         | wc -l | awk '{ printf "%d\n", $1 / 2 }' )
-#   echo "\"$contig\" : {\"CONTIG_SCATTER_COUNT\" : $kc},"
-# done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
-# | paste -s -d\  | sed 's/,$//g' \
-# >> $staging_dir/CollectIntegratedIndelSvQcMetrics.contig_variable_overrides.json
-# echo " }" >> $staging_dir/CollectIntegratedIndelSvQcMetrics.contig_variable_overrides.json
+# Initialize .json of contig-specific overrides for scatter counts
+echo "{ " > $staging_dir/CollectIntegratedIndelSvQcMetrics.contig_variable_overrides.json
+while read contig; do
+  kc=$( zcat $staging_dir/partition_maps/dfci-g2c.v1.analysis_shards.$contig.*.bed.gz \
+        | wc -l | awk '{ printf "%d\n", $1 / 2 }' )
+  echo "\"$contig\" : {\"CONTIG_SCATTER_COUNT\" : $kc},"
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
+| paste -s -d\  | sed 's/,$//g' \
+>> $staging_dir/CollectIntegratedIndelSvQcMetrics.contig_variable_overrides.json
+echo " }" >> $staging_dir/CollectIntegratedIndelSvQcMetrics.contig_variable_overrides.json
 
-# # Write template input .json for QC metric collection
-# cat << EOF > $staging_dir/CollectIntegratedIndelSvQcMetrics.inputs.template.json
-# {
-#   "CollectVcfQcMetrics.all_samples_fam_file": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/refs/dfci-g2c.all_samples.ped",
-#   "CollectVcfQcMetrics.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
-#   "CollectVcfQcMetrics.benchmarking_shards": \$CONTIG_SCATTER_COUNT,
-#   "CollectVcfQcMetrics.benchmark_interval_beds": ["gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.easy.\$CONTIG.bed.gz",
-#                                                   "gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz"],
-#   "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
-#   "CollectVcfQcMetrics.BenchmarkSamples.indel_mem_scalar": 2.5,
-#   "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.5,
-#   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_mem_gb": 3.75,
-#   "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_n_cpu": 2,
-#   "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 40,
-#   "CollectVcfQcMetrics.CalcCommonLd.max_disk_gb": 1000,
-#   "CollectVcfQcMetrics.ChunkCommonVcf.disk_gb": 1000,
-#   "CollectVcfQcMetrics.ChunkCommonVcf.n_preemptible": 0,
-#   "CollectVcfQcMetrics.ChunkCommonVcf.mem_gb": 15.5,
-#   "CollectVcfQcMetrics.ChunkCommonVcf.cpu_cores": 4,
-#   "CollectVcfQcMetrics.common_af_cutoff": 0.001,
-#   "CollectVcfQcMetrics.ConcatGenotypeTsvs.disk_gb": 270,
-#   "CollectVcfQcMetrics.ConcatGenotypeTsvs.mem_gb": 15.5,
-#   "CollectVcfQcMetrics.ConcatGenotypeTsvs.n_cpu": 4,
-#   "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:84838e6",
-#   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
-#   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
-#   "CollectVcfQcMetrics.n_for_sample_level_analyses": 5000,
-#   "CollectVcfQcMetrics.output_prefix": "dfci-g2c.v1.integrated_qc.\$CONTIG",
-#   "CollectVcfQcMetrics.PreprocessVcf.mem_gb": 15.5,
-#   "CollectVcfQcMetrics.PreprocessVcf.n_cpu": 4,
-#   "CollectVcfQcMetrics.ref_build": "hg38",
-#   "CollectVcfQcMetrics.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
-#   "CollectVcfQcMetrics.ref_fasta_idx" : "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai",
-#   "CollectVcfQcMetrics.sample_benchmark_dataset_names": ["external_srwgs", "external_lrwgs"],
-#   "CollectVcfQcMetrics.sample_benchmark_id_maps": [["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv"],
-#                                                    ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv",
-#                                                     "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv"]],
-#   "CollectVcfQcMetrics.sample_benchmark_vcfs": [["gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/snv_indel/1KGP.srWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
-#                                                  "gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/sv/1KGP.srWGS.sv.cleaned.\$CONTIG.vcf.gz",
-#                                                  "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/snv_indel/AoU.srWGS.snv_indel.cleaned.\$CONTIG.vcf.bgz",
-#                                                  "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/sv/AoU.srWGS.sv.cleaned.\$CONTIG.vcf.gz"],
-#                                                 ["gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/snv_indel/1KGP.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
-#                                                  "gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/sv/1KGP.lrWGS.sv.cleaned.\$CONTIG.vcf.gz",
-#                                                  "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/snv_indel/AoU.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
-#                                                  "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/sv/AoU.lrWGS.sv.cleaned.\$CONTIG.vcf.gz"]],
-#   "CollectVcfQcMetrics.sample_benchmark_vcf_idxs": [["gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/snv_indel/1KGP.srWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
-#                                                      "gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/sv/1KGP.srWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi",
-#                                                      "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/snv_indel/AoU.srWGS.snv_indel.cleaned.\$CONTIG.vcf.bgz",
-#                                                      "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/sv/AoU.srWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi"],
-#                                                     ["gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/snv_indel/1KGP.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
-#                                                      "gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/sv/1KGP.lrWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi",
-#                                                      "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/snv_indel/AoU.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
-#                                                      "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/sv/AoU.lrWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi"]],
-#   "CollectVcfQcMetrics.sample_priority_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.sample_qc_priority.tsv",
-#   "CollectVcfQcMetrics.shard_vcf": false,
-#   "CollectVcfQcMetrics.site_benchmark_dataset_names": ["gnomad_v4"],
-#   "CollectVcfQcMetrics.snv_site_benchmark_beds": [],
-#   "CollectVcfQcMetrics.indel_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.\$CONTIG.indel.sites.bed.gz"],
-#   "CollectVcfQcMetrics.sv_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.\$CONTIG.sv.sites.bed.gz"],
-#   "CollectVcfQcMetrics.trios_fam_file": "$MAIN_WORKSPACE_BUCKET/data/sample_info/relatedness/dfci-g2c.reported_families.fam",
-#   "CollectVcfQcMetrics.twins_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/InferTwins/dfci-g2c.v1.cleaned.tsv",
-#   "CollectVcfQcMetrics.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/integrated-indel-sv-qc/vcf_list_inputs/dfci-g2c.v1.integrated_qc.vcf_info.\$CONTIG.tsv"
-# }
-# EOF
+# Write template input .json for QC metric collection
+cat << EOF > $staging_dir/CollectIntegratedIndelSvQcMetrics.inputs.template.json
+{
+  "CollectVcfQcMetrics.all_samples_fam_file": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/refs/dfci-g2c.all_samples.ped",
+  "CollectVcfQcMetrics.bcftools_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+  "CollectVcfQcMetrics.benchmarking_shards": \$CONTIG_SCATTER_COUNT,
+  "CollectVcfQcMetrics.benchmark_interval_beds": ["gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.easy.\$CONTIG.bed.gz",
+                                                  "gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz"],
+  "CollectVcfQcMetrics.benchmark_interval_bed_names": ["giab_easy", "giab_hard"],
+  "CollectVcfQcMetrics.BenchmarkSamples.indel_mem_scalar": 2.5,
+  "CollectVcfQcMetrics.BenchmarkSites.indel_mem_scalar": 2.5,
+  "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_mem_gb": 3.75,
+  "CollectVcfQcMetrics.BenchmarkTrios.benchmarking_n_cpu": 2,
+  "CollectVcfQcMetrics.CalcCommonLd.boot_disk_gb": 40,
+  "CollectVcfQcMetrics.CalcCommonLd.max_disk_gb": 1000,
+  "CollectVcfQcMetrics.ChunkCommonVcf.disk_gb": 1000,
+  "CollectVcfQcMetrics.ChunkCommonVcf.n_preemptible": 0,
+  "CollectVcfQcMetrics.ChunkCommonVcf.mem_gb": 15.5,
+  "CollectVcfQcMetrics.ChunkCommonVcf.cpu_cores": 4,
+  "CollectVcfQcMetrics.common_af_cutoff": 0.001,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.disk_gb": 270,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.mem_gb": 15.5,
+  "CollectVcfQcMetrics.ConcatGenotypeTsvs.n_cpu": 4,
+  "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:e4eaf92",
+  "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
+  "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
+  "CollectVcfQcMetrics.n_for_sample_level_analyses": 5000,
+  "CollectVcfQcMetrics.output_prefix": "dfci-g2c.v1.integrated_qc.\$CONTIG",
+  "CollectVcfQcMetrics.PreprocessVcf.mem_gb": 24,
+  "CollectVcfQcMetrics.PreprocessVcf.n_cpu": 4,
+  "CollectVcfQcMetrics.ref_build": "hg38",
+  "CollectVcfQcMetrics.ref_fasta": "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta",
+  "CollectVcfQcMetrics.ref_fasta_idx" : "gs://gcp-public-data--broad-references/hg38/v0/Homo_sapiens_assembly38.fasta.fai",
+  "CollectVcfQcMetrics.sample_benchmark_dataset_names": ["external_srwgs", "external_lrwgs"],
+  "CollectVcfQcMetrics.sample_benchmark_id_maps": [["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv"],
+                                                   ["$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.1KGP_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv",
+                                                    "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.AoU_id_map.tsv"]],
+  "CollectVcfQcMetrics.sample_benchmark_vcfs": [["gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/snv_indel/1KGP.srWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
+                                                 "gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/sv/1KGP.srWGS.sv.cleaned.\$CONTIG.vcf.gz",
+                                                 "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/snv_indel/AoU.srWGS.snv_indel.cleaned.\$CONTIG.vcf.bgz",
+                                                 "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/sv/AoU.srWGS.sv.cleaned.\$CONTIG.vcf.gz"],
+                                                ["gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/snv_indel/1KGP.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
+                                                 "gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/sv/1KGP.lrWGS.sv.cleaned.\$CONTIG.vcf.gz",
+                                                 "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/snv_indel/AoU.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz",
+                                                 "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/sv/AoU.lrWGS.sv.cleaned.\$CONTIG.vcf.gz"]],
+  "CollectVcfQcMetrics.sample_benchmark_vcf_idxs": [["gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/snv_indel/1KGP.srWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
+                                                     "gs://dfci-g2c-refs/hgsv/dense_vcfs/srwgs/sv/1KGP.srWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi",
+                                                     "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/snv_indel/AoU.srWGS.snv_indel.cleaned.\$CONTIG.vcf.bgz",
+                                                     "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/srwgs/sv/AoU.srWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi"],
+                                                    ["gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/snv_indel/1KGP.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
+                                                     "gs://dfci-g2c-refs/hgsv/dense_vcfs/lrwgs/sv/1KGP.lrWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi",
+                                                     "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/snv_indel/AoU.lrWGS.snv_indel.cleaned.\$CONTIG.vcf.gz.tbi",
+                                                     "$MAIN_WORKSPACE_BUCKET/refs/aou/dense_vcfs/lrwgs/sv/AoU.lrWGS.sv.cleaned.\$CONTIG.vcf.gz.tbi"]],
+  "CollectVcfQcMetrics.sample_priority_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.sample_qc_priority.tsv",
+  "CollectVcfQcMetrics.shard_vcf": false,
+  "CollectVcfQcMetrics.site_benchmark_dataset_names": ["gnomad_v4"],
+  "CollectVcfQcMetrics.snv_site_benchmark_beds": [],
+  "CollectVcfQcMetrics.indel_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.\$CONTIG.indel.sites.bed.gz"],
+  "CollectVcfQcMetrics.sv_site_benchmark_beds": ["gs://dfci-g2c-refs/gnomad/gnomad_v4_site_metrics/\$CONTIG/gnomad.v4.1.\$CONTIG.sv.sites.bed.gz"],
+  "CollectVcfQcMetrics.trios_fam_file": "$MAIN_WORKSPACE_BUCKET/data/sample_info/relatedness/dfci-g2c.reported_families.fam",
+  "CollectVcfQcMetrics.twins_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/InferTwins/dfci-g2c.v1.cleaned.tsv",
+  "CollectVcfQcMetrics.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/integrated-indel-sv-qc/vcf_list_inputs/dfci-g2c.v1.integrated_qc.vcf_info.\$CONTIG.tsv"
+}
+EOF
 
-# # Submit, monitor, stage, and cleanup QC metric collection workflows
-# code/scripts/manage_chromshards.py \
-#   --wdl code/wdl/pancan_germline_wgs/vcf-qc/CollectVcfQcMetrics.wdl \
-#   --input-json-template $staging_dir/CollectIntegratedIndelSvQcMetrics.inputs.template.json \
-#   --contig-variable-overrides $staging_dir/CollectIntegratedIndelSvQcMetrics.contig_variable_overrides.json \
-#   --dependencies-zip qc.dependencies.zip \
-#   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/integrated-indel-sv-qc/VcfQcMetrics/ \
-#   --name CollectIntegratedIndelSvQcMetrics \
-#   --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
-#   --status-tsv cromshell/progress/dfci-g2c.v1.CollectIntegratedIndelSvQcMetrics.progress.tsv \
-#   --workflow-id-log-prefix "dfci-g2c.v1" \
-#   --outer-gate 60 \
-#   --vm-gate 400 \
-#   --submission-gate 60 \
-#   --max-attempts 3
+# Submit, monitor, stage, and cleanup QC metric collection workflows
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/pancan_germline_wgs/vcf-qc/CollectVcfQcMetrics.wdl \
+  --input-json-template $staging_dir/CollectIntegratedIndelSvQcMetrics.inputs.template.json \
+  --contig-variable-overrides $staging_dir/CollectIntegratedIndelSvQcMetrics.contig_variable_overrides.json \
+  --dependencies-zip qc.dependencies.zip \
+  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/integrated-indel-sv-qc/VcfQcMetrics/ \
+  --name CollectIntegratedIndelSvQcMetrics \
+  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
+  --status-tsv cromshell/progress/dfci-g2c.v1.CollectIntegratedIndelSvQcMetrics.progress.tsv \
+  --workflow-id-log-prefix "dfci-g2c.v1" \
+  --outer-gate 60 \
+  --vm-gate 400 \
+  --submission-gate 360 \
+  --contig-gate 3 \
+  --max-attempts 3
 
 
 # #############################################################
@@ -1201,13 +1200,11 @@ code/scripts/manage_chromshards.py \
 #   "PlotVcfQcMetrics.common_sv_beds": $( collapse_txt $staging_dir/common_svs_bed.uris.list ),
 #   "PlotVcfQcMetrics.custom_qc_target_metrics": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/initial-qc/dfci-g2c.v1.qc_targets.tsv",
 #   "PlotVcfQcMetrics.deduplicate": true,
-#   "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:84838e6",
+#   "PlotVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:e4eaf92",
 #   "PlotVcfQcMetrics.output_prefix": "dfci-g2c.v1.integrated_qc",
 #   "PlotVcfQcMetrics.peak_ld_stat_tsvs": $( collapse_txt $staging_dir/ld_stats.uris.list ),
-#   "PlotVcfQcMetrics.PlotSiteBenchmarking.mem_gb": 32,
-#   "PlotVcfQcMetrics.PlotSiteBenchmarking.n_cpu": 8,
-#   "PlotVcfQcMetrics.PlotSiteMetrics.mem_gb": 48,
-#   "PlotVcfQcMetrics.PlotSiteMetrics.n_cpu": 8,
+#   "PlotVcfQcMetrics.PlotSiteBenchmarking.gcp_machine_type": "n2d-standard-8",
+#   "PlotVcfQcMetrics.PlotSiteMetrics.gcp_machine_type": "n2d-standard-16",
 #   "PlotVcfQcMetrics.previous_stats": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/pre-integration-qc/PlotQc/dfci-g2c.v1.pre_integration_qc.all_qc_summary_metrics.tsv",
 #   "PlotVcfQcMetrics.ref_af_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_af_distribution.uris.list ),
 #   "PlotVcfQcMetrics.ref_size_distribution_tsvs": $( collapse_txt $staging_dir/gnomAD_size_distribution.uris.list ),
@@ -1271,7 +1268,7 @@ code/scripts/manage_chromshards.py \
 
 # # Clear Cromwell execution & output buckets for plotting job
 # gsutil -m ls $( cat cromshell/job_ids/dfci-g2c.v1.PlotIntegratedIndelSvQcMetrics.job_ids.list \
-#                 | awk -v bucket_prefix="$WORKSPACE_BUCKET/cromwell*/PlotVcfQcMetrics/" \
+#                 | awk -v bucket_prefix="$WORKSPACE_BUCKET/workflows/cromwell*/PlotVcfQcMetrics/" \
 #                   '{ print bucket_prefix$1"/**" }' ) \
 # > uris_to_delete.list
 # cleanup_garbage
