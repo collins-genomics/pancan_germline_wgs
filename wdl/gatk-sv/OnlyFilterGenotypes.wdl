@@ -18,6 +18,7 @@ workflow FilterGenotypes {
     String sl_filter_args  # Explicitly set SL cutoffs. See apply_sl_filter.py for arguments.
 
     Int filter_vcf_records_per_shard = 20000
+    Boolean shard_vcf = true
 
     # For SanitizeHeader - bcftools annotate -x ~{header_drop_fields}
     String header_drop_fields = "FILTER/LOW_QUALITY,FORMAT/TRUTH_CN_EQUAL,FORMAT/GT_FILTER,FORMAT/CONC_ST,INFO/STATUS,INFO/TRUTH_AC,INFO/TRUTH_AN,INFO/TRUTH_AF,INFO/TRUTH_VID,INFO/CNV_CONCORDANCE,INFO/GENOTYPE_CONCORDANCE,INFO/HET_PPV,INFO/HET_SENSITIVITY,INFO/HOMVAR_PPV,INFO/HOMVAR_SENSITIVITY,INFO/MINSL,INFO/NON_REF_GENOTYPE_CONCORDANCE,INFO/SL_MAX,INFO/SL_MEAN,INFO/VAR_PPV,INFO/VAR_SENSITIVITY,INFO/VAR_SPECIFICITY"
@@ -28,19 +29,22 @@ workflow FilterGenotypes {
 
   String output_prefix_ = if defined(output_prefix) then select_first([output_prefix]) else basename(vcf, ".vcf.gz")
 
-  call tasks_cohort.ScatterVcf as ScatterForFilter {
-    input:
-      vcf=vcf,
-      records_per_shard=filter_vcf_records_per_shard,
-      prefix="~{output_prefix_}.filter_genotypes_scatter",
-      sv_pipeline_docker=sv_pipeline_docker
+  if ( shard_vcf ) {
+    call tasks_cohort.ScatterVcf as ScatterForFilter {
+      input:
+        vcf=vcf,
+        records_per_shard=filter_vcf_records_per_shard,
+        prefix="~{output_prefix_}.filter_genotypes_scatter",
+        sv_pipeline_docker=sv_pipeline_docker
+    }
   }
+  Array[File] vcf_shards = select_first([ScatterForFilter.shards, [vcf]])
 
-  scatter ( i in range(length(ScatterForFilter.shards)) ) {
+  scatter ( i in range(length(vcf_shards)) ) {
     # Applies genotype and NCR filtering as specified by sl_filter_args
     call FilterVcf {
       input:
-        vcf=ScatterForFilter.shards[i],
+        vcf=vcf_shards[i],
         ploidy_table=ploidy_table,
         args=sl_filter_args + " --ncr-threshold ~{no_call_rate_cutoff}",
         output_prefix="~{output_prefix_}.filter_genotypes.shard_~{i}",
@@ -48,18 +52,22 @@ workflow FilterGenotypes {
     }
   }
 
-  call tasks_cohort.ConcatVcfs {
-    input:
-      vcfs=FilterVcf.out,
-      naive=true,
-      outfile_prefix="~{output_prefix_}.filter_genotypes",
-      sv_base_mini_docker=sv_base_mini_docker
+  if ( shard_vcf ) {
+    call tasks_cohort.ConcatVcfs {
+      input:
+        vcfs=FilterVcf.out,
+        naive=true,
+        outfile_prefix="~{output_prefix_}.filter_genotypes",
+        sv_base_mini_docker=sv_base_mini_docker
+    }
   }
+  File unsanitized_vcf = select_first([ConcatVcfs.concat_vcf, select_first(FilterVcf.out)])
+  File unsanitized_vcf_idx = select_first([ConcatVcfs.concat_vcf_idx, select_first(FilterVcf.out_index)])
 
   call SanitizeHeader {
     input:
-      vcf = ConcatVcfs.concat_vcf,
-      vcf_index = ConcatVcfs.concat_vcf_idx,
+      vcf = unsanitized_vcf,
+      vcf_index = unsanitized_vcf_idx,
       drop_fields = header_drop_fields,
       prefix = "~{output_prefix_}.filter_genotypes.sanitized",
       sv_pipeline_docker = sv_pipeline_docker

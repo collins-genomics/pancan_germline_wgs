@@ -59,48 +59,35 @@ cd ~
 # # [Alpha] Apply pre-trained high-sensitivity FilterGenotypes model #
 # ####################################################################
 
-# # Make staging directory
-# staging_dir=staging/FilterGenotypes
-# if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+# Make staging directory
+staging_dir=staging/OnlyFilterGenotypesParallel
+if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
-# Write template .json for GATK-SV module 19
-cat << EOF > $staging_dir/FilterGenotypes.inputs.template.json
+# Write template .json for module 19
+cat << EOF > $staging_dir/OnlyFilterGenotypesParallel.inputs.template.json
 {
-  "FilterGenotypes.FilterVcf.script": "$MAIN_WORKSPACE_BUCKET/code/scripts/apply_sl_filter.g2c_imputed.py",
-  "FilterGenotypes.gatk_docker": "us.gcr.io/broad-dsde-methods/markw/gatk:mw-tb-form-sv-filter-training-data-899360a",
-  "FilterGenotypes.genome_tracks": ["gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/ucsc-genome-tracks/hg38-RepeatMasker.bed.gz",
-                                    "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/ucsc-genome-tracks/hg38-Segmental-Dups.bed.gz",
-                                    "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/ucsc-genome-tracks/hg38-Simple-Repeats.bed.gz",
-                                    "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/ucsc-genome-tracks/hg38_umap_s100.bed.gz",
-                                    "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/ucsc-genome-tracks/hg38_umap_s24.bed.gz"],
-  "FilterGenotypes.gq_recalibrator_model_file": "gs://gatk-sv-resources-public/hg38/v0/sv-resources/resources/v1/gatk-sv-recalibrator.aou_phase_1.v1.model",
-  "FilterGenotypes.linux_docker": "ubuntu:plucky-20251001",
-  "FilterGenotypes.no_call_rate_cutoff": 1,
-  "FilterGenotypes.output_prefix": ""dfci-g2c.v0.9.\$CONTIG",
-  "FilterGenotypes.ped_file": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/refs/dfci-g2c.all_samples.ped",
-  "FilterGenotypes.ploidy_table": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/17/dfci-g2c.v1.ploidy.tsv",
-  "FilterGenotypes.primary_contigs_fai": "gs://dfci-g2c-refs/hg38/contig_fais/\$CONTIG.fai",
-  "FilterGenotypes.recalibrate_gq_args": ["--keep-homvar false","--keep-homref true","--keep-multiallelic true","--skip-genotype-filtering true","--min-samples-to-estimate-allele-frequency -1"],
-  "FilterGenotypes.run_qc": false,
-  "FilterGenotypes.runtime_override_plot_qc_per_family": {"mem_gb" : 15, "disk_gb" : 100},
-  "FilterGenotypes.sl_filter_args": "--small-del-threshold -53 --medium-del-threshold -12 --small-dup-threshold -105 --medium-dup-threshold -81 --ins-threshold -97",
-  "FilterGenotypes.sv_base_mini_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
-  "FilterGenotypes.sv_pipeline_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-pipeline:2025-06-27-v1.0.4-63e6c81e",
-  "FilterGenotypes.vcf": "$WORKSPACE_BUCKET/qc/header_typo_fix/\$CONTIG/FixTypo/dfci-ufc.gatksv.v2.typo_fixed.vcf.gz"
+  "OnlyFilterGenotypesParallel.FilterVcf.script": "$MAIN_WORKSPACE_BUCKET/code/scripts/apply_sl_filter.g2c_imputed_integrated.py",
+  "OnlyFilterGenotypesParallel.no_call_rate_cutoff": 1,
+  "OnlyFilterGenotypesParallel.output_prefix": "dfci-ufc.v2.\$CONTIG",
+  "OnlyFilterGenotypesParallel.ploidy_table": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/17/dfci-g2c.v1.ploidy.tsv",
+  "OnlyFilterGenotypesParallel.sl_filter_args": "--small-del-threshold -53 --medium-del-threshold -12 --small-dup-threshold -105 --medium-dup-threshold -81 --ins-threshold -97",
+  "OnlyFilterGenotypesParallel.sv_base_mini_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
+  "OnlyFilterGenotypesParallel.sv_pipeline_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-pipeline:2025-06-27-v1.0.4-63e6c81e",
+  "OnlyFilterGenotypesParallel.vcf": "$WORKSPACE_BUCKET/data/raw_gatksv_vcfs/\$CONTIG/ExcludeSamples/dfci-ufc.gatksv.v2.vcf.gz"
 }
 EOF
 
-# # Run module 19 on all UFC SV VCFs
-# code/scripts/manage_chromshards.py \
-#   --wdl code/wdl/gatk-sv/FilterGenotypes.wdl \
-#   --input-json-template $staging_dir/FilterGenotypes.inputs.template.json \
-#   --staging-bucket $WORKSPACE_BUCKET/data/module19 \
-#   --dependencies-zip gatksv.dependencies.zip \
-#   --status-tsv cromshell/progress/FilterGenotypes.progress.tsv \
-#   --workflow-id-log-prefix "dfci-ufc.v2" \
-#   --outer-gate 30 \
-#   --submission-gate 0.1 \
-#   --max-attempts 2
+# Run filtering component of GATK-SV module 19 on all SV VCFs
+code/scripts/manage_chromshards.py \
+  --wdl code/wdl/gatk-sv/OnlyFilterGenotypesParallel.wdl \
+  --input-json-template $staging_dir/OnlyFilterGenotypesParallel.inputs.template.json \
+  --staging-bucket $WORKSPACE_BUCKET/data/OnlyFilterGenotypesParallel \
+  --dependencies-zip gatksv.dependencies.zip \
+  --status-tsv cromshell/progress/OnlyFilterGenotypesParallel.progress.tsv \
+  --workflow-id-log-prefix "dfci-ufc.v2" \
+  --outer-gate 30 \
+  --submission-gate 0.1 \
+  --max-attempts 2
 
 
 ##################################################
