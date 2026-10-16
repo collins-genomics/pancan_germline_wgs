@@ -63,17 +63,33 @@ cd ~
 staging_dir=staging/OnlyFilterGenotypesParallel
 if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
+# Write text file of SV VCF URIs for each contig
+while read contig; do
+  gsutil -m ls \
+    $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration/$contig/**sv*.vcf.gz \
+  | sort -Vk1,1 \
+  > $staging_dir/dfci-g2c.v1.integrated_qc.sv_vcf_info.$contig.txt
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list
+
+# Initialize .json of contig-specific VCF array overrides
+echo "{ " > $staging_dir/OnlyFilterGenotypesParallel.contig_variable_overrides.json
+while read contig; do
+  echo "\"$contig\" : {\"VCF_ARRAY\" : $( collapse_txt $staging_dir/dfci-g2c.v1.integrated_qc.sv_vcf_info.$contig.txt )},"
+done < contig_lists/dfci-g2c.v1.contigs.$WN.list \
+| paste -s -d\  | sed 's/,$//g' \
+>> $staging_dir/OnlyFilterGenotypesParallel.contig_variable_overrides.json
+echo " }" >> $staging_dir/OnlyFilterGenotypesParallel.contig_variable_overrides.json
+
 # Write template .json for module 19
 cat << EOF > $staging_dir/OnlyFilterGenotypesParallel.inputs.template.json
 {
-  "OnlyFilterGenotypesParallel.FilterVcf.script": "$MAIN_WORKSPACE_BUCKET/code/scripts/apply_sl_filter.g2c_imputed_integrated.py",
+  "OnlyFilterGenotypesParallel.FilterGenotypes.FilterVcf.script": "$MAIN_WORKSPACE_BUCKET/code/scripts/apply_sl_filter.g2c_imputed_integrated.py",
   "OnlyFilterGenotypesParallel.no_call_rate_cutoff": 1,
-  "OnlyFilterGenotypesParallel.output_prefix": "dfci-ufc.v2.\$CONTIG",
   "OnlyFilterGenotypesParallel.ploidy_table": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/17/dfci-g2c.v1.ploidy.tsv",
   "OnlyFilterGenotypesParallel.sl_filter_args": "--small-del-threshold -53 --medium-del-threshold -12 --small-dup-threshold -105 --medium-dup-threshold -81 --ins-threshold -97",
   "OnlyFilterGenotypesParallel.sv_base_mini_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-base-mini:2024-10-25-v0.29-beta-5ea22a52",
   "OnlyFilterGenotypesParallel.sv_pipeline_docker": "us.gcr.io/broad-dsde-methods/gatk-sv/sv-pipeline:2025-06-27-v1.0.4-63e6c81e",
-  "OnlyFilterGenotypesParallel.vcf": "$WORKSPACE_BUCKET/data/raw_gatksv_vcfs/\$CONTIG/ExcludeSamples/dfci-ufc.gatksv.v2.vcf.gz"
+  "OnlyFilterGenotypesParallel.vcfs": \$VCF_ARRAY
 }
 EOF
 
@@ -81,10 +97,12 @@ EOF
 code/scripts/manage_chromshards.py \
   --wdl code/wdl/gatk-sv/OnlyFilterGenotypesParallel.wdl \
   --input-json-template $staging_dir/OnlyFilterGenotypesParallel.inputs.template.json \
-  --staging-bucket $WORKSPACE_BUCKET/data/OnlyFilterGenotypesParallel \
+  --contig-variable-overrides $staging_dir/OnlyFilterGenotypesParallel.contig_variable_overrides.json \
+  --staging-bucket $WORKSPACE_BUCKET/data/alpha_v0.9/OnlyFilterGenotypesParallel \
   --dependencies-zip gatksv.dependencies.zip \
+  --contig-list contig_lists/dfci-g2c.v1.contigs.$WN.list \
   --status-tsv cromshell/progress/OnlyFilterGenotypesParallel.progress.tsv \
-  --workflow-id-log-prefix "dfci-ufc.v2" \
+  --workflow-id-log-prefix "dfci-g2c.v0.9" \
   --outer-gate 30 \
   --submission-gate 0.1 \
   --max-attempts 2

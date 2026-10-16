@@ -24,6 +24,8 @@ workflow OnlyFilterGenotypesParallel {
     # For SanitizeHeader - bcftools annotate -x ~{header_drop_fields}
     String header_drop_fields = "FILTER/LOW_QUALITY,FORMAT/TRUTH_CN_EQUAL,FORMAT/GT_FILTER,FORMAT/CONC_ST,INFO/STATUS,INFO/TRUTH_AC,INFO/TRUTH_AN,INFO/TRUTH_AF,INFO/TRUTH_VID,INFO/CNV_CONCORDANCE,INFO/GENOTYPE_CONCORDANCE,INFO/HET_PPV,INFO/HET_SENSITIVITY,INFO/HOMVAR_PPV,INFO/HOMVAR_SENSITIVITY,INFO/MINSL,INFO/NON_REF_GENOTYPE_CONCORDANCE,INFO/SL_MAX,INFO/SL_MEAN,INFO/VAR_PPV,INFO/VAR_SENSITIVITY,INFO/VAR_SPECIFICITY"
 
+    File? filter_script
+
     String sv_base_mini_docker
     String sv_pipeline_docker
   }
@@ -37,6 +39,7 @@ workflow OnlyFilterGenotypesParallel {
         no_call_rate_cutoff = no_call_rate_cutoff,
         sl_filter_args = sl_filter_args,
         header_drop_fields = header_drop_fields,
+        filter_script = filter_script,
         sv_base_mini_docker = sv_base_mini_docker,
         sv_pipeline_docker = sv_pipeline_docker
     }
