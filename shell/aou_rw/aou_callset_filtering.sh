@@ -83,7 +83,10 @@ echo " }" >> $staging_dir/OnlyFilterGenotypesParallel.contig_variable_overrides.
 # Write template .json for module 19
 cat << EOF > $staging_dir/OnlyFilterGenotypesParallel.inputs.template.json
 {
-  "OnlyFilterGenotypesParallel.FilterGenotypes.FilterVcf.script": "$MAIN_WORKSPACE_BUCKET/code/scripts/apply_sl_filter.g2c_imputed_integrated.py",
+  "OnlyFilterGenotypesParallel.filter_script": "$MAIN_WORKSPACE_BUCKET/code/scripts/apply_sl_filter.g2c_imputed_integrated.py",
+  "OnlyFilterGenotypesParallel.FilterVcfs.filter_machine_type": "n2d-standard-4",
+  "OnlyFilterGenotypesParallel.FilterVcfs.sanitize_machine_type": "n2d-standard-4",
+  "OnlyFilterGenotypesParallel.FilterVcfs.shard_vcf": false,
   "OnlyFilterGenotypesParallel.no_call_rate_cutoff": 1,
   "OnlyFilterGenotypesParallel.ploidy_table": "$MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/gatk-sv/module-outputs/17/dfci-g2c.v1.ploidy.tsv",
   "OnlyFilterGenotypesParallel.sl_filter_args": "--small-del-threshold -53 --medium-del-threshold -12 --small-dup-threshold -105 --medium-dup-threshold -81 --ins-threshold -97",
@@ -105,7 +108,7 @@ code/scripts/manage_chromshards.py \
   --workflow-id-log-prefix "dfci-g2c.v0.9" \
   --outer-gate 30 \
   --submission-gate 0.1 \
-  --max-attempts 2
+  --max-attempts 4
 
 
 ##################################################
@@ -173,38 +176,67 @@ gsutil -m cp \
 rm -rf $staging_dir
 
 
-###################################################################
-# Curate variant- and genotype-level features for SV GT filtering #
-###################################################################
+# ###################################################################
+# # Curate variant- and genotype-level features for SV GT filtering #
+# ###################################################################
 
-# BELOW IS DEV: manual submit for chr22 to familiarize with wb workflow syntax
+# # BELOW IS DEV: manual submit for chr22 to familiarize with wb workflow syntax
 
-# Reaffirm staging directory
-staging_dir=~/staging/sv_gt_feature_curation
-if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
+# # Reaffirm staging directory
+# staging_dir=~/staging/sv_gt_feature_curation
+# if ! [ -e $staging_dir ]; then mkdir $staging_dir; fi
 
-# Dev: set contig manually (this can be looped once automated)
-contig=chr22
+# # Dev: set contig manually (this can be looped once automated)
+# contig=chr22
 
-# Create VCF input array
-# NOTE: because this was the first task after migrating from AoU RW v1.0 to Verily,
-# we need to update the URI prefixes for all VCFs to the new Verily buckets
-gsutil -m cat \
-  $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration/$contig/UnifyGatkCallsets.$contig.outputs.json \
-| jq .\"UnifyGatkCallsets.cleaned_sv_vcfs\" \
-| fgrep "gs://" | tr -d '",' \
-| awk -v FS="42de3578da45" -v prefix="$MAIN_WORKSPACE_BUCKET" -v OFS="\t" \
-  '{ print prefix$2, prefix$2".tbi" }' \
-> $staging_dir/CollectGTFilterFeatures.vcf_inputs.$contig.tsv
-gsutil -m cp \
-  $staging_dir/CollectGTFilterFeatures.vcf_inputs.$contig.tsv \
-  $MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/
+# # Create VCF input array
+# # NOTE: because this was the first task after migrating from AoU RW v1.0 to Verily,
+# # we need to update the URI prefixes for all VCFs to the new Verily buckets
+# gsutil -m cat \
+#   $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/indel_sv_integration/$contig/UnifyGatkCallsets.$contig.outputs.json \
+# | jq .\"UnifyGatkCallsets.cleaned_sv_vcfs\" \
+# | fgrep "gs://" | tr -d '",' \
+# | awk -v FS="42de3578da45" -v prefix="$MAIN_WORKSPACE_BUCKET" -v OFS="\t" \
+#   '{ print prefix$2, prefix$2".tbi" }' \
+# > $staging_dir/CollectGTFilterFeatures.vcf_inputs.$contig.tsv
+# gsutil -m cp \
+#   $staging_dir/CollectGTFilterFeatures.vcf_inputs.$contig.tsv \
+#   $MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/
 
-# # Create inputs and upload to workspace bucket
-# input_json="CollectGTFilterFeatures.$contig.inputs.json"
-# cat << EOF > "cromwell/inputs/$input_json"
+# # # Create inputs and upload to workspace bucket
+# # input_json="CollectGTFilterFeatures.$contig.inputs.json"
+# # cat << EOF > "cromwell/inputs/$input_json"
+# # {
+# #   "CollectGTFilterFeatures.bed_features": ["gs://dfci-g2c-refs/giab/$contig/giab.hg38.broad_callable.hard.$contig.bed.gz",
+# #                                            "gs://dfci-g2c-refs/ucsc/hg38/hg38.segdups.bed.gz",
+# #                                            "gs://dfci-g2c-refs/ucsc/hg38/hg38.simple_repeats.bed.gz"],
+# #   "CollectGTFilterFeatures.bigwig_features": ["gs://dfci-g2c-refs/ucsc/hg38/hg38.100mer_multiUmap.bw"],
+# #   "CollectGTFilterFeatures.bigwig_feature_names": ["umap"],
+# #   "CollectGTFilterFeatures.bed_feature_names": ["giab_hard", "segdup", "simrep"],
+# #   "CollectGTFilterFeatures.g2c_analysis_docker": "vanallenlab/g2c_analysis:77bb125",
+# #   "CollectGTFilterFeatures.linux_docker": "ubuntu:plucky-20251001",
+# #   "CollectGTFilterFeatures.output_prefix": "dfci-g2c.v1.$contig.sv",
+# #   "CollectGTFilterFeatures.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/CollectGTFilterFeatures.vcf_inputs.$contig.tsv"
+# # }
+# # EOF
+# # gsutil cp "cromwell/inputs/$input_json" $WORKSPACE_BUCKET/cromwell-inputs/$workflow_base/
+
+# # # Test submission for a single chr22 SV VCF
+# # wb workflow job run \
+# #   --workflow "CollectGTFilterFeatures" \
+# #   --inputs-uri "$WORKSPACE_BUCKET/cromwell-inputs/$workflow_base/$input_json" \
+# #   --output-bucket-id "$( echo $WORKSPACE_BUCKET | sed 's/^gs\:\/\///g'  )" \
+# #   --output-path cromwell-execution \
+# #   --read-from-cache \
+# #   --write-to-cache \
+# #   --format JSON \
+# # | python -m json.tool \
+# # > "cromwell/submissions/CollectGTFilterFeatures.$contig.submission.json"
+
+# # Write template input .json for SV GT refinement
+# cat << EOF > $staging_dir/CollectSVGTFilterFeatures.inputs.template.json
 # {
-#   "CollectGTFilterFeatures.bed_features": ["gs://dfci-g2c-refs/giab/$contig/giab.hg38.broad_callable.hard.$contig.bed.gz",
+#   "CollectGTFilterFeatures.bed_features": ["gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz",
 #                                            "gs://dfci-g2c-refs/ucsc/hg38/hg38.segdups.bed.gz",
 #                                            "gs://dfci-g2c-refs/ucsc/hg38/hg38.simple_repeats.bed.gz"],
 #   "CollectGTFilterFeatures.bigwig_features": ["gs://dfci-g2c-refs/ucsc/hg38/hg38.100mer_multiUmap.bw"],
@@ -212,58 +244,29 @@ gsutil -m cp \
 #   "CollectGTFilterFeatures.bed_feature_names": ["giab_hard", "segdup", "simrep"],
 #   "CollectGTFilterFeatures.g2c_analysis_docker": "vanallenlab/g2c_analysis:77bb125",
 #   "CollectGTFilterFeatures.linux_docker": "ubuntu:plucky-20251001",
-#   "CollectGTFilterFeatures.output_prefix": "dfci-g2c.v1.$contig.sv",
-#   "CollectGTFilterFeatures.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/CollectGTFilterFeatures.vcf_inputs.$contig.tsv"
+#   "CollectGTFilterFeatures.output_prefix": "dfci-g2c.v1.\$CONTIG.sv",
+#   "CollectGTFilterFeatures.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/CollectGTFilterFeatures.vcf_inputs.\$CONTIG.tsv"
 # }
 # EOF
-# gsutil cp "cromwell/inputs/$input_json" $WORKSPACE_BUCKET/cromwell-inputs/$workflow_base/
 
-# # Test submission for a single chr22 SV VCF
-# wb workflow job run \
-#   --workflow "CollectGTFilterFeatures" \
-#   --inputs-uri "$WORKSPACE_BUCKET/cromwell-inputs/$workflow_base/$input_json" \
-#   --output-bucket-id "$( echo $WORKSPACE_BUCKET | sed 's/^gs\:\/\///g'  )" \
-#   --output-path cromwell-execution \
-#   --read-from-cache \
-#   --write-to-cache \
-#   --format JSON \
-# | python -m json.tool \
-# > "cromwell/submissions/CollectGTFilterFeatures.$contig.submission.json"
-
-# Write template input .json for SV GT refinement
-cat << EOF > $staging_dir/CollectSVGTFilterFeatures.inputs.template.json
-{
-  "CollectGTFilterFeatures.bed_features": ["gs://dfci-g2c-refs/giab/\$CONTIG/giab.hg38.broad_callable.hard.\$CONTIG.bed.gz",
-                                           "gs://dfci-g2c-refs/ucsc/hg38/hg38.segdups.bed.gz",
-                                           "gs://dfci-g2c-refs/ucsc/hg38/hg38.simple_repeats.bed.gz"],
-  "CollectGTFilterFeatures.bigwig_features": ["gs://dfci-g2c-refs/ucsc/hg38/hg38.100mer_multiUmap.bw"],
-  "CollectGTFilterFeatures.bigwig_feature_names": ["umap"],
-  "CollectGTFilterFeatures.bed_feature_names": ["giab_hard", "segdup", "simrep"],
-  "CollectGTFilterFeatures.g2c_analysis_docker": "vanallenlab/g2c_analysis:77bb125",
-  "CollectGTFilterFeatures.linux_docker": "ubuntu:plucky-20251001",
-  "CollectGTFilterFeatures.output_prefix": "dfci-g2c.v1.\$CONTIG.sv",
-  "CollectGTFilterFeatures.vcf_info_tsv": "$MAIN_WORKSPACE_BUCKET/data/sv_gt_filtering/CollectGTFilterFeatures.vcf_inputs.\$CONTIG.tsv"
-}
-EOF
-
-# Submit, monitor, and stage/cleanup SV GT refinement
-code/scripts/manage_chromshards.py \
-  --wdl code/wdl/pancan_germline_wgs/CollectGTFilterFeatures.wdl \
-  --input-json-template $staging_dir/CollectSVGTFilterFeatures.inputs.template.json \
-  --dependencies-zip g2c.dependencies.zip \
-  --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/CollectSVGTFilterFeatures \
-  --name CollectSVGTFilterFeatures \
-  --contig-list <( fgrep chr22 contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
-  --status-tsv cromshell/progress/dfci-g2c.v1.CollectSVGTFilterFeatures.progress.tsv \
-  --workflow-id-log-prefix "dfci-g2c.v1"
+# # Submit, monitor, and stage/cleanup SV GT refinement
+# code/scripts/manage_chromshards.py \
+#   --wdl code/wdl/pancan_germline_wgs/CollectGTFilterFeatures.wdl \
+#   --input-json-template $staging_dir/CollectSVGTFilterFeatures.inputs.template.json \
+#   --dependencies-zip g2c.dependencies.zip \
+#   --staging-bucket $MAIN_WORKSPACE_BUCKET/dfci-g2c-callsets/qc-filtering/CollectSVGTFilterFeatures \
+#   --name CollectSVGTFilterFeatures \
+#   --contig-list <( fgrep chr22 contig_lists/dfci-g2c.v1.contigs.$WN.list ) \
+#   --status-tsv cromshell/progress/dfci-g2c.v1.CollectSVGTFilterFeatures.progress.tsv \
+#   --workflow-id-log-prefix "dfci-g2c.v1"
 
 
 
-# # Check progress
-# wid=$( jq .runId "cromwell/submissions/CollectGTFilterFeatures.$contig.submission.json" | tr -d '"' )
-# monitor_workflow $wid
-# wb workflow job describe --job-id=$wid --format=JSON | python -m json.tool
+# # # Check progress
+# # wid=$( jq .runId "cromwell/submissions/CollectGTFilterFeatures.$contig.submission.json" | tr -d '"' )
+# # monitor_workflow $wid
+# # wb workflow job describe --job-id=$wid --format=JSON | python -m json.tool
 
-# TODO: finish implementing this
+# # TODO: finish implementing this
 
 

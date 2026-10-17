@@ -8,87 +8,86 @@
 # General helper bash functions for the All of Us Researcher Workbench v2.0 (Verily Pre)
 
 
-# Legacy function (RW v1.0); unsure if this needs to be updated for Verily Pre
-# # Update a contig-specific overrides .json for manage_chromshards.py with
-# # arrays of VCFs and VCF indexes staged in a google bucket
-# add_contig_vcfs_to_chromshard_overrides_json() {
-#   # Check inputs
-#   if [ $# -lt 4 ]; then
-#     cat << EOF
-# Error. Must provide at least four positional arguments:
-#   1. path to overrides.json to be updated (or will be created if it doesn't exist)
-#   2. base URI to search for .json mapping VCF arrays. Structure of this URI
-#      is expected to follow the output from manage_chromshards.py; do not use 
-#      this function if you have a custom URI directory structure.
-#   3. VCF array key in .json
-#   4. VCF index array key in .json
-#   5. (Optional) path to contig list; defaults to workspace-specific contig list
-# EOF
-#     return 2
-#   else
-#     in_json=$1
-#     base_uri=$( echo $2 | sed 's/\/$//g' )
-#     vcf_key=$3
-#     idx_key=$4
-#   fi
-#   if [ $# -ge 5 ]; then
-#     contig_list=$5
-#   else
-#     contig_list=/home/jupyter/contig_lists/dfci-g2c.v1.contigs.$WN.list
-#   fi
+# Update a contig-specific overrides .json for manage_chromshards.py with
+# arrays of VCFs and VCF indexes staged in a google bucket
+add_contig_vcfs_to_chromshard_overrides_json() {
+  # Check inputs
+  if [ $# -lt 4 ]; then
+    cat << EOF
+Error. Must provide at least four positional arguments:
+  1. path to overrides.json to be updated (or will be created if it doesn't exist)
+  2. base URI to search for .json mapping VCF arrays. Structure of this URI
+     is expected to follow the output from manage_chromshards.py; do not use 
+     this function if you have a custom URI directory structure.
+  3. VCF array key in .json
+  4. VCF index array key in .json
+  5. (Optional) path to contig list; defaults to workspace-specific contig list
+EOF
+    return 2
+  else
+    in_json=$1
+    base_uri=$( echo $2 | sed 's/\/$//g' )
+    vcf_key=$3
+    idx_key=$4
+  fi
+  if [ $# -ge 5 ]; then
+    contig_list=$5
+  else
+    contig_list=/home/jupyter/contig_lists/dfci-g2c.v1.contigs.$WN.list
+  fi
 
-#   # Make temporary directory for staging
-#   WRKDIR=`mktemp -d`
+  # Make temporary directory for staging
+  WRKDIR=`mktemp -d`
 
-#   # Create overrides.json if it doesn't already exist; otherwise, make a copy for updating
-#   if ! [ -e $in_json ]; then
-#     echo "{}" > $WRKDIR/updates.json
-#   else
-#     cp $in_json $WRKDIR/updates.json
-#   fi
+  # Create overrides.json if it doesn't already exist; otherwise, make a copy for updating
+  if ! [ -e $in_json ]; then
+    echo "{}" > $WRKDIR/updates.json
+  else
+    cp $in_json $WRKDIR/updates.json
+  fi
 
-#   # Add each chromosome's overrides
-#   while read contig; do
+  # Add each chromosome's overrides
+  while read contig; do
 
-#     # Attempt to locate this chromosome's .json map of outputs
-#     gsutil ls $base_uri/$contig/*json > $WRKDIR/$contig.fmap.json.list
-#     if [ $( cat $WRKDIR/$contig.fmap.json.list | wc -l ) -lt 1 ]; then
-#       echo "Error: no .json was found for $contig in $base_uri/$contig/"
-#       rm -rf $WRKDIR && unset WRKDIR
-#       exit 2
-#     elif [ $( cat $WRKDIR/$contig.fmap.json.list | wc -l ) -gt 1 ]; then
-#       echo "Error: multiple .jsons were found for $contig in $base_uri/$contig/"
-#       rm -rf $WRKDIR && unset WRKDIR
-#       exit 2
-#     else
-#       contig_json=$( head -n1 $WRKDIR/$contig.fmap.json.list )
-#     fi
+    # Attempt to locate this chromosome's .json map of outputs
+    gsutil ls $base_uri/$contig/*json > $WRKDIR/$contig.fmap.json.list
+    if [ $( cat $WRKDIR/$contig.fmap.json.list | wc -l ) -lt 1 ]; then
+      echo "Error: no .json was found for $contig in $base_uri/$contig/"
+      rm -rf $WRKDIR && unset WRKDIR
+      exit 2
+    elif [ $( cat $WRKDIR/$contig.fmap.json.list | wc -l ) -gt 1 ]; then
+      echo "Error: multiple .jsons were found for $contig in $base_uri/$contig/"
+      rm -rf $WRKDIR && unset WRKDIR
+      exit 2
+    else
+      contig_json=$( head -n1 $WRKDIR/$contig.fmap.json.list )
+    fi
 
-#     # Write .json snippet for variable overrides for this contig
-#     idx_uris=$( gsutil cat $contig_json | jq --arg k "$idx_key" '.[$k]' )
-#     cat << EOF > $WRKDIR/$contig.overrides.json
-# {
-#   "$contig" : {
-#       "CONTIG_VCFS": $( gsutil cat $contig_json | jq --arg key "$vcf_key" '[.[$key]] | flatten' ),
-#       "CONTIG_VCF_IDXS": $( gsutil cat $contig_json | jq --arg key "$idx_key" '[.[$key]] | flatten' )
-#     }
-# }
-# EOF
+    # Write .json snippet for variable overrides for this contig
+    idx_uris=$( gsutil cat $contig_json | jq --arg k "$idx_key" '.[$k]' )
+    cat << EOF > $WRKDIR/$contig.overrides.json
+{
+  "$contig" : {
+      "CONTIG_VCFS": $( gsutil cat $contig_json | jq --arg key "$vcf_key" '[.[$key]] | flatten' ),
+      "CONTIG_VCF_IDXS": $( gsutil cat $contig_json | jq --arg key "$idx_key" '[.[$key]] | flatten' )
+    }
+}
+EOF
   
-#     # Update main .json
-#     code/scripts/update_json.py \
-#       -i $WRKDIR/updates.json \
-#       -u $WRKDIR/$contig.overrides.json \
-#       -o $WRKDIR/updates.json
-#   done < $contig_list
+    # Update main .json
+    code/scripts/update_json.py \
+      -i $WRKDIR/updates.json \
+      -u $WRKDIR/$contig.overrides.json \
+      -o $WRKDIR/updates.json
+  done < $contig_list
 
-#   # Once updates are all complete, copy updated .json back to desired location
-#   mv $WRKDIR/updates.json $in_json
+  # Once updates are all complete, copy updated .json back to desired location
+  mv $WRKDIR/updates.json $in_json
 
-#   # Clean up
-#   rm -rf $WRKDIR
-#   unset WRKDIR
-# }
+  # Clean up
+  rm -rf $WRKDIR
+  unset WRKDIR
+}
 
 
 # Legacy function (RW v1.0); unsure if this needs to be updated for Verily Pre

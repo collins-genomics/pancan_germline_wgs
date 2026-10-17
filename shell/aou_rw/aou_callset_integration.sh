@@ -1022,6 +1022,7 @@ cat << EOF > $staging_dir/CollectIntegratedIndelSvQcMetrics.inputs.template.json
   "CollectVcfQcMetrics.ConcatGenotypeTsvs.disk_gb": 270,
   "CollectVcfQcMetrics.ConcatGenotypeTsvs.mem_gb": 15.5,
   "CollectVcfQcMetrics.ConcatGenotypeTsvs.n_cpu": 4,
+  "CollectVcfQcMetrics.extra_vcf_preprocessing_commands": "| bcftools sort -m 8G -T ./ ",
   "CollectVcfQcMetrics.g2c_analysis_docker": "vanallenlab/g2c_analysis:e4eaf92",
   "CollectVcfQcMetrics.genome_file": "gs://dfci-g2c-refs/hg38/hg38.genome",
   "CollectVcfQcMetrics.linux_docker": "ubuntu:plucky-20251001",
@@ -1083,7 +1084,7 @@ code/scripts/manage_chromshards.py \
   --outer-gate 60 \
   --vm-gate 400 \
   --submission-gate 360 \
-  --contig-gate 3 \
+  --contig-gate 2 \
   --max-attempts 3
 
 
