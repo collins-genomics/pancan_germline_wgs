@@ -399,6 +399,9 @@ task RunMELT {
     }
   }
 
+  Float java_mem_fraction = 0.85
+  Int java_mem_mb = round(8 * java_mem_fraction * 1000)
+
   RuntimeAttr default_attr = object {
     cpu_cores: 1,
     mem_gb: 8,
