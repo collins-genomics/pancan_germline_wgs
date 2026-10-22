@@ -435,7 +435,7 @@ task RunMELT {
       awk 'BEGIN{FS=OFS="\t"}{gsub(/[BDHVRYKMSW]/,"N",$10);print}' | \
       samtools view -b1 - > ~{sample_id}.bam
 
-    samtools index ~{sample_id}.bam
+    samtools index -@ "$(nproc)" ~{sample_id}.bam || samtools index ~{sample_id}.bam
 
     # these locations should be stable
     MELT_DIR="/MELT"
