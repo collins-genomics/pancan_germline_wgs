@@ -3,10 +3,10 @@ version 1.0
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/Structs.wdl"
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/CollectCoverage.wdl" as cov
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/CollectSVEvidence.wdl" as coev
-import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/refs/heads/sv_runtime_edits/wdl/gatk-sv/Manta.wdl" as manta
-import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/refs/heads/sv_runtime_edits/wdl/gatk-sv/MELT.wdl" as melt
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/refs/heads/main/wdl/gatk-sv/Manta.wdl" as manta
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/refs/heads/main/wdl/gatk-sv/MELT.wdl" as melt
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/Scramble.wdl" as scramble
-import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/refs/heads/sv_runtime_edits/wdl/gatk-sv/Whamg.wdl" as wham
+import "https://raw.githubusercontent.com/collins-genomics/pancan_germline_wgs/refs/heads/main/wdl/gatk-sv/Whamg.wdl" as wham
 import "https://raw.githubusercontent.com/broadinstitute/gatk-sv/refs/tags/v1.1/wdl/GatherSampleEvidenceMetrics.wdl" as metrics
 
 # Runs selected tools on BAM/CRAM files
@@ -76,9 +76,6 @@ workflow GatherSampleEvidence {
     Int? read_length
     Float? coverage
     File? metrics_intervals
-    Float? pct_chimeras
-    Float? total_reads
-    Int? pf_reads_improper_pairs
 
     # Scramble inputs
     File mei_bed
@@ -237,9 +234,6 @@ workflow GatherSampleEvidence {
         read_length = read_length,
         coverage = coverage,
         wgs_metrics_intervals = melt_metrics_intervals,
-        pct_chimeras = pct_chimeras,
-        total_reads = total_reads,
-        pf_reads_improper_pairs = pf_reads_improper_pairs,
         runtime_attr_coverage = runtime_attr_melt_coverage,
         coverage_machine_type = select_first([melt_coverage_machine, "e2-standard-2"]),
         runtime_attr_metrics = runtime_attr_melt_metrics,
