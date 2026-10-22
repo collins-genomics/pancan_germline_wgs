@@ -32,10 +32,6 @@ workflow MELT {
     Int? read_length
     Float? coverage
 
-    Float? pct_chimeras
-    Float? total_reads
-    Int? pf_reads_improper_pairs
-
     String samtools_cloud_docker
     String gatk_docker
     String genomes_in_the_cloud_docker
@@ -60,9 +56,6 @@ workflow MELT {
       coverage: "[optional] Value of MEAN_COVERAGE obtained from CollectWgsMetrics, needed to run MELT. If omitted, a task will be created to calculate it."
       read_length: "[optional] Value of MEAN_READ_LENGTH obtained from CollectAlignmentSummaryMetrics, needed to run MELT. If omitted, a task will be created to calculate it."
       insert_size: "[optional] Value of MEAN_INSERT_SIZE obtained from CollectInsertSizeMetrics, needed to run MELT. If omitted, a task will be created to calculate it."
-
-      pf_reads_improper_pairs: "[optional] Value of PF_READS_IMPROPER_PAIRS obtained from CollectAlignmentSummaryMetrics, used for optimal estimate of VM memory and disk needs. If omitted, estimates based on coverage and insert size are used."
-      pct_exc_total: "[optional] Value of PCT_EXC_TOTAL obtained from CollectWgsMetrics, used for optimal estimate of VM memory and disk needs. If omitted, estimates based on coverage and insert size are used."
     }
 
   Boolean is_bam = basename(bam_or_cram_file, ".bam") + ".bam" == basename(bam_or_cram_file)
@@ -70,7 +63,6 @@ workflow MELT {
   File reference_index_file = select_first([reference_index, reference_fasta + ".fai"])
 
   Boolean have_multiple_metrics = defined(insert_size) && defined(read_length)
-     && defined(pct_chimeras) && defined(total_reads) && defined(pf_reads_improper_pairs)
   if (!have_multiple_metrics) {
     call GetMultipleMetrics {
       input:
@@ -100,9 +92,6 @@ workflow MELT {
 
     Float calculated_insert_size = multiple_metrics_map["MEAN_INSERT_SIZE"]
     Int calculated_read_length = round(multiple_metrics_map["MEAN_READ_LENGTH"])
-    Float calculated_pct_chimeras = multiple_metrics_map["PCT_CHIMERAS"]
-    Float calculated_total_reads = multiple_metrics_map["TOTAL_READS"]
-    Int calculated_pf_reads_improper_pairs = multiple_metrics_map["PF_READS_IMPROPER_PAIRS"]
   }
 
   Boolean have_wgs_metrics = defined(coverage)
@@ -132,9 +121,6 @@ workflow MELT {
   Float melt_coverage = select_first([coverage, calculated_coverage])
   Int melt_read_length = select_first([read_length, calculated_read_length])
   Float melt_insert_size = select_first([insert_size, calculated_insert_size])
-  Float melt_pct_chimeras = select_first([pct_chimeras, calculated_pct_chimeras])
-  Float melt_total_reads = select_first([total_reads, calculated_total_reads])
-  Int melt_pf_reads_improper_pairs = select_first([pf_reads_improper_pairs, calculated_pf_reads_improper_pairs])
 
   call RunMELT {
     input:
@@ -150,9 +136,6 @@ workflow MELT {
       coverage = melt_coverage,
       read_length = melt_read_length,
       insert_size = melt_insert_size,
-      pct_chimeras = melt_pct_chimeras,
-      total_reads = melt_total_reads,
-      pf_reads_improper_pairs = melt_pf_reads_improper_pairs,
       melt_docker = melt_docker,
       runtime_attr_override = runtime_attr_melt,
       machine_type = melt_machine_type
@@ -182,7 +165,6 @@ task GetMultipleMetrics {
   String metrics_base = "multiple_metrics"
   String alignment_summary_filename = metrics_base + ".alignment_summary_metrics"
   String insert_size_filename = metrics_base + ".insert_size_metrics"
-  String gc_bias_filename = metrics_base + ".gc_bias.summary_metrics"
   String metrics_table_filename=metrics_base + "_table.tsv"
 
   Float bam_or_cram_size = size(bam_or_cram_file, "GiB")
@@ -230,9 +212,6 @@ task GetMultipleMetrics {
       --PROGRAM null \
       --PROGRAM CollectAlignmentSummaryMetrics \
       --PROGRAM CollectInsertSizeMetrics \
-      --PROGRAM CollectSequencingArtifactMetrics \
-      --PROGRAM CollectGcBiasMetrics \
-      --PROGRAM QualityScoreDistribution \
       --METRIC_ACCUMULATION_LEVEL null \
       --METRIC_ACCUMULATION_LEVEL SAMPLE
 
@@ -284,20 +263,9 @@ task GetMultipleMetrics {
       | transpose_table \
       | grep -Ev "^LIBRARY\s|^SAMPLE\s|^READ_GROUP\s" \
       >> "~{metrics_table_filename}"
-
-    # get gc bias summary metrics from sample,
-    # and transpose to format compatible with cromwell read_map
-    # to get table with properties:
-    #   WINDOW_SIZE, TOTAL_CLUSTERS, ALIGNED_READS, AT_DROPOUT, GC_DROPOUT, GC_NC_0_19, GC_NC_20_39,
-    #   GC_NC_40_59, GC_NC_60_79, GC_NC_80_100
-    grep -A1 "^ACCUMULATION_LEVEL" "~{gc_bias_filename}" \
-      | transpose_table \
-      | grep -Ev "^ACCUMULATION_LEVEL\s|^READS_USED\s|^LIBRARY\s|^SAMPLE\s|^READ_GROUP\s" \
-      >> "~{metrics_table_filename}"
   >>>
 
   output {
-    Array[File] metrics_files = glob("~{metrics_base}.*")
     File metrics_table_file = metrics_table_filename
   }
 }
@@ -413,11 +381,6 @@ task RunMELT {
     Int read_length
     Float insert_size
 
-    # needed for VM sizing
-    Float pct_chimeras
-    Float total_reads
-    Int pf_reads_improper_pairs
-
     # needed for filtering out high coverage intervals
     Int interval_padding = 100
     Int threshold = 1000
@@ -436,60 +399,15 @@ task RunMELT {
     }
   }
 
-
-  # Estimate the chances of successfully running preemptively. Data collected by spec-ops suggests a failure rate of
-  # roughly 0.1% per hour, with some wiggles and a rapid increase at around 500 minutes.
-  # Running with preemptible = 1 is better than non-preemptively when the failure rate + the preemptible cost fraction
-  # is less than 100%, (the cost fraction is 20%, so this means failure rate < 80%). If preemption events were
-  # independent, optimal strategy would be to use preemptible = inf below this cutoff, however we suspect they are not
-  # independent, so we use preemptible = 1 immediately above the cutoff, and set it to 3 well below the cutoff.
-  # The estimated runtime is a binlinear regression based on the sv benchmark set + prenatal samples.
-  Float breakeven_runtime_hours = 8.0
-  Float risk_multiple_tries_hours = 6.0
-  Float runtime_hours_per_pct_chimeras = 617.0
-  Float runtime_hours_per_total_reads = "7.178e-9"
-  Float runtime_hours_offset = -5.685
-  Float runtime_hours_estimated =
-    runtime_hours_offset
-    + runtime_hours_per_pct_chimeras * pct_chimeras
-    + runtime_hours_per_total_reads * total_reads
-  Int preemptible_tries =
-    if runtime_hours_estimated > breakeven_runtime_hours then 0
-    else if runtime_hours_estimated > risk_multiple_tries_hours then 1
-    else 3
-
-
-  # Ensure there's sufficient memory. Estimate using extra metrics
-  Float mem_per_pct_chimeras = 50.69
-  Float mem_per_improper_pairs = "1.451e-8"
-  Float mem_offset = 6.833
-  Float mem_size_gb =
-    mem_offset + mem_per_pct_chimeras * pct_chimeras + mem_per_improper_pairs * pf_reads_improper_pairs
   Float java_mem_fraction = 0.85
-  Int java_mem_mb = round(mem_size_gb * java_mem_fraction * 1000)
-
-  # Ensure there's sufficient disk space. Estimate using extra metrics
-  Float disk_per_improper_pairs = "3.901e-7"
-  Float disk_per_bam_size = 0.3088
-  Float disk_per_cram_size = 3.5 * disk_per_bam_size
-  Boolean is_bam = basename(bam_or_cram_file, ".bam") + ".bam" == basename(bam_or_cram_file)
-  Float input_size = size(bam_or_cram_file, "GiB")
-  Float disk_per_input_size = if is_bam then disk_per_bam_size else disk_per_cram_size
-  Float disk__offset = 32.57
-  Float disk_overhead =
-    disk__offset + disk_per_improper_pairs * pf_reads_improper_pairs + disk_per_input_size * input_size
-
-  Float filtered_bam_size = input_size * (if is_bam then 1.0 else 3.5)
-  Float ref_size = size(reference_fasta, "GiB")
-  Int vm_disk_size = ceil(filtered_bam_size + ref_size + disk_overhead)
-
+  Int java_mem_mb = round(8 * java_mem_fraction * 1000)
 
   RuntimeAttr default_attr = object {
     cpu_cores: 1,
-    mem_gb: mem_size_gb,
-    disk_gb: vm_disk_size,
+    mem_gb: 8,
+    disk_gb: 300,
     boot_disk_gb: 10,
-    preemptible_tries: preemptible_tries,
+    preemptible_tries: 3,
     max_retries: 1,
   }
   RuntimeAttr runtime_attr = select_first([runtime_attr_override, default_attr])
@@ -517,7 +435,7 @@ task RunMELT {
       awk 'BEGIN{FS=OFS="\t"}{gsub(/[BDHVRYKMSW]/,"N",$10);print}' | \
       samtools view -b1 - > ~{sample_id}.bam
 
-    samtools index ~{sample_id}.bam
+    samtools index -@ "$(nproc)" ~{sample_id}.bam || samtools index ~{sample_id}.bam
 
     # these locations should be stable
     MELT_DIR="/MELT"
