@@ -259,7 +259,10 @@ workflow CollectVcfQcMetrics {
   }
 
   # Declare or create dummy files for default fills later  
-  call QcTasks.MakeDummyFile as MakeEmptyFile {}
+  call QcTasks.MakeDummyFile as MakeEmptyFile {
+    input:
+      docker = linux_docker
+  }
   call QcTasks.MakeEmptyBenchBed {
     input:
       docker = bcftools_docker
