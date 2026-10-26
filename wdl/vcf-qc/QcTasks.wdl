@@ -663,7 +663,9 @@ task GetSamplesFromVcfHeader {
 
 # Make an empty text file as a placeholder
 task MakeDummyFile {
-  input {}
+  input {
+    String docker = "ubuntu:plucky-20251001"
+  }
 
   command <<<
     touch "dummy.txt"
@@ -674,7 +676,7 @@ task MakeDummyFile {
   }
 
   runtime {
-    docker: "ubuntu:plucky-20251001"
+    docker: docker
     memory: "1.75 GB"
     cpu: 1
     disks: "local-disk 15 HDD"
@@ -715,7 +717,9 @@ task MakeEmptyBenchBed {
 
 
 task MakeHeaderFiller {
-  input {}
+  input {
+    String docker = "ubuntu:plucky-20251001"
+  }
 
   command <<<
     set -eu -o pipefail
@@ -739,7 +743,7 @@ task MakeHeaderFiller {
   }
 
   runtime {
-    docker: "ubuntu:plucky-20251001"
+    docker: docker
     memory: "1.75 GB"
     cpu: 1
     disks: "local-disk 20 HDD"

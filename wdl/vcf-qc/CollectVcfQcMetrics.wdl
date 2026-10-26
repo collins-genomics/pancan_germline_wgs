@@ -160,7 +160,10 @@ workflow CollectVcfQcMetrics {
   ### VCF PREPROCESSING
   #####################
 
-  call QcTasks.MakeHeaderFiller {}
+  call QcTasks.MakeHeaderFiller {
+    input:
+      docker = linux_docker
+  }
 
   # Read scatter intervals, if optioned
   if ( defined(scatter_intervals_list) ) {
