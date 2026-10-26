@@ -7,8 +7,8 @@
 # variant calling (e.g., starting with quality control/filtering and proceeding
 # through final formal analyses)
 
-# Base image: conda-forge's miniconda build with mamba pre-installed (for building python environment prior to conda-pack)
-FROM condaforge/mambaforge:24.9.2-0
+# Base image: conda-forge's miniforge build with mamba pre-installed (for building python environment prior to conda-pack)
+FROM condaforge/miniforge3:26.9.4-0
 MAINTAINER "Ryan Collins <Ryan_Collins@dfci.harvard.edu>"
 
 # Install git & curl
@@ -30,7 +30,9 @@ RUN git clone \
 # Create default python environment (environment must be present in build context)
 ENV CONDA_SUBDIR=linux-64
 RUN conda config --env --set subdir linux-64 && \
-    mamba update --all && \
+    mamba clean --all && \
+    conda update -y -n base -c conda-forge conda mamba libmamba libmambapy certifi ca-certificates && \
+    mamba update -y --all && \
     mamba env create --file=/opt/pancan_germline_wgs/refs/config/environment.g2c_analysis.yml
 
 # Manually install packages (only necessary for local debugging/environment rework)

@@ -36,6 +36,11 @@ export CROMWELL_JAR=~/bin/cromwell-92.jar
 . code/refs/dotfiles/aou.rw.bashrc
 . code/refs/general_bash_utils.sh
 
+# Clean & update conda & mamba
+conda update -y -n base -c conda-forge \
+  conda mamba libmamba libmambapy certifi ca-certificates && \
+mamba update -y --all
+
 # Install necessary packages
 . code/refs/install_packages.sh python R
 if [ "$( echo $CONDA_DEFAULT_ENV )" != "g2c" ]; then
