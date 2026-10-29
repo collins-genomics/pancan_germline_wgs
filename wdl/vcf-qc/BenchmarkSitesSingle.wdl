@@ -54,6 +54,7 @@ workflow BenchmarkSitesSingle {
 
     String bcftools_docker
     String g2c_analysis_docker
+    String linux_docker = "ubuntu:plucky-20251001"
   }
 
   String ppv_prefix = eval_prefix + "." + source_prefix + "_vs_" + target_prefix
@@ -417,12 +418,14 @@ workflow BenchmarkSitesSingle {
     call MakeVidMap as MakePpvVidMap {
       input:
         benchmark_bed = CollapseAllPpvSites.merged_file,
-        out_prefix = ppv_prefix
+        out_prefix = ppv_prefix,
+        linux_docker = linux_docker
     }
     call MakeVidMap as MakeSensVidMap {
       input:
         benchmark_bed = CollapseAllSensSites.merged_file,
-        out_prefix = sens_prefix
+        out_prefix = sens_prefix,
+        linux_docker = linux_docker
     }
   }
 
@@ -522,7 +525,7 @@ task MakeVidMap {
     Boolean invert = false
 
     Float mem_gb = 3.5
-    String linux_docker = "ubuntu:plucky-20251001"
+    String linux_docker
   }
 
   Int disk_gb = ceil(2 * size(benchmark_bed, "GB")) + 10

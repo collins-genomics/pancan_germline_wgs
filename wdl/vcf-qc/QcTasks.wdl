@@ -159,7 +159,7 @@ task CheckBedSize {
   input {
     File bed
     String concat_command = "zcat"
-    String linux_docker = "ubuntu:plucky-20251001"
+    String linux_docker
   }
 
   Int disk_gb = ceil(2 * size(bed, "GB")) + 5
@@ -598,7 +598,7 @@ task FilterTextFileByColumn {
 task GetBedFeatureNames {
   input {
     File bed
-    String linux_docker = "ubuntu:plucky-20251001"
+    String linux_docker
   }
 
   Int disk_gb = ceil(1.5 * size(bed, "GB")) + 5
@@ -664,7 +664,7 @@ task GetSamplesFromVcfHeader {
 # Make an empty text file as a placeholder
 task MakeDummyFile {
   input {
-    String docker = "ubuntu:plucky-20251001"
+    String linux_docker
   }
 
   command <<<
@@ -676,7 +676,7 @@ task MakeDummyFile {
   }
 
   runtime {
-    docker: docker
+    docker: linux_docker
     memory: "1.75 GB"
     cpu: 1
     disks: "local-disk 15 HDD"
@@ -718,7 +718,7 @@ task MakeEmptyBenchBed {
 
 task MakeHeaderFiller {
   input {
-    String docker = "ubuntu:plucky-20251001"
+    String linux_docker
   }
 
   command <<<
@@ -743,7 +743,7 @@ task MakeHeaderFiller {
   }
 
   runtime {
-    docker: docker
+    docker: linux_docker
     memory: "1.75 GB"
     cpu: 1
     disks: "local-disk 20 HDD"

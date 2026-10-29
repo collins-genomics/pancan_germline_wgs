@@ -95,6 +95,7 @@ workflow PlotVcfQcMetrics {
 
     String bcftools_docker
     String g2c_analysis_docker
+    String linux_docker = "ubuntu:plucky-20251001"
   }
 
   Int n_bench_intervals = length(select_first([benchmark_interval_names]))
@@ -232,7 +233,8 @@ workflow PlotVcfQcMetrics {
     # Check if common SNVs need to be downsampled before pointwise plotting
     call QcTasks.CheckBedSize as CountCommonSnvs {
       input:
-        bed = common_snvs_bed
+        bed = common_snvs_bed,
+        linux_docker = linux_docker
     }
     Int n_common_snvs = CountCommonSnvs.num_records
     if (n_common_snvs > pointwise_site_downsample_limit) {
@@ -249,7 +251,8 @@ workflow PlotVcfQcMetrics {
     if (!common_snvs_were_downsampled) {
       call QcTasks.GetBedFeatureNames as GetCommonSnvVids {
         input:
-          bed = pw_common_snvs_bed
+          bed = pw_common_snvs_bed,
+          linux_docker = linux_docker
       }
     }
     File pw_common_snv_vids = select_first([DownsampleCommonSnvs.downsampled_record_ids,
@@ -275,7 +278,8 @@ workflow PlotVcfQcMetrics {
     # Check if common indels need to be downsampled before pointwise plotting
     call QcTasks.CheckBedSize as CountCommonIndels {
       input:
-        bed = common_indels_bed
+        bed = common_indels_bed,
+        linux_docker = linux_docker
     }
     Int n_common_indels = CountCommonIndels.num_records
     if (n_common_indels > pointwise_site_downsample_limit) {
@@ -292,7 +296,8 @@ workflow PlotVcfQcMetrics {
     if (!common_indels_were_downsampled) {
       call QcTasks.GetBedFeatureNames as GetCommonIndelVids {
         input:
-          bed = pw_common_indels_bed
+          bed = pw_common_indels_bed,
+          linux_docker = linux_docker
       }
     }
     File pw_common_indel_vids = select_first([DownsampleCommonIndels.downsampled_record_ids,
@@ -318,7 +323,8 @@ workflow PlotVcfQcMetrics {
     # Check if common SVs need to be downsampled before pointwise plotting
     call QcTasks.CheckBedSize as CountCommonSvs {
       input:
-        bed = common_svs_bed
+        bed = common_svs_bed,
+        linux_docker = linux_docker
     }
     Int n_common_svs = CountCommonSvs.num_records
     if (n_common_svs > pointwise_site_downsample_limit) {
@@ -335,7 +341,8 @@ workflow PlotVcfQcMetrics {
     if (!common_svs_were_downsampled) {
       call QcTasks.GetBedFeatureNames as GetCommonSvVids {
         input:
-          bed = pw_common_svs_bed
+          bed = pw_common_svs_bed,
+          linux_docker = linux_docker
       }
     }
     File pw_common_sv_vids = select_first([DownsampleCommonSvs.downsampled_record_ids,

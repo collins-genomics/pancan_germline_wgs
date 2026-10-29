@@ -27,6 +27,7 @@ workflow BenchmarkTwins {
 
     String bcftools_docker
     String g2c_analysis_docker
+    String linux_docker = "ubuntu:plucky-20251001"
   }
 
   # Index sites BED
@@ -60,7 +61,8 @@ workflow BenchmarkTwins {
     call MakeVidMap {
       input:
         sites_bed = SliceSites.query_bed,
-        prefix = output_prefix
+        prefix = output_prefix,
+        linux_docker = linux_docker
     }
 
     # Benchmark sample 1 vs. sample 2
@@ -113,7 +115,7 @@ task MakeVidMap {
   input {
     File sites_bed
     String prefix
-    String linux_docker = "ubuntu:plucky-20251001"
+    String linux_docker
   }
 
   String vid_map_fname = "~{prefix}.vid_map.tsv.gz"

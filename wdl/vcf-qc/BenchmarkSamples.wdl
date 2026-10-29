@@ -43,6 +43,7 @@ workflow BenchmarkSamples {
 
     String bcftools_docker
     String g2c_analysis_docker
+    String linux_docker = "ubuntu:plucky-20251001"
   }
 
   Int n_targets = length(target_vcfs)
@@ -123,7 +124,8 @@ workflow BenchmarkSamples {
   call GetSampleIdsFromGtTarball {
     input:
       gt_tarball = source_gt_tarball,
-      outfile_name = "source_sample_ids.list"
+      outfile_name = "source_sample_ids.list",
+      linux_docker = linux_docker
   }
 
   # Benchmark each target VCF in parallel
@@ -150,7 +152,8 @@ workflow BenchmarkSamples {
         snv_mem_scalar = snv_mem_scalar,
         indel_mem_scalar = indel_mem_scalar,
         bcftools_docker = bcftools_docker,
-        g2c_analysis_docker = g2c_analysis_docker
+        g2c_analysis_docker = g2c_analysis_docker,
+        linux_docker = linux_docker
     }
   }
 
@@ -202,7 +205,7 @@ task GetSampleIdsFromGtTarball {
   input {
     File gt_tarball
     String outfile_name = "ids_in_tarball.list"
-    String linux_docker = "ubuntu:plucky-20251001"
+    String linux_docker
   }
 
   Int disk_gb = ceil(4 * size(gt_tarball, "GB")) + 10

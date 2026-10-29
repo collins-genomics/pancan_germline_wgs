@@ -162,7 +162,7 @@ workflow CollectVcfQcMetrics {
 
   call QcTasks.MakeHeaderFiller {
     input:
-      docker = linux_docker
+      linux_docker = linux_docker
   }
 
   # Read scatter intervals, if optioned
@@ -261,7 +261,7 @@ workflow CollectVcfQcMetrics {
   # Declare or create dummy files for default fills later  
   call QcTasks.MakeDummyFile as MakeEmptyFile {
     input:
-      docker = linux_docker
+      linux_docker = linux_docker
   }
   call QcTasks.MakeEmptyBenchBed {
     input:
@@ -665,7 +665,8 @@ workflow CollectVcfQcMetrics {
           min_samples_per_shard = min_samples_per_bench_shard,
           common_af_cutoff = common_af_cutoff,
           bcftools_docker = bcftools_docker,
-          g2c_analysis_docker = g2c_analysis_docker
+          g2c_analysis_docker = g2c_analysis_docker,
+          linux_docker = linux_docker
       }
     }
   }
@@ -683,7 +684,8 @@ workflow CollectVcfQcMetrics {
         genome_file = select_first([genome_file]),
         common_af_cutoff = common_af_cutoff,
         bcftools_docker = bcftools_docker,
-        g2c_analysis_docker = g2c_analysis_docker
+        g2c_analysis_docker = g2c_analysis_docker,
+        linux_docker = linux_docker
     }
   }
 

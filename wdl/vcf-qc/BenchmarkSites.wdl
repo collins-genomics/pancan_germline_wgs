@@ -48,6 +48,7 @@ workflow BenchmarkSites {
 
     String bcftools_docker
     String g2c_analysis_docker
+    String linux_docker = "ubuntu:plucky-20251001"
   }
 
 
@@ -147,7 +148,8 @@ workflow BenchmarkSites {
         indel_mem_scalar = indel_mem_scalar,
         shard_intervals_mem_gb = shard_intervals_mem_gb,
         bcftools_docker = bcftools_docker,
-        g2c_analysis_docker = g2c_analysis_docker
+        g2c_analysis_docker = g2c_analysis_docker,
+        linux_docker = linux_docker
     }
   }
 

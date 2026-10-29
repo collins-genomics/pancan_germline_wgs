@@ -46,12 +46,16 @@ workflow BenchmarkSamplesSingle {
 
     String bcftools_docker
     String g2c_analysis_docker
+    String linux_docker = "ubuntu:plucky-20251001"
   }
 
   Int n_eval_intervals = length(eval_interval_beds)
 
   # Subset target VCF to overlapping samples
-  call QcTasks.MakeHeaderFiller {}
+  call QcTasks.MakeHeaderFiller {
+    input:
+      linux_docker = linux_docker
+  }
   call SubsetTargetVcf {
     input:
       vcf = target_vcf,
@@ -96,7 +100,8 @@ workflow BenchmarkSamplesSingle {
         snv_mem_scalar = snv_mem_scalar,
         indel_mem_scalar = indel_mem_scalar,
         bcftools_docker = bcftools_docker,
-        g2c_analysis_docker = g2c_analysis_docker
+        g2c_analysis_docker = g2c_analysis_docker,
+        linux_docker = linux_docker
     }
 
     # Collect sample genotypes for subsetted target VCF
