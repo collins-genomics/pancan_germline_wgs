@@ -14,19 +14,23 @@ workflow DeleteGcpObjects {
     File uri_list
     Int n_cpu = 4
     Int uris_per_shard = 1000000
+    String linux_docker = "ubuntu:latest"
+    String sdk_docker = "google/cloud-sdk:latest"
   }
 
   call ShuffleAndShard {
     input:
       uri_list = uri_list,
-      uris_per_shard = uris_per_shard
+      uris_per_shard = uris_per_shard,
+      linux_docker = linux_docker
   }
 
   scatter ( shard in ShuffleAndShard.uri_list_shards ) {
     call DeleteObjects {
       input:
         uri_list = shard,
-        n_cpu = n_cpu
+        n_cpu = n_cpu,
+        sdk_docker = sdk_docker
     }
   }
 }
@@ -36,6 +40,7 @@ task ShuffleAndShard {
   input {
     File uri_list
     Int uris_per_shard
+    String linux_docker
   }
 
   Int input_gb = ceil(size(uri_list, "GB"))
@@ -55,7 +60,7 @@ task ShuffleAndShard {
   }
 
   runtime {
-    docker: "ubuntu:latest"
+    docker: linux_docker
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"
@@ -68,6 +73,7 @@ task DeleteObjects {
   input {
     File uri_list
     Int n_cpu
+    String sdk_docker
   }
 
   Int n_threads = 2 * n_cpu
@@ -84,7 +90,7 @@ task DeleteObjects {
   >>>
 
   runtime {
-    docker: "google/cloud-sdk:latest"
+    docker: sdk_docker
     memory: mem_gb + " GB"
     cpu: n_cpu
     disks: "local-disk " + disk_gb + " HDD"

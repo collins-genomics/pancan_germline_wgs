@@ -121,12 +121,14 @@ cleanup_garbage() {
     rm ~/uris_to_delete.list
     cat << EOF | sed -e 's/\ //g' | paste -s -d\ > ~/cromshell/inputs/empty_dumpster.$dt_fmt.inputs.json
 {
-  "DeleteGcpObjects.uri_list" : "$garbage_uri",
+  "DeleteGcpObjects.linux_docker": "us-central1-docker.pkg.dev/all-of-us-rw-prod/aou-rw-gar-remote-repo-docker-prod/ubuntu:latest",
   "DeleteGcpObjects.n_cpu" : 2,
-  "DeleteGcpObjects.uris_per_shard" : 100000
+  "DeleteGcpObjects.sdk_docker": "us-central1-docker.pkg.dev/all-of-us-rw-prod/aou-rw-gar-remote-repo-docker-prod/google/cloud-sdk:latest",
+  "DeleteGcpObjects.uris_per_shard" : 100000,
+  "DeleteGcpObjects.uri_list" : "$garbage_uri"
 }
 EOF
-    cromshell --no_turtle -t 120 -mc submit --no-validation \
+    cromshell --no_turtle -t 120 -mc submit --no-validation --do-not-flatten-wdls \
       --options-json ~/code/refs/json/aou.cromwell_options.default.json \
       ~/code/wdl/pancan_germline_wgs/DeleteGcpObjects.wdl \
       ~/cromshell/inputs/empty_dumpster.$dt_fmt.inputs.json \
