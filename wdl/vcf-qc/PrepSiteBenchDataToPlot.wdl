@@ -198,7 +198,8 @@ workflow PrepSiteBenchDataToPlot {
       sv_ppv_union_uri = sb_common_sv_flat_union,
       ppv_by_af_uris = SumSiteBenchPpvByAf.merged_distrib,
       sens_by_af_uris = SumSiteBenchSensByAf.merged_distrib,
-      out_json = dataset_prefix + ".site_benchmarking_plot_inputs.json"
+      out_json = dataset_prefix + ".site_benchmarking_plot_inputs.json",
+      python_docker = g2c_analysis_docker
   }
 
   output {
@@ -233,6 +234,7 @@ task MakeOutputMenu {
     Array[String?] sens_by_af_uris
 
     String out_json
+    String python_docker = "python:3.9-slim"
   }
 
   File snv_ppv_json = write_json(select_first([snv_ppv_bed_uris, []]))
@@ -275,7 +277,7 @@ EOF
   }
 
   runtime {
-    docker: "python:3.9-slim"
+    docker: python_docker
     memory: "1.7 GB"
     cpu: 1
     disks: "local-disk 20 HDD"
